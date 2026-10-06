@@ -1,0 +1,19 @@
+# Reparto de flash del modulo Guition JC8048W550C: 16 MB.
+#
+# Dos huecos de firmware (ota_0 / ota_1) para poder actualizar por Wi-Fi, igual
+# que en la P4 y en el satelite 3,5": lo que se sube se escribe en el hueco que
+# NO se esta usando y solo se marca para arrancar si ha llegado entero.
+#
+# nvs mas grande que en el 3,5" (0x10000 = 64 KB): aqui guarda los ajustes de
+# brillo, la red y la cola de apuntes del viaje (no hay SD en uso).
+#
+# OJO CON LA FLASH: este modulo se vende en dos variantes (16 MB y 8 MB). Si el
+# arranque se queja de que las particiones no caben, mirar la serigrafia del
+# modulo (N16R8 = 16 MB / 8 MB PSRAM octal).
+#
+# Name,     Type, SubType,  Offset,    Size,      Flags
+nvs,        data, nvs,      0x9000,    0x10000,
+otadata,    data, ota,      0x19000,   0x2000,
+ota_0,      app,  ota_0,    0x20000,   0x3F0000,
+ota_1,      app,  ota_1,    0x410000,  0x3F0000,
+coredump,   data, coredump, 0x800000,  0x10000,

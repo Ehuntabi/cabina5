@@ -1,0 +1,20 @@
+## Dependencias (se bajan solas en el primer build a managed_components/).
+##
+## VERSIONES ELEGIDAS A PROPOSITO: LVGL 8.4 + esp_lvgl_port 1.x, que es la
+## combinacion del satelite 3,5" (probada y estable). La P4 va con LVGL 9 y
+## esp_lvgl_port 2.x, pero aqui eso obligaria a migrar TODA la UI del satelite
+## (8.000 lineas) de la API 8 a la 9 ademas de rehacerla para 800x480. Con la
+## placa todavia sin estrenar no se suman dos riesgos: primero el hardware, y si
+## algun dia merece la pena subir a LVGL 9, se sube con la pantalla ya probada.
+dependencies:
+  idf:
+    version: ">=5.4"
+  lvgl/lvgl:
+    version: "~8.4.0"
+  espressif/esp_lvgl_port:
+    version: "~1.4.0"
+  # Tactil de esta placa (GT911 por I2C).
+  espressif/esp_lcd_touch_gt911:
+    version: "~1.0.4"
+  espressif/esp_lcd_touch:
+    version: "~1.1.2"
