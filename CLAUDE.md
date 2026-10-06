@@ -1,8 +1,10 @@
 # cabina5 — notas de trabajo (para el siguiente que abra esto, incluido yo)
 
-Proyecto hermano de `~/joint/35cabina` (satélite 3,5") para la placa de **5"
-Guition JC8048W550C** (ESP32-S3, 800×480 RGB, GT911). El README cuenta el qué;
-aquí va el cómo y las trampas.
+Firmware de la pantalla de **5" Guition JC8048W550C** (ESP32-S3, 800×480 RGB,
+táctil GT911) para la autocaravana, dentro del proyecto de la P4 del salón.
+**Es una adaptación a esta pantalla**, no una copia de otra interfaz: qué se
+enseña en ella se decide sobre esta pantalla. El README cuenta el qué; aquí va el
+cómo y las trampas.
 
 ## Compilar (¡ojo con el target y con el PATH!)
 
@@ -34,25 +36,23 @@ pantalla). Sin placa todavía: compilado, no probado.
 
 ## Versiones de componentes fijadas
 
-`main/idf_component.yml` clava **LVGL ~8.4.0 + esp_lvgl_port ~1.4.0** (la
-combinación del satélite 3,5", probada) y **esp_lcd_touch_gt911 ~1.0.4**. Dos
-trampas que costaron un build cada una:
+`main/idf_component.yml` clava **LVGL ~8.4.0 + esp_lvgl_port ~1.4.0** y
+**esp_lcd_touch_gt911 ~1.0.4**. Dos trampas que costaron un build cada una:
 
 - `esp_lcd_touch_gt911` **1.0.4 no tiene `esp_lcd_touch_io_gt911_config_t`** (el
   campo `driver_data` es de la 2.x): la config va sin él. La dirección del GT911
   de esta familia ya viene en el macro del componente (`0x5D`).
 - `esp_lvgl_port` **no tiene versiones 1.5.x** (salta de 1.4.0 a 2.0.0), así que
-  pedir `~1.5.0` rompe la resolución de dependencias. Ojo: la P4 va con la 2.x y
-  LVGL 9; aquí se usa la 1.x a propósito (ver el comentario del `.yml`).
+  pedir `~1.5.0` rompe la resolución de dependencias.
 
 ## Red de seguridad del bring-up
 
-`main/main.c` NO es la app: es una pantalla de prueba a propósito. Enseña barra
-de colores, rejilla de 100 px, coordenadas del táctil, IP y contador de paquetes
-UDP de la P4. El orden de comprobación (y qué significa cada fallo) está en el
-README. La razón de tenerla: los pines de `display.h` son de la **placa hermana**
-(8048S050C), no de la nuestra, así que el primer arranque es una prueba, no una
-instalación.
+`main/main.c` NO es la aplicación: es una pantalla de prueba a propósito. Enseña
+barra de colores, rejilla de 100 px, coordenadas del táctil, IP y contador de
+paquetes UDP de la P4. El orden de comprobación (y qué significa cada fallo) está
+en el README. La razón de tenerla: los pines de `display.h` son de una **placa
+hermana** (la 8048S050C, misma familia y misma pantalla), no de la nuestra, así
+que el primer arranque es una prueba, no una instalación.
 
 ## Trampas que ya conocemos de esta familia de placas
 
@@ -65,18 +65,18 @@ instalación.
   buffers de dibujo de LVGL van en **RAM interna** y cualquier copia gorda desde
   PSRAM se nota en pantalla.
 - Estos módulos se venden con 16 MB/8 MB (N16R8) y con menos memoria. Si el
-  panel no arranca o el arranque se queja de particiones, mirar la serifgrafí­a
+  panel no arranca o el arranque se queja de particiones, mirar la serigrafía
   del módulo antes de tocar nada.
 - Después de una OTA, el arranque cambia de partición (`ota_0` ↔ `ota_1`): un
-  `write_flash` a 0x10000 puede quedarse sin arrancar. Es la misma trampa que
-  está documentada en la P4 (`~/joint/victron/CLAUDE.md`).
+  `write_flash` a 0x10000 puede quedarse sin arrancar (la placa sigue con el
+  firmware viejo y parece que el cambio "no se ve"). Se graban las dos, o se
+  graba `ota_data_initial.bin` en 0xd000.
 
 ## Cuando el hardware esté probado
 
-1. Copiar de `~/joint/35cabina`: `main/net/`, `data_model.*`, `reloj.*`,
-   `salida.*`, `tilt.*`, `capture_carousel.*` y `components/config_storage`.
-   `mini_proto.h` se copia **tal cual** (no se mantienen dos versiones).
-2. Rehacer la UI a 800×480 con fuentes por papel (`ui_style.h`), según la tabla
-   del README. La UI del 3,5" es vertical y con medidas a mano: no se estira, se
-   rediseña.
-3. `release.sh` propio, como en los otros dos proyectos.
+1. **Decidir qué se enseña** en esta pantalla (es lo que manda el orden del
+   trabajo): la aplicación se monta encima de este BSP, con red UDP contra la P4,
+   modelo de datos y las vistas que pida la cabina.
+2. La UI, a 800×480 y con las fuentes por papel (16/20/24/28/32/40/48), en un
+   fichero de estilo; nada de medidas sueltas por las vistas.
+3. `release.sh 0.1 "..."` para publicar la primera versión con su binario.

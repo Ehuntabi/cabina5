@@ -5,7 +5,7 @@
 # Uso:  ./release.sh X.Y  ["mensaje del tag"]
 #   ej: ./release.sh 0.1 "Primer arranque en la placa: pantalla, táctil y UDP"
 #
-# Qué hace (mismo guion que ~/joint/35cabina/release.sh, adaptado a esta placa):
+# Qué hace:
 #   1. Exige el árbol limpio (lo que se publica tiene que ser lo que hay).
 #   2. Crea el tag vX.Y, o reutiliza el que ya esté EN ESTE MISMO commit.
 #   3. Compila con reconfigure (la versión se calcula al CONFIGURAR, no al

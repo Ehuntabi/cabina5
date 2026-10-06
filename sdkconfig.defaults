@@ -18,8 +18,8 @@ CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 
 # ── Rendimiento (panel RGB + PSRAM compartida) ──────────────────────────────
-# Con el panel leyendo de PSRAM, la cache y el compilador importan: en el 3,5"
-# (QSPI) daba igual, aqui no.
+# Con el panel RGB leyendo de PSRAM sin parar, la cache y el compilador
+# importan aqui mas que en otros paneles.
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_FREERTOS_HZ=1000
@@ -27,15 +27,15 @@ CONFIG_ESP32S3_DATA_CACHE_64KB=y
 CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
 CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
 
-# ── LVGL 8.4 (el mismo que el satelite 3,5" y que la P4: no mezclar versiones) ─
+# ── LVGL 8.4 (version fijada a proposito: ver main/idf_component.yml) ─────────
 CONFIG_LV_COLOR_DEPTH_16=y
 CONFIG_LV_COLOR_16_SWAP=y
 CONFIG_LV_MEM_CUSTOM=y
 CONFIG_LV_MEM_CUSTOM_INCLUDE="stdlib.h"
 CONFIG_LV_DISP_DEF_REFR_PERIOD=30
-# FUENTES: en la placa de 5" (181 ppp frente a 233 del 3,5") las de 14/16 px se
-# ven pequenas, asi que el juego sube un escalon. Los tamanos que se usan de
-# verdad se declaran aqui; si falta uno, el enlazador avisa con "undeclared".
+# FUENTES: esta pantalla tiene 181 ppp (5" a 800x480), asi que las de 14/16 px
+# se ven pequenas: el juego va un escalon por encima de lo habitual. Los tamanos
+# que se usan de verdad se declaran aqui; si falta uno, salta "undeclared".
 CONFIG_LV_FONT_MONTSERRAT_16=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
 CONFIG_LV_FONT_MONTSERRAT_24=y

@@ -14,8 +14,8 @@
  *      satelite vive de esos paquetes, asi que si aqui sube el contador, la
  *      parte de red ya esta probada en la placa nueva.
  *
- * Cuando esto funcione, se copia la logica del 35cabina (net/, data_model,
- * reloj, salida...) y se rehace la UI a 800x480. Ver CLAUDE.md.
+ * Cuando esto funcione, se monta encima la aplicacion (red UDP con la P4,
+ * modelo de datos y UI a 800x480). Ver CLAUDE.md.
  */
 #include <stdio.h>
 #include <string.h>

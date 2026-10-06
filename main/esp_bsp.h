@@ -1,9 +1,9 @@
-/* Interfaz del BSP de cabina5 (placa Guition JC8048W550C).
+/* Interfaz del BSP de cabina5 (placa Guition JC8048W550C, 5" 800x480).
  *
- * Se mantiene A PROPOSITO igual que la del satelite 3,5" (main/esp_bsp.h):
- * asi, cuando se copie la app (net/, data_model, reloj, salida, UI), encuentre
- * las mismas funciones que ya usa y no haya que tocar la logica. Lo que cambia
- * por dentro es todo: aqui el panel es RGB, no QSPI.
+ * Adaptacion a esta pantalla: panel RGB paralelo, tactil GT911 por I2C y
+ * brillo por LEDC. Esta interfaz es la del contrato habitual de
+ * BSP de Espressif (arrancar pantalla, tactil, cerrojo de LVGL y brillo), que
+ * es lo que va a necesitar la aplicacion que se monte encima.
  */
 #pragma once
 

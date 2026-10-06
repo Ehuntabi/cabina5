@@ -1,16 +1,14 @@
-/* Arranque de pantalla, tactil y brillo de la placa JC8048W550C.
+/* Arranque de pantalla, tactil y brillo de la placa JC8048W550C (5", 800x480).
  *
- * DIFERENCIA CLAVE con el satelite de 3,5" (para quien venga de alli):
- * - Alli el panel es QSPI y se le mandan ~200 comandos de inicializacion
- *   (controlador AXS15231B). Aqui NO: el panel es RGB paralelo, el controlador
- *   ST7262 no recibe comandos, y lo que se configura es el TIMING y un
- *   framebuffer en PSRAM del que el panel va leyendo solo. Por eso no hay
- *   "tabla de comandos" en este fichero.
- * - Aqui el panel no para de leer de PSRAM. Cualquier cosa que sature la PSRAM
+ * COMO ES ESTE PANEL:
+ * - El panel es RGB paralelo y el controlador (ST7262) NO recibe comandos: lo
+ *   que se configura es el TIMING y un framebuffer en PSRAM del que el panel va
+ *   leyendo solo. Por eso no hay "tabla de comandos" en este fichero.
+ * - El panel no para de leer de PSRAM. Cualquier cosa que sature la PSRAM
  *   (copias grandes, escrituras gordas) se ve como parpadeo. El framebuffer va
- *   en PSRAM (no cabe en RAM interna) y los buffers de dibujo de LVGL en RAM
- *   INTERNA, que es el reparto que recomienda Espressif para paneles RGB.
- * - El tactil es un GT911 por I2C (en el 3,5" era otro).
+ *   en PSRAM (768 KB: no cabe en RAM interna) y los buffers de dibujo de LVGL en
+ *   RAM INTERNA, que es el reparto que recomienda Espressif para paneles RGB.
+ * - El tactil es un GT911 por I2C, sondeado (su pin de interrupcion va a GND).
  */
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -32,8 +30,8 @@
 
 static const char *TAG = "bsp";
 
-/* El bus I2C es compartido con lo que se cuelgue despues (acelerometro, etc.),
- * igual que en el 3,5". Se crea una sola vez. */
+/* El bus I2C es compartido con lo que se cuelgue despues (acelerometro, etc.).
+ * Se crea una sola vez. */
 static i2c_master_bus_handle_t s_i2c_bus = NULL;
 
 /* Estado del brillo: el PWM se configura en el arranque y el porcentaje se
