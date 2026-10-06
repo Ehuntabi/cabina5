@@ -11,3 +11,6 @@ main/wifi_credentials_local.h
 # Editores
 .vscode/
 *.swp
+
+# Credenciales reales del AP (versionar solo la plantilla .example)
+main/wifi_credentials.h

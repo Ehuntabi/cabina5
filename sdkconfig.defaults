@@ -1,4 +1,4 @@
-# Defaults de cabina55 (ESP32-S3 + panel RGB 800x480 + GT911).
+# Defaults de cabina5 (ESP32-S3 + panel RGB 800x480 + GT911).
 #
 # Esto se aplica SOLO al generar sdkconfig desde cero (primer "idf.py build").
 # A partir de ahi manda sdkconfig, como en los otros proyectos.

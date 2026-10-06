@@ -1,4 +1,4 @@
-/* Interfaz del BSP de cabina55 (placa Guition JC8048W550C).
+/* Interfaz del BSP de cabina5 (placa Guition JC8048W550C).
  *
  * Se mantiene A PROPOSITO igual que la del satelite 3,5" (main/esp_bsp.h):
  * asi, cuando se copie la app (net/, data_model, reloj, salida, UI), encuentre

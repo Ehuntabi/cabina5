@@ -1,0 +1,41 @@
+name: build
+
+# Compila el firmware en cada push y PR. No sustituye probar en la placa: solo
+# pilla lo que no compila. Es importante en este proyecto porque el port se
+# escribe en un PC (el de desarrollo) y se prueba en otro rato/PC: un error de
+# compilación no lo vería nadie hasta enchufar la placa.
+#
+# OJO con wifi_credentials.h: NO está versionado (lleva la clave real del AP de
+# la P4), así que sin el paso que lo crea desde la plantilla el build falla con
+# "wifi_credentials.h: No such file or directory". Se crea solo para compilar:
+# esta acción NO publica binarios (los de las Releases los compila release.sh en
+# local, con la cabecera de verdad).
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # sin los tags, la version embebida sale "v?"
+
+      - name: Crear wifi_credentials.h desde la plantilla (solo para compilar)
+        run: |
+          if [ -f main/wifi_credentials.h ]; then
+            echo "Ya existe main/wifi_credentials.h (no deberia: no esta versionado)"
+          else
+            cp main/wifi_credentials.h.example main/wifi_credentials.h
+            echo "[ok] creado desde la plantilla"
+          fi
+
+      - name: esp-idf build
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32s3
+          path: '.'

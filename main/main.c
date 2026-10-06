@@ -35,7 +35,7 @@
 #include "esp_bsp.h"
 #include "wifi_credentials.h"
 
-static const char *TAG = "cabina55";
+static const char *TAG = "cabina5";
 
 /* ── Contadores que pinta la pantalla ─────────────────────────────────────── */
 static volatile uint32_t s_udp_paquetes = 0;
@@ -135,7 +135,7 @@ static void pantalla_prueba(void)
     lv_obj_t *titulo = lv_label_create(scr);
     lv_obj_set_style_text_font(titulo, &lv_font_montserrat_32, 0);
     lv_obj_set_style_text_color(titulo, lv_color_white(), 0);
-    lv_label_set_text(titulo, "cabina55 - prueba de placa");
+    lv_label_set_text(titulo, "cabina5 - prueba de placa");
     lv_obj_align(titulo, LV_ALIGN_TOP_MID, 0, 16);
 
     /* Barra de colores: 8 franjas. Sirve para ver de un golpe si los canales
@@ -233,7 +233,7 @@ static void refresco_cb(lv_timer_t *t)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "=== cabina55: prueba de placa JC8048W550C (%dx%d) ===", LCD_H_RES, LCD_V_RES);
+    ESP_LOGI(TAG, "=== cabina5: prueba de placa JC8048W550C (%dx%d) ===", LCD_H_RES, LCD_V_RES);
 
     bsp_display_cfg_t cfg = {
         .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),

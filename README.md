@@ -1,4 +1,4 @@
-# cabina55 — el satélite de la P4 en la placa de 5" (Guition JC8048W550C)
+# cabina5 — el satélite de la P4 en la placa de 5" (Guition JC8048W550C)
 
 Proyecto **nuevo**, hermano de `~/joint/35cabina` (satélite actual en la placa de
 3,5" con panel QSPI). Aquí se lleva el satélite a la placa de **5", 800×480**,
@@ -47,7 +47,7 @@ Pendiente: todo lo demás (copiar `net/`, `data_model`, `reloj`, `salida`… del
 
 ```bash
 . ~/.espressif/esp-idf-5.5/export.sh
-cd ~/joint/cabina55
+cd ~/joint/cabina5
 idf.py -p /dev/ttyACM0 flash monitor     # OJO: el puerto puede ser ttyACM1
 ```
 

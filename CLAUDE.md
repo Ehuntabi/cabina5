@@ -1,4 +1,4 @@
-# cabina55 — notas de trabajo (para el siguiente que abra esto, incluido yo)
+# cabina5 — notas de trabajo (para el siguiente que abra esto, incluido yo)
 
 Proyecto hermano de `~/joint/35cabina` (satélite 3,5") para la placa de **5"
 Guition JC8048W550C** (ESP32-S3, 800×480 RGB, GT911). El README cuenta el qué;
@@ -21,14 +21,14 @@ Lo que funciona (comprobado el 6-oct-2026):
 export IDF_TARGET=esp32s3
 . ~/.espressif/esp-idf-5.5/export.sh
 export PATH="$HOME/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/bin:$PATH"
-cd ~/joint/cabina55 && idf.py build
+cd ~/joint/cabina5 && idf.py build
 ```
 
 Si algún día se actualiza el IDF o el toolchain, esa ruta lleva la versión dentro
 (`esp-14.2.0_20260121`): mirar `ls ~/.espressif/tools/xtensa-esp-elf/` antes de
 copiarla.
 
-**Estado del build (6-oct-2026)**: compila entero y deja `cabina55.bin` de 1,1 MB
+**Estado del build (6-oct-2026)**: compila entero y deja `cabina5.bin` de 1,1 MB
 (73 % de la partición libre, de sobra para las fuentes grandes que pide la
 pantalla). Sin placa todavía: compilado, no probado.
 
