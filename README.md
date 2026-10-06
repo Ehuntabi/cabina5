@@ -5,11 +5,13 @@ Firmware para la placa **Guition JC8048W550C**: **ESP32-S3 con pantalla de 5",
 proyecto de la autocaravana: la pantalla P4 del salón y esta pantalla de cabina
 se hablan por UDP.
 
-> **La placa todavía no ha llegado** (pedida el 6-oct-2026). Lo que hay es el
-> bring-up: el día que llegue, se graba, se comprueban pantalla, táctil y red, y
-> a partir de ahí se monta encima la aplicación. **Qué se enseña en ella depende
-> de lo que pida la cabina**: aquí no hay funcionalidades heredadas que respetar,
-> se deciden sobre esta pantalla.
+> **Estado: bring-up, sin verificar en hardware.** Está montado y compila el
+> arranque de la placa (pantalla, táctil, brillo y red), con una pantalla de
+> prueba para comprobarlo. Los pines y el timing salen de la documentación de
+> esta familia de placas y **están sin confirmar en la placa**: el primer
+> arranque es una prueba, no una instalación. La aplicación se monta encima
+> cuando el arranque esté verificado, y **qué se enseña en ella depende de lo
+> que pida la cabina**: aquí no hay funcionalidades heredadas que respetar.
 
 ## La placa
 
@@ -41,7 +43,7 @@ Compila y está listo para el primer arranque:
   rejilla de 100 px, coordenadas del táctil en vivo, IP y contador de paquetes
   UDP de la P4 en el puerto 4242.
 
-## Cómo se prueba (el día que llegue la placa)
+## Cómo se prueba en la placa
 
 ```bash
 . ~/.espressif/esp-idf-5.5/export.sh
