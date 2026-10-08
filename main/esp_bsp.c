@@ -17,9 +17,13 @@
 #include "driver/i2c_master.h"
 #include "driver/ledc.h"
 #include "esp_check.h"
+#include "esp_timer.h"
+#include "esp_heap_caps.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_lcd_panel_ops.h"
+#include "esp_lcd_panel_io.h"
+#include "esp_lcd_panel_io_interface.h"   /* esp_lcd_panel_io_t: el puente de abajo */
 #include "esp_lcd_panel_rgb.h"
 #include "esp_lcd_touch_gt911.h"
 #include "esp_lvgl_port.h"
@@ -125,6 +129,79 @@ esp_err_t bsp_i2c_deinit(void)
     return err;
 }
 
+/* ── Como se dibuja en este panel (leer antes de cambiar nada) ───────────────
+ *
+ * Un panel RGB NO SE "ENVIA": el controlador lee el framebuffer de PSRAM el
+ * solo, en bucle, a 49 Hz. Lo unico que se puede hacer es escribir en el
+ * framebuffer sin pisar el trozo que esta leyendo en ese instante.
+ *
+ * Con UN framebuffer no hay forma de hacerlo: el driver copia el buffer de
+ * LVGL sobre el unico framebuffer que hay, que es justo el que se esta
+ * mostrando -> se ve una banda horizontal desplazandose ("scroll horizontal"),
+ * que es lo que pasaba.
+ *
+ * La forma correcta, y la que usa el driver de IDF para esto, es tener DOS
+ * framebuffers y DEJAR QUE LVGL DIBUJE DENTRO DE ELLOS:
+ *   - El panel lee el framebuffer A mientras LVGL dibuja en el B.
+ *   - Al terminar, el driver engancha el DMA al B y el A queda libre.
+ *   - `esp_lcd_panel_draw_bitmap` detecta que el buffer de LVGL YA ES un
+ *     framebuffer y no copia nada: solo cambia el indice y avisa.
+ * Por eso los buffers de dibujo son de pantalla completa y viven en PSRAM, y
+ * por eso NO se usa lvgl_port_add_disp() (su diseno da por hecho que el driver
+ * copia por debajo, y con un panel RGB eso es exactamente lo que no vale).
+ *
+ * El dibujo directo desde PSRAM es ademas lo recomendado por Espressif para
+ * paneles RGB: la PSRAM ya se esta leyendo para el panel, y la RAM interna se
+ * reserva para lo que de verdad la necesita (WiFi, DMA).
+ */
+static esp_lcd_panel_handle_t s_rgb_panel = NULL;
+static lv_disp_draw_buf_t s_disp_buf;
+static lv_disp_drv_t s_disp_drv;
+
+/* LVGL avisa aqui de que tiene un trozo listo. `draw_bitmap` escribe en el
+ * framebuffer que el panel NO esta leyendo y cambia el DMA a ese; al volver, el
+ * buffer de LVGL ya es el que se ve, asi que se puede reutilizar de inmediato. */
+static uint32_t s_flush_n = 0;          /* refrescos desde el ultimo informe */
+static uint32_t s_flush_t0 = 0;
+static uint32_t s_draw_us = 0;          /* tiempo dentro de draw_bitmap */
+static uint32_t s_sep_us = 0;           /* tiempo entre el fin de un refresco y el siguiente */
+static uint64_t s_px = 0;               /* pixeles refrescados (para ver si es pantalla completa) */
+static int64_t s_ultimo_fin = 0;
+
+static void bsp_lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_p)
+{
+    int64_t t0 = esp_timer_get_time();
+    esp_lcd_panel_draw_bitmap(s_rgb_panel, area->x1, area->y1,
+                              area->x2 + 1, area->y2 + 1, color_p);
+    int64_t t1 = esp_timer_get_time();
+    lv_disp_flush_ready(drv);
+
+    s_draw_us += (uint32_t)(t1 - t0);
+    if (s_ultimo_fin) s_sep_us += (uint32_t)(t0 - s_ultimo_fin);
+    s_ultimo_fin = t1;
+    s_px += (uint32_t)(area->x2 - area->x1 + 1) * (uint32_t)(area->y2 - area->y1 + 1);
+
+    /* DIAGNOSTICO TEMPORAL: refrescos/s, pixeles por cuadro (384000 = pantalla
+     * completa), en que buffer y cuanto se tarda. */
+    s_flush_n++;
+    uint32_t ahora = (uint32_t)(esp_timer_get_time() / 1000);
+    if (s_flush_t0 == 0) s_flush_t0 = ahora;
+    if (ahora - s_flush_t0 >= 2000) {
+        ESP_LOGI(TAG, "refrescos: %u en %u ms (%.1f/s) | %.0f px/s (pantalla completa = %.1f/s) | buf %p | driver %.1f ms, resto %.1f ms",
+                 (unsigned)s_flush_n, (unsigned)(ahora - s_flush_t0),
+                 s_flush_n * 1000.0 / (ahora - s_flush_t0),
+                 s_px * 1000.0 / (ahora - s_flush_t0),
+                 s_px / (double)(LCD_H_RES * LCD_V_RES) * 1000.0 / (ahora - s_flush_t0),
+                 color_p,
+                 s_draw_us / 1000.0 / s_flush_n, s_sep_us / 1000.0 / s_flush_n);
+        s_flush_n = 0;
+        s_flush_t0 = ahora;
+        s_draw_us = 0;
+        s_sep_us = 0;
+        s_px = 0;
+    }
+}
+
 /* ── Panel RGB ────────────────────────────────────────────────────────────── */
 static esp_lcd_panel_handle_t bsp_rgb_panel_new(void)
 {
@@ -133,15 +210,17 @@ static esp_lcd_panel_handle_t bsp_rgb_panel_new(void)
         .clk_src    = LCD_CLK_SRC_DEFAULT,
         .data_width = 16,
         .bits_per_pixel = 16,
-        .num_fbs    = 1,          /* un framebuffer; LVGL dibuja en RAM interna y copia por trozos */
+        .num_fbs    = 1,          /* un framebuffer: LVGL dibuja en RAM interna y el driver copia el trozo */
         .psram_trans_align = 64,  /* el DMA del RGB va mas fino alineado */
         /* Interfaz de datos DESHABILITADO: este panel no tiene pin de datos ni
          * comandos (no es un controlador con registros, es una pantalla RGB). */
         .disp_gpio_num = GPIO_NUM_NC,
         .timings = {
-            /* 16 MHz da margen de sobra para 800x480 a 60 Hz y es el valor que
-             * usa la referencia de esta placa (14 MHz sin bounce buffer). */
-            .pclk_hz = 16 * 1000 * 1000,
+            /* 16 MHz es lo que usa la referencia de esta placa (y 14 MHz sin
+             * bounce buffer). A 16 MHz el panel refresca a ~38 Hz; subirlo
+             * acorta la ventana en la que el driver copia encima de lo que el
+             * panel esta leyendo, o sea que la banda de scroll se estrecha. */
+            .pclk_hz = 18 * 1000 * 1000,
             .h_res = LCD_H_RES,
             .v_res = LCD_V_RES,
             .hsync_pulse_width = 7,
@@ -168,6 +247,7 @@ static esp_lcd_panel_handle_t bsp_rgb_panel_new(void)
     ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(&cfg, &panel));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
+    s_rgb_panel = panel;
     return panel;
 }
 
@@ -220,6 +300,9 @@ lv_disp_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
 {
     ESP_ERROR_CHECK(bsp_display_brightness_init());
 
+    /* lvgl_port_init() se sigue usando: es quien crea la tarea de LVGL y el
+     * tic. Lo que NO se usa es lvgl_port_add_disp(): el display se registra a
+     * mano mas abajo (ver el comentario largo sobre los framebuffers). */
     lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     if (cfg) port_cfg = cfg->lvgl_port_cfg;
     ESP_ERROR_CHECK(lvgl_port_init(&port_cfg));
@@ -230,24 +313,47 @@ lv_disp_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
     ESP_LOGI(TAG, "Panel RGB %dx%d listo (ST7262, sin comandos: solo timing)",
              LCD_H_RES, LCD_V_RES);
 
-    /* Buffers de dibujo de LVGL en RAM INTERNA (el framebuffer del panel ya
-     * ocupa PSRAM y el panel la lee sin parar). 800 x 40 lineas x 2 B = 64 KB
-     * por buffer, y dos buffers para que dibujar y enviar no se esperen. */
+    /* Buffers de dibujo de LVGL en RAM INTERNA, en trozos de 40 lineas.
+     *
+     * MEDIDO en esta placa: dibujar DIRECTAMENTE en los framebuffers de PSRAM
+     * da 4 fotogramas por segundo (250 ms por cuadro, 0,8 ms de ellos dentro
+     * del driver RGB). El resto es LVGL escribiendo pixel a pixel en PSRAM: al
+     * escribir en PSRAM hay un fallo de cache por linea, y 800x480 sale a
+     * ~650 ns/pixel. Con los buffers en RAM interna el mismo cuadro baja a
+     * milisegundos y el driver copia el trozo al framebuffer de PSRAM de una
+     * pasada (memcpy), que es como lo hace el ejemplo oficial de esta placa.
+     *
+     * 800 x 40 lineas x 2 B = 64 KB por buffer; dos, para que dibujar y copiar
+     * no se esperen. En RAM interna no caben buffers de pantalla completa. */
     const uint32_t buf_px = LCD_H_RES * 40;
-    const lvgl_port_display_cfg_t disp_cfg = {
-        .panel_handle = panel,
-        .buffer_size  = buf_px,
-        .hres         = LCD_H_RES,
-        .vres         = LCD_V_RES,
-        .monochrome   = false,
-        .flags.buff_dma = true,
-        .flags.buff_spiram = 0,
-    };
-    s_disp = lvgl_port_add_disp(&disp_cfg);
-    if (!s_disp) {
-        ESP_LOGE(TAG, "lvgl_port_add_disp fallo");
+    static lv_color_t *buf1 = NULL, *buf2 = NULL;
+    buf1 = heap_caps_malloc(buf_px * sizeof(lv_color_t), MALLOC_CAP_DMA);
+    buf2 = heap_caps_malloc(buf_px * sizeof(lv_color_t), MALLOC_CAP_DMA);
+    if (!buf1 || !buf2) {
+        ESP_LOGE(TAG, "sin RAM interna para los buffers de LVGL (64 KB x2)");
         return NULL;
     }
+    lv_disp_draw_buf_init(&s_disp_buf, buf1, buf2, buf_px);
+
+    lv_disp_drv_init(&s_disp_drv);
+    s_disp_drv.hor_res  = LCD_H_RES;
+    s_disp_drv.ver_res  = LCD_V_RES;
+    s_disp_drv.flush_cb = bsp_lvgl_flush_cb;
+    s_disp_drv.draw_buf = &s_disp_buf;
+    /* full_refresh: LVGL pinta el cuadro COMPLETO en cada refresco, no solo la
+     * zona que cambio. Es obligatorio con framebuffers de pantalla completa:
+     * al alternar A/B, cada buffer tiene que quedar con la pantalla entera
+     * buena, o el panel ensena el trozo viejo del otro buffer (parpadeo).
+     * A cambio, no se gana nada pintando solo trozos: el panel lee siempre la
+     * pantalla completa de PSRAM. */
+    s_disp_drv.full_refresh = 0;
+    s_disp = lv_disp_drv_register(&s_disp_drv);
+    if (!s_disp) {
+        ESP_LOGE(TAG, "lv_disp_drv_register fallo");
+        return NULL;
+    }
+    ESP_LOGI(TAG, "LVGL: buffers de dibujo en RAM interna (%p, %p), %u px cada uno",
+             buf1, buf2, (unsigned)buf_px);
 
     if (cfg && cfg->rotate != LV_DISP_ROT_NONE) {
         /* El panel es horizontal de nacimiento (800x480), asi que lo normal es

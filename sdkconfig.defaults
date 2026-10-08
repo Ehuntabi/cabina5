@@ -9,6 +9,16 @@ CONFIG_IDF_TARGET="esp32s3"
 # opcional aqui: el panel RGB lee su framebuffer de la PSRAM sin parar, y con
 # PSRAM quad (o sin ella) el panel parpadea y no hay ajuste que lo arregle.
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+# ── IMPRESCINDIBLE: bootloader de 2a etapa en QIO ───────────────────────────
+# Esta placa (ESP32-S3 rev v0.2 + PSRAM octal AP_3v3 8 MB) NO ARRANCA en DIO:
+# la PSRAM se inicializa bien, se anade al heap y en el siguiente acceso la
+# lectura de flash desde la MSPI compartida se corrompe -> reset silencioso
+# (RTC_SW_CPU_RST) en bucle, sin panic. Ver espressif/esp-idf#18806: el unico
+# cambio necesario es el MODO de flash (no la velocidad, que ya se probo).
+# El sdkconfig generado sigue diciendo CONFIG_ESPTOOLPY_FLASHMODE="dio" y es
+# CORRECTO: esptool graba siempre el bootloader en DIO y es la 2a etapa la que
+# activa QIO (linea "qio_mode: Enabling default flash chip QIO" del arranque).
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
@@ -50,4 +60,6 @@ CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
 # ── Consola ─────────────────────────────────────────────────────────────────
-CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+# OJO: esta placa lleva un CH340 en UART0 (GPIO43/44), no el USB nativo.
+# Con USB_SERIAL_JTAG el log de arranque no sale por ningun sitio visible.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
