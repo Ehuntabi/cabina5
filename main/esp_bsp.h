@@ -21,6 +21,11 @@
 extern "C" {
 #endif
 
+/* DIAGNOSTICO: resume en el log lo que hay pintado en el framebuffer (porcentaje
+ * de muestras negras y brillo medio). Sirve para distinguir "la UI no se pinta"
+ * de "no se ve" (brillo, panel). Ver esp_bsp.c. */
+void bsp_mirar_framebuffer(const char *etiqueta);
+
 typedef struct {
     lvgl_port_cfg_t lvgl_port_cfg;  /*!< Configuracion del port de LVGL (tarea y tic) */
 } bsp_display_cfg_t;

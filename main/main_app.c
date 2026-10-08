@@ -28,6 +28,7 @@
 #include "esp_system.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
+#include "esp_debug_helpers.h"   /* esp_backtrace_print: traza de la UI colgada */
 #include "icons/splash_logo_5.h"
 #include "esp_task_wdt.h"
 #include "nvs_flash.h"
@@ -137,6 +138,12 @@ static void lvgl_wdog_task(void *arg) {
             }
             ESP_LOGE("WDOG", "UI sin avanzar %ums; dejando saltar el Task WDT",
                      (unsigned)stalled_ms);
+            /* Traza de donde esta atascada la tarea de LVGL. Sin esto, un
+             * cuelgue de la UI (bucle infinito, sin panic ni watchdog) no deja
+             * rastro: los contadores siguen, el panel barre y no hay ni una
+             * linea que decir DONDE se ha quedado. Decodificar con
+             * xtensa-esp32s3-elf-addr2line -pfiaC -e build/cabina5.elf <dirs> */
+            esp_backtrace_print(40);
         }
     }
 }

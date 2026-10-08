@@ -42,6 +42,7 @@
 
 #include "display.h"
 #include "esp_bsp.h"
+#include "ui/estilos.h"   /* rotulos_arrancar() */
 
 static const char *TAG = "bsp";
 
@@ -330,7 +331,7 @@ static esp_lcd_panel_handle_t s_rgb_panel = NULL;
  *
  * Se ejecuta tres veces al arrancar y se calla. Coste: recorrer 8941 muestras
  * del framebuffer, que es nada. */
-static void mirar_framebuffer(void)
+void bsp_mirar_framebuffer(const char *etiqueta)
 {
     if (!s_rgb_panel) return;
     void *fb = NULL;
@@ -355,8 +356,9 @@ static void mirar_framebuffer(void)
             no_negro_ini = i;
         }
     }
-    ESP_LOGI(TAG, "framebuffer: %u de %u muestras negras (%.0f%%), brillo medio %.1f, "
+    ESP_LOGI(TAG, "framebuffer [%s]: %u de %u muestras negras (%.0f%%), brillo medio %.1f, "
              "primer pixel no negro en %u",
+             etiqueta,
              (unsigned)negros, (unsigned)muestras,
              100.0 * negros / (muestras ? muestras : 1),
              (double)suma / (muestras ? muestras : 1),
@@ -456,7 +458,7 @@ static void bsp_display_fps_cb(lv_timer_t *t)
     static uint8_t miradas = 0;
     if (miradas < 3) {
         miradas++;
-        mirar_framebuffer();
+        bsp_mirar_framebuffer("arranque");
     }
 
     static uint32_t t0 = 0;
@@ -597,6 +599,10 @@ lv_display_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
         /* 500 ms: el primer tic es la comprobacion del tactil (ver arriba) y a
          * partir de ahi el informe de refrescos cada 2 s. */
         lv_timer_create(bsp_display_fps_cb, 500, NULL);
+        /* El ajuste de rotulos de los botones (ver ui/estilos.h) va en su
+         * propio temporizador, NO en un evento: dentro de un evento se
+         * realimenta y cuelga la placa. */
+        rotulos_arrancar();
         bsp_display_unlock();
     }
 

@@ -26,6 +26,11 @@
  * conectado manda todo como "sin dato" y se ven --). Se pone a 1, se graba, se
  * mira, y se vuelve a 0. */
 #define CAPTURE_CAROUSEL_SOLO_DATOS 0
+/* DIAGNOSTICO (8-oct-2026): abre SOLO el formulario de Peaje ocho segundos
+ * despues de arrancar, sin tocar la pantalla. Se puso para cazar el "peaje en
+ * negro" con el log a mano: pulsar el boton no se puede hacer desde el PC, y el
+ * fallo hay que verlo en la traza. Volver a 0 cuando se cierre el diagnostico. */
+#define CAPTURE_PEAJE_DIAG 0
 
 #ifdef __cplusplus
 extern "C" {

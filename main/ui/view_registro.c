@@ -567,7 +567,10 @@ static void ta_click_cb(lv_event_t *e)
 #define HEADER_H     64
 
 /* Ancho maximo del titulo para no pisar el boton de Volver. Ver add_header(). */
-#define HEADER_TITLE_MAX_W  208
+/* El boton de Volver mide 192 de ancho, asi que el titulo tiene que caber en
+ * 2*(400 - 192 - 12 de margen) = 392 como mucho; se deja en 300 para que quede
+ * aire entre los dos y no se toquen cuando el titulo es largo. */
+#define HEADER_TITLE_MAX_W  300
 
 static lv_obj_t *make_field_row(lv_obj_t *parent)
 {
@@ -602,8 +605,14 @@ static lv_obj_t *make_field_row(lv_obj_t *parent)
  * los dos a lo ancho y con letra mayor. Solo la usa peaje, que tiene un unico
  * campo y por tanto una fila que se estira hasta ~195 px: sitio de sobra. En
  * repostaje no cabria, porque comparte el alto con litros y precio/litro. */
-#define MONEY_BIG_DD_H   52
-#define MONEY_BIG_TA_H   64
+/* ALTURAS DEL CAMPO GRANDE DE IMPORTE (el de Peaje y el de "Importe" de otros
+ * formularios): lleva la letra mas grande de la UI, la 48, cuya linea mide 52
+ * px. El campo tiene ademas relleno y borde propios, asi que el hueco interior
+ * es el alto menos ~14: con 64 se quedaba en 50 y el texto NO CABIA (52 de
+ * linea), y el campo se pasaba el rato recolocandose. Medido y corregido el
+ * 8-oct-2026, a raiz del "peaje en negro". */
+#define MONEY_BIG_DD_H   56
+#define MONEY_BIG_TA_H   72
 
 static lv_obj_t *make_money_field_stacked(lv_obj_t *parent, const char *label_text,
                                            lv_obj_t **dd_out)
@@ -1424,9 +1433,30 @@ static lv_obj_t *make_form_container(lv_obj_t *parent)
     lv_obj_set_style_pad_left(col, (UI_ANCHO - UI_ANCHO_COLUMNA) / 2, 0);
     lv_obj_set_style_pad_right(col, (UI_ANCHO - UI_ANCHO_COLUMNA) / 2, 0);
 
-    /* Devuelve la COLUMNA: quien construye el formulario mete ahi sus widgets
-     * (el contenido que se desliza). La cabecera la rellena add_header(). */
-    return col;
+    /* DEVUELVE EL CONTENEDOR, NO LA COLUMNA (esto ya se hizo mal una vez, el
+     * 8-oct-2026, y costo un rato largo: "los formularios salen en negro").
+     *
+     * Quien llama guarda lo que se devuelve en s_forms[], y s_forms[] es lo que
+     * se OCULTA al crear el formulario y se ENSENA al abrirlo (show_form /
+     * show_grid). Si se devuelve la columna, el que se oculta y se ensena es la
+     * columna... y el contenedor de fuera, que nace oculto y no lo enseña
+     * nadie, se queda oculto PARA SIEMPRE: el formulario existe, tiene sus
+     * campos y sus botones, y no se ve nada de nada (framebuffer 100% negro,
+     * medido). Los hijos de un objeto oculto tampoco se pintan, asi que da
+     * igual lo bien que este lo de dentro. */
+    return form;
+}
+
+/* La COLUMNA de contenido de un formulario, que es donde van los campos.
+ *
+ * El contenedor tiene dos hijos, siempre en este orden: 0 = la cabecera FIJA
+ * (titulo y Volver, que no se desliza) y 1 = la columna que se desliza. Los
+ * constructores de formulario meten sus widgets en la columna, nunca en el
+ * contenedor: si se metieran en el contenedor acabarian fuera de la columna
+ * centrada y a 800 px de ancho. */
+static lv_obj_t *form_col(lv_obj_t *form)
+{
+    return form ? lv_obj_get_child(form, 1) : NULL;
 }
 
 /* Devuelve el rotulo del titulo: la pantalla de viaje lo reescribe segun haya
@@ -1444,10 +1474,16 @@ static lv_obj_t *add_header(lv_obj_t *form, const char *title, lv_color_t color,
 
     /* Volver en forma de pastilla, con el color de la categoria en el borde y
      * en el texto. Antes eran 80x32 en gris sobre negro: se perdia. Al pulsar
-     * se invierte (fondo del color, texto blanco) para que se note el toque. */
+     * se invierte (fondo del color, texto blanco) para que se note el toque.
+     *
+     * 192x56 Y LETRA 26 (8-oct-2026, a peticion del usuario: "el boton de atras
+     * tiene que ser mas grande en todas las pantallas"): con 128x42 y letra 20
+     * era el boton mas pequeno de la interfaz, y es el que mas se usa -- es la
+     * salida de todo. Un boton de 192x56 son 10x14 mm de cristal, que se
+     * acierta con el dedo sin mirar. */
     lv_obj_t *back = lv_btn_create(row);
-    lv_obj_set_size(back, 128, 42);
-    lv_obj_set_style_radius(back, 21, 0);
+    lv_obj_set_size(back, 192, 56);
+    lv_obj_set_style_radius(back, 28, 0);
     lv_obj_set_style_bg_color(back, lv_color_hex(0x1E1E1E), 0);
     lv_obj_set_style_border_width(back, 2, 0);
     lv_obj_set_style_border_color(back, color, 0);
@@ -1458,7 +1494,7 @@ static lv_obj_t *add_header(lv_obj_t *form, const char *title, lv_color_t color,
                         (void *)(intptr_t)(back_to + 1));
     lv_obj_t *back_lbl = lv_label_create(back);
     lv_label_set_text(back_lbl, LV_SYMBOL_LEFT "  Volver");
-    lv_obj_set_style_text_font(back_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(back_lbl, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_color(back_lbl, color, 0);
     /* Al pulsar el fondo se vuelve del color (claro), asi que el texto pasa a
      * NEGRO, no a blanco: sobre estos tonos vivos el blanco se pierde. */
@@ -1478,14 +1514,14 @@ static lv_obj_t *add_header(lv_obj_t *form, const char *title, lv_color_t color,
     lv_obj_t *t = lv_label_create(row);
     lv_label_set_text(t, title);
     lv_obj_set_style_text_color(t, color, 0);
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_font(t, &lv_font_montserrat_28, 0);
     lv_obj_set_width(t, HEADER_TITLE_MAX_W);
     /* LONG_DOT necesita alto FIJO de una linea ademas del ancho: con alto
      * automatico (el por defecto) LVGL calcula el texto partido en dos
      * lineas antes de recortar con puntos, y algun caracter suelto (la "O"
      * final de "MANTENIMIENTO") se colaba en esa segunda linea en vez de
      * recortarse. */
-    lv_obj_set_height(t, lv_font_get_line_height(&lv_font_montserrat_22) + 6);
+    lv_obj_set_height(t, lv_font_get_line_height(&lv_font_montserrat_28) + 6);
     lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(t, LV_ALIGN_CENTER, 0, 0);
@@ -4899,31 +4935,31 @@ void view_registro_create(lv_obj_t *parent)
 
     /* --- Formularios (ocultos hasta que se elige un icono) --- */
     s_forms[CAT_REPOSTAJE] = make_form_container(parent);
-    build_repostaje(s_forms[CAT_REPOSTAJE]);
+    build_repostaje(form_col(s_forms[CAT_REPOSTAJE]));
 
     s_forms[CAT_PEAJE] = make_form_container(parent);
-    build_peaje(s_forms[CAT_PEAJE]);
+    build_peaje(form_col(s_forms[CAT_PEAJE]));
 
     s_forms[CAT_BOMBONA] = make_form_container(parent);
-    build_bombona(s_forms[CAT_BOMBONA]);
+    build_bombona(form_col(s_forms[CAT_BOMBONA]));
 
     s_forms[CAT_MANTENIMIENTO] = make_form_container(parent);
-    build_mantenimiento(s_forms[CAT_MANTENIMIENTO]);
+    build_mantenimiento(form_col(s_forms[CAT_MANTENIMIENTO]));
 
     s_forms[CAT_AGUAS] = make_form_container(parent);
-    build_aguas(s_forms[CAT_AGUAS]);
+    build_aguas(form_col(s_forms[CAT_AGUAS]));
 
     s_forms[CAT_ITV] = make_form_container(parent);
-    build_itv(s_forms[CAT_ITV]);
+    build_itv(form_col(s_forms[CAT_ITV]));
 
     s_forms[CAT_PERNOCTA] = make_form_container(parent);
-    build_pernocta(s_forms[CAT_PERNOCTA]);
+    build_pernocta(form_col(s_forms[CAT_PERNOCTA]));
 
     s_forms[CAT_SERVICIOS] = make_form_container(parent);
-    build_servicios(s_forms[CAT_SERVICIOS]);
+    build_servicios(form_col(s_forms[CAT_SERVICIOS]));
 
     s_forms[CAT_VALORACION] = make_form_container(parent);
-    build_valoracion(s_forms[CAT_VALORACION]);
+    build_valoracion(form_col(s_forms[CAT_VALORACION]));
 
     /* Estado de partida (si se fue la luz en mitad de un viaje, sigue
      * habiendo viaje) lo recupera salida_init() via salida_get(), no aqui

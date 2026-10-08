@@ -301,19 +301,24 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_flex_flow(s_menu, LV_FLEX_FLOW_COLUMN);
 
     lv_obj_t *mrow = lv_obj_create(s_menu);
-    lv_obj_set_size(mrow, lv_pct(100), 34);
+    lv_obj_set_size(mrow, lv_pct(100), 60);
     lv_obj_set_style_bg_opa(mrow, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(mrow, 0, 0);
     lv_obj_set_style_pad_all(mrow, 0, 0);
     lv_obj_clear_flag(mrow, LV_OBJ_FLAG_SCROLLABLE);
 
+    /* 192x56 y letra 26, como los "Volver" del cuaderno: es el boton que mas se
+     * usa y tiene que ser el mismo en todas las pantallas (peticion del
+     * usuario, 8-oct-2026). */
     lv_obj_t *mback = lv_btn_create(mrow);
-    lv_obj_set_size(mback, 80, 32);
+    lv_obj_set_size(mback, 192, 56);
+    lv_obj_set_style_radius(mback, 28, 0);
     lv_obj_set_style_bg_color(mback, lv_color_hex(0x333333), 0);
     lv_obj_align(mback, LV_ALIGN_LEFT_MID, 0, 0);
     lv_obj_add_event_cb(mback, back_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *mback_lbl = lv_label_create(mback);
     lv_label_set_text(mback_lbl, LV_SYMBOL_LEFT " Volver");
+    lv_obj_set_style_text_font(mback_lbl, &lv_font_montserrat_26, 0);
     lv_obj_center(mback_lbl);
 
     lv_obj_t *mtitle = lv_label_create(mrow);
@@ -447,19 +452,21 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_scrollbar_mode(s_wifi, LV_SCROLLBAR_MODE_AUTO);
 
     lv_obj_t *row = lv_obj_create(s_wifi);
-    lv_obj_set_size(row, lv_pct(100), 34);
+    lv_obj_set_size(row, lv_pct(100), 60);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(row, 0, 0);
     lv_obj_set_style_pad_all(row, 0, 0);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *back = lv_btn_create(row);
-    lv_obj_set_size(back, 80, 32);
+    lv_obj_set_size(back, 192, 56);
+    lv_obj_set_style_radius(back, 28, 0);
     lv_obj_set_style_bg_color(back, lv_color_hex(0x333333), 0);
     lv_obj_align(back, LV_ALIGN_LEFT_MID, 0, 0);
     lv_obj_add_event_cb(back, wifi_back_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *back_lbl = lv_label_create(back);
     lv_label_set_text(back_lbl, LV_SYMBOL_LEFT " Volver");
+    lv_obj_set_style_text_font(back_lbl, &lv_font_montserrat_26, 0);
     lv_obj_center(back_lbl);
 
     lv_obj_t *title = lv_label_create(row);

@@ -55,6 +55,7 @@ static void inject_sim_data(void)
 #include <stdio.h>
 #include <stdlib.h>
 #include "lvgl.h"
+#include "esp_bsp.h"   /* bsp_mirar_framebuffer: diagnostico */
 #include "lv_port_compat.h"
 #include "ui/nav.h"
 #include "ui/view_registro.h"
@@ -262,6 +263,7 @@ void capture_carousel_start(void)
 }
 
 #else
+
 
 void capture_carousel_start(void)
 {

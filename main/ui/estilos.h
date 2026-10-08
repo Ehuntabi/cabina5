@@ -119,59 +119,88 @@ static inline lv_coord_t texto_ancho(const lv_font_t *f, const char *txt)
                            &FUENTE_NORMAL, &FUENTE_PEQUENA, &FUENTE_MUY_PEQUENA, \
                            &lv_font_montserrat_18 }
 
-/* Pone en `lbl` la letra mas grande que quepa en el ancho del boton `btn`.
- * Se guarda cual se aplico (en el user_data del ROTULO) para no repetir el
- * trabajo ni invalidar el objeto sin motivo en cada evento. */
-static inline void rotulo_ajustar(lv_obj_t *btn, lv_obj_t *lbl)
+/* ── El ajuste, y POR QUE NO PUEDE IR DENTRO DE UN EVENTO ────────────────────
+ *
+ * ESTO YA HA COLGADO LA PLACA DOS VECES (8-oct-2026), asi que el como importa
+ * tanto como el que:
+ *
+ *   1. Primera version: el ajuste corria en LV_EVENT_DRAW_MAIN, o sea DENTRO del
+ *      pintado. Cambiar la fuente invalida el objeto -> se repinta -> vuelve a
+ *      entrar: recursion hasta agotar la pila (traza del watchdog con
+ *      lv_obj_redraw / rotulo_ajustar_cb repitiendose).
+ *   2. Segunda version: en LV_EVENT_SIZE_CHANGED / STYLE_CHANGED. Parecia lo
+ *      correcto, pero cambiar la fuente PROVOCA un cambio de tamano del objeto,
+ *      que manda otro SIZE_CHANGED, que vuelve a ajustar... bucle infinito. El
+ *      sintoma es inconfundible: "refrescos LVGL: 0.0/s" con el panel barriendo
+ *      a 39 Hz y el heap quieto (no se reserva ni se pierde memoria: solo gira).
+ *      Se reprodujo abriendo el formulario de Peaje, que es el que tiene el
+ *      campo con letra 48.
+ *
+ * AHORA: un TEMPORIZADOR de LVGL revisa los botones registrados cinco veces por
+ * segundo, FUERA de cualquier evento y fuera del pintado. Ahi no hay
+ * reentrada posible: se mira el ancho, se elige el escalon y se aplica, y si
+ * algo cambia de tamano el siguiente tic lo vuelve a mirar. El coste es
+ * despreciable (medir una cadena son unas decenas de sumas).
+ *
+ * Se decide SIEMPRE por el ancho del BOTON, que no depende de la fuente del
+ * rotulo, asi que no puede oscilar entre dos escalones. */
+#define ROTULO_MAX 64
+
+static lv_obj_t *s_rotulos[ROTULO_MAX];
+static int       s_rotulos_n = 0;
+
+/* Pone en el rotulo la letra mas grande que quepa en el ancho de su boton. */
+static void rotulo_ajustar(lv_obj_t *btn, lv_obj_t *lbl)
 {
     if (!btn || !lbl) return;
 
-    /* Cerrojo: cambiar la fuente puede mandar STYLE_CHANGED otra vez, y sin
-     * esto la cadena se repite sola. */
-    static bool dentro = false;
-    if (dentro) return;
-    dentro = true;
-
     const lv_coord_t disponible = lv_obj_get_content_width(btn) - 8;
-    /* OJO CON ESTA COMPARACION, que ya se hizo mal una vez (8-oct-2026): lo que
-     * se guarda en el user_data del ROTULO es la FUENTE que se le aplico, y hay
-     * que compararla con la fuente que tiene ahora. La primera version guardaba
-     * ahi el propio puntero del rotulo y comparaba con la fuente, o sea que la
-     * condicion no se cumplia NUNCA y el ajuste no llegaba a hacer nada: el
-     * boton "Configuracion" se quedo con el texto mas grande que el boton. */
-    const lv_font_t *actual = lv_obj_get_style_text_font(lbl, LV_PART_MAIN);
-    const lv_font_t *aplicada = (const lv_font_t *)lv_obj_get_user_data(lbl);
-    if (disponible > 0 && actual != aplicada) {
-        const char *txt = lv_label_get_text(lbl);
-        const lv_font_t *escalones[] = ROTULO_ESCALONES;
-        const lv_font_t *elegida = &lv_font_montserrat_18;
-        for (size_t i = 0; i < sizeof(escalones) / sizeof(escalones[0]); i++) {
-            if (texto_ancho(escalones[i], txt) <= disponible) {
-                elegida = escalones[i];
-                break;
-            }
+    if (disponible <= 0) return;
+
+    /* Si el ancho no ha cambiado desde la ultima vez, no hay nada que hacer:
+     * esto es lo que evita estar midiendo en cada tic. */
+    if ((lv_coord_t)(lv_intptr_t)lv_obj_get_user_data(lbl) == disponible) return;
+    lv_obj_set_user_data(lbl, (void *)(lv_intptr_t)disponible);
+
+    const char *txt = lv_label_get_text(lbl);
+    const lv_font_t *escalones[] = ROTULO_ESCALONES;
+    const lv_font_t *elegida = &lv_font_montserrat_18;   /* red de seguridad */
+    for (size_t i = 0; i < sizeof(escalones) / sizeof(escalones[0]); i++) {
+        if (texto_ancho(escalones[i], txt) <= disponible) {
+            elegida = escalones[i];
+            break;
         }
-        lv_obj_set_style_text_font(lbl, elegida, 0);
-        lv_obj_set_user_data(lbl, (void *)elegida);
     }
-    dentro = false;
+    lv_obj_set_style_text_font(lbl, elegida, 0);
 }
 
-/* Deja el rotulo de un boton ajustandose solo: una vez al crearlo y cada vez
- * que el boton cambie de tamano (el reparto de una fila flexible no se sabe
- * hasta que LVGL lo ha hecho). */
-static void rotulo_evento_cb(lv_event_t *e)
+static void rotulo_timer_cb(lv_timer_t *t)
 {
-    lv_obj_t *btn = lv_event_get_target(e);
-    rotulo_ajustar(btn, (lv_obj_t *)lv_obj_get_user_data(btn));
+    (void)t;
+    for (int i = 0; i < s_rotulos_n; i++) {
+        lv_obj_t *btn = s_rotulos[i];
+        if (!btn) continue;
+        rotulo_ajustar(btn, (lv_obj_t *)lv_obj_get_user_data(btn));
+    }
 }
 
+/* Arranca el temporizador que ajusta los rotulos. Lo llama el BSP al montar
+ * LVGL (ver esp_bsp.c): asi este fichero no necesita saber nada del arranque y
+ * el ajuste existe antes de que se cree ningun boton. */
+static inline void rotulos_arrancar(void)
+{
+    static bool ya = false;
+    if (ya) return;
+    ya = true;
+    lv_timer_create(rotulo_timer_cb, 200, NULL);
+}
+
+/* Deja el rotulo de un boton apuntado para que el temporizador lo ajuste. */
 static inline void rotulo_autoajustable(lv_obj_t *btn, lv_obj_t *lbl)
 {
     if (!btn || !lbl) return;
     lv_obj_set_user_data(btn, lbl);
-    lv_obj_add_event_cb(btn, rotulo_evento_cb, LV_EVENT_SIZE_CHANGED, NULL);
-    lv_obj_add_event_cb(btn, rotulo_evento_cb, LV_EVENT_STYLE_CHANGED, NULL);
+    if (s_rotulos_n < ROTULO_MAX) s_rotulos[s_rotulos_n++] = btn;
     rotulo_ajustar(btn, lbl);
 }
 
