@@ -15,8 +15,15 @@ extern "C" {
 
 /* Los dos unicos valores validos. Si se cambian, el nivel guardado de antes
  * deja de ser valido y brillo_init() cae al ALTO: es a proposito, mas vale
- * pasarse de luz que quedarse con una pantalla que no se ve. */
-#define BRILLO_BAJO   30
+ * pasarse de luz que quedarse con una pantalla que no se ve.
+ *
+ * 60 Y NO 30 (8-oct-2026): con el 30 la placa arranco con la pantalla
+ * aparentemente NEGRA -- el usuario lo reporto como "la pantalla esta negra" y
+ * costo un rato descubrir que el framebuffer tenia la UI perfectamente pintada
+ * (medido: 0% de muestras negras, brillo medio 121) y lo que pasaba es que, con
+ * el tema oscuro de esta interfaz, un 30% de retroiluminacion no se ve. El
+ * nivel bajo es para no deslumbrar de noche, no para apagar la pantalla. */
+#define BRILLO_BAJO   60
 #define BRILLO_ALTO  100
 
 /* Aplica el nivel guardado (ALTO la primera vez). Necesita NVS ya arrancado y

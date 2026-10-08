@@ -320,6 +320,49 @@ static lv_indev_t *s_indev = NULL;
 static SemaphoreHandle_t s_vsync_sem = NULL;
 static esp_lcd_panel_handle_t s_rgb_panel = NULL;
 
+/* Mira lo que HAY en el framebuffer y lo resume en una linea.
+ *
+ * SE QUEDA, y no es un adorno: cuando el usuario dijo "la pantalla esta negra"
+ * (8-oct-2026), esta cuenta fue lo que demostro en un minuto que la UI SI se
+ * estaba pintando (0% de muestras negras) y que el problema era la
+ * retroiluminacion al 30%. Sin esto, "negra" se puede deber a cinco cosas
+ * distintas y se pierde una tarde en cada una.
+ *
+ * Se ejecuta tres veces al arrancar y se calla. Coste: recorrer 8941 muestras
+ * del framebuffer, que es nada. */
+static void mirar_framebuffer(void)
+{
+    if (!s_rgb_panel) return;
+    void *fb = NULL;
+    if (esp_lcd_rgb_panel_get_frame_buffer(s_rgb_panel, 1, &fb) != ESP_OK || !fb) {
+        ESP_LOGW(TAG, "no puedo leer el framebuffer del panel");
+        return;
+    }
+    const uint16_t *px = (const uint16_t *)fb;
+    const uint32_t total = (uint32_t)LCD_H_RES * LCD_V_RES;
+    uint32_t negros = 0, suma = 0, muestras = 0, no_negro_ini = total;
+    /* Se muestrea de 43 en 43 (primo, para no caer siempre en la misma columna)
+     * y se busca ademas el primer pixel no negro, que dice si lo que se ve
+     * empieza arriba o mas abajo. */
+    for (uint32_t i = 0; i < total; i += 43) {
+        const uint16_t v = px[i];
+        const uint32_t r = (v >> 11) & 0x1F, g = (v >> 5) & 0x3F, b = v & 0x1F;
+        suma += r + g + b;
+        muestras++;
+        if (v == 0) {
+            negros++;
+        } else if (no_negro_ini == total) {
+            no_negro_ini = i;
+        }
+    }
+    ESP_LOGI(TAG, "framebuffer: %u de %u muestras negras (%.0f%%), brillo medio %.1f, "
+             "primer pixel no negro en %u",
+             (unsigned)negros, (unsigned)muestras,
+             100.0 * negros / (muestras ? muestras : 1),
+             (double)suma / (muestras ? muestras : 1),
+             (unsigned)(no_negro_ini == total ? 0 : no_negro_ini));
+}
+
 static bool IRAM_ATTR bsp_rgb_vsync_cb(esp_lcd_panel_handle_t panel,
                                        const esp_lcd_rgb_panel_event_data_t *edata,
                                        void *user_ctx)
@@ -409,6 +452,13 @@ static void bsp_display_fps_cb(lv_timer_t *t)
                      (unsigned)s_lecturas);
         }
     }
+    /* Tres miradas al framebuffer y se calla (es diagnostico, no un informe). */
+    static uint8_t miradas = 0;
+    if (miradas < 3) {
+        miradas++;
+        mirar_framebuffer();
+    }
+
     static uint32_t t0 = 0;
     const uint32_t ahora = (uint32_t)(esp_timer_get_time() / 1000);
 

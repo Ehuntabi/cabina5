@@ -37,11 +37,14 @@ Dos consecuencias prácticas de que el panel sea RGB:
 
 | | |
 |---|---|
-| Refresco de LVGL | **12 fotogramas/s** (el panel barre a **39,0 Hz**, estable) |
-| Heap interno libre | **92 KB** (con WiFi arrancado) |
-| Táctil | Responde en toda la pantalla (31 toques de prueba con coordenadas correctas) |
+| Refresco de LVGL | **22 fotogramas/s** (el panel barre a **39,0 Hz**, estable) |
+| Heap interno libre | **53 KB** (con WiFi arrancado; el margen se lo lleva la UI nueva) |
+| Táctil | Funciona en toda la superficie, en **modo sondeo** (ver *Trampas*, apartado 5) |
+| UI | Las 4 vistas y los 2 overlays, adaptados a los **800×480 reales** y con la letra un escalón más |
+| Splash | La autocaravana (`main/icons/splash_logo_5.c`), sin texto |
 | Red | UDP en el 4242 a la espera de la P4, WiFi conectando |
 | Rearranques | **Ninguno** en marcha normal (los únicos resets son los que provoca abrir el puerto serie) |
+| Flash | 2,2 MB de app: **46 % de la partición libre** |
 
 - Proyecto ESP-IDF para `esp32s3` (16 MB, PSRAM octal, dos huecos de OTA).
 - `main/display.h`: pines y timing **verificados en esta placa** (B IO8/3/46/9/1,
@@ -56,10 +59,10 @@ Dos consecuencias prácticas de que el panel sea RGB:
   rejilla de 100 px, coordenadas del táctil en vivo, IP y contador de paquetes
   UDP de la P4 en el puerto 4242.
 
-## Trampas de esta placa (las cuatro nos costaron una tarde cada una)
+## Trampas de esta placa (las seis nos costaron una tarde cada una)
 
-Están en orden de aparición. Si algo va mal en el arranque o en la imagen, casi
-seguro es una de estas cuatro.
+Están en orden de aparición. Si algo va mal en el arranque, en la imagen, en el brillo o en el
+táctil, casi seguro es una de estas seis.
 
 ### 1. No arranca: bucle de reset silencioso → falta QIO
 
@@ -141,6 +144,33 @@ no el reset (la definición oficial de la placa dice `RESET_PIN = -1`,
 secuencia de selección de dirección, el táctil queda a medias y el port de LVGL
 avisa con `Error in register touch interrupt`.
 
+### 5. El táctil no responde aunque el chip funcione → el port lo lee por EVENTO
+
+Esta es la que nos tuvo más tiempo, porque **todo parecía estar bien**: el GT911
+contestaba por I2C, el driver leía coordenadas correctas, y el log decía
+`Tactil: temporizador de lectura EN MARCHA`. Y aun así, los toques no hacían
+nada.
+
+La causa: `esp_lvgl_port` deja el dispositivo de entrada en
+**`LV_INDEV_MODE_EVENT`**, o sea que **no se lee por temporizador**: se lee
+cuando llega el evento `LVGL_PORT_EVENT_TOUCH`, y ese evento sale **solo de la
+interrupción** del GT911 (IO38). En esta placa ese pin no hace de interrupción
+—medido con un contador en el callback: **0 interrupciones en 30 s**— así que
+LVGL leía el chip **una vez en el arranque y nunca más**.
+
+El arreglo está en `esp_bsp.c`: `lv_indev_set_mode(s_indev, LV_INDEV_MODE_TIMER)`,
+o sea **sondeo cada 30 ms** pase lo que pase con la interrupción. Medido después:
+32 lecturas/s.
+
+Para no volver a tropezar, el arranque **se comprueba solo** y lo dice en el log:
+
+```
+Tactil comprobado: 30 lecturas, 0 toques | temporizador en marcha
+```
+
+Si esa línea no sale (o sale el `E ... TACTIL: solo N lecturas`), el táctil no
+está leyéndose y no hay que buscar el problema en el chip.
+
 Y de propina, dos avisos sobre los **colores** y los **pines**:
 
 - Los canales **R y B no se pueden deducir del xlsx** de Guition: los dos grupos
@@ -150,6 +180,23 @@ Y de propina, dos avisos sobre los **colores** y los **pines**:
   el azul sale rojo y el blanco sale amarillo.
 - Si se toca el timing, `hsync_idle_low` y `vsync_idle_low` van en **false**,
   como en la definición oficial de la placa.
+
+### 6. "La pantalla está negra" → mirar el brillo antes que nada
+
+Con el tema oscuro de esta interfaz, el nivel bajo de retroiluminación se ve
+como una pantalla apagada. Pasó el 8-oct-2026: la placa arrancó con el brillo
+guardado y el usuario lo describió como "la pantalla está negra".
+
+Antes de tocar nada, dos comprobaciones que ahora están en el log de arranque:
+
+1. `brillo: Brillo inicial N%` — si es bajo y la pantalla parece muerta, es esto.
+2. `bsp: framebuffer: N de M muestras negras (X%)` — si el framebuffer **no**
+   está negro, se está pintando y el problema es de luz (o del panel), no de la
+   UI. Si está negro de verdad, entonces sí: ni LVGL ni la app están dibujando.
+
+El brillo se cambia con el botón **"Brillo y contraste"** de la pantalla de
+Ajustes (o con el doble toque/long press en la de datos), y se recuerda al
+reiniciar. El nivel bajo es 60 %: menos que eso no se ve con este tema.
 
 ## Cómo se prueba en la placa
 
@@ -186,11 +233,23 @@ Qué hay que mirar, en este orden:
 
 ## Pantalla y textos
 
-Esta pantalla tiene **181 ppp** (5" a 800×480), así que los tamaños de letra
-habituales se quedan pequeños: el juego de fuentes va un escalón por encima
-(16/20/24/28/32/40/48) y conviene declararlas **por papel** en un solo fichero de
-estilo, no por número repartido por las vistas. Los iconos y los huecos suben en
-la misma proporción.
+Esta pantalla tiene **181 ppp** (5" a 800×480) y se mira desde el asiento del
+conductor, así que los tamaños de letra habituales se quedan pequeños: el juego
+de fuentes va **dos escalones por encima** de lo normal y se declara **por papel**
+en un solo fichero, `main/ui/estilos.h` — no por número repartido por las vistas.
+
+Ahí están también las **medidas de la pantalla** (`UI_ANCHO`, `UI_ALTO`,
+`UI_ANCHO_COLUMNA`) y el ajuste automático del rótulo de los botones: en una
+pantalla apaisada de 800 px, un rótulo largo se sale de su botón, así que se
+mide con las métricas reales de la fuente y se le baja el escalón que haga
+falta. Las vistas siguen pidiendo `lv_font_montserrat_20` y lo que sale es el 26:
+cambiar la escala entera es tocar **un fichero**.
+
+- La negrita es **generada a mano** (`main/fonts/montserrat_bold.h`, con la
+  receta): solo existen los tamaños que se usan.
+- Los iconos son una fuente propia a 44 px (`main/icons/iconos.h`).
+- LVGL **no trae Montserrat 56** (llega hasta la 48): ese escalón no existe y el
+  titular de 48 se queda como está.
 
 ## Compilar en este PC (trampa del toolchain)
 
