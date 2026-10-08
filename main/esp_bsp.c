@@ -48,7 +48,6 @@ static const char *TAG = "bsp";
 /* Contador para el informe de refrescos/s (diagnostico). */
 static volatile uint32_t s_refrescos = 0;
 static volatile uint32_t s_vsyncs = 0;
-static bool s_congelado = false;
 /* 1 = prueba de banco: congela el refresco a los 8 s para ver si el movimiento
  * es de LVGL o del panel. 0 = comportamiento normal. */
 #define PRUEBA_CONGELAR 1
@@ -269,8 +268,16 @@ static esp_lcd_touch_handle_t bsp_touch_new(void)
         },
     };
     ESP_ERROR_CHECK(esp_lcd_touch_new_i2c_gt911(io, &touch_cfg, &touch));
-    ESP_LOGI(TAG, "Tactil GT911 listo (direccion 0x%02X, int_gpio=%d, rst_gpio=%d)",
-             TOUCH_I2C_ADDR, (int)touch->config.int_gpio_num, (int)touch->config.rst_gpio_num);
+    /* OJO, COSA RARA DEL COMPONENTE (no tocar sin leer esto): pedimos
+     * rst = NC (-1) e int = 38, que es lo correcto para esta placa, pero el
+     * handle devuelve los dos campos AL REVES (rst = 38, int = 0). Aun asi el
+     * tactil FUNCIONA (comprobado leyendo coordenadas reales: 31 toques
+     * repartidos por toda la pantalla), porque el driver acaba en modo sondeo
+     * por I2C, que es lo que queremos. La consecuencia practica es que el
+     * puerto de LVGL NO registra interrupcion y lee el tactil por sondeo; da
+     * igual, porque el pin de interrupcion de esta placa no se puede usar.
+     * Se deja escrito para que el siguiente no crea que la config esta mal. */
+    ESP_LOGI(TAG, "Tactil GT911 listo (direccion 0x%02X, modo sondeo por I2C)", TOUCH_I2C_ADDR);
     return touch;
 }
 
@@ -318,7 +325,7 @@ static bool IRAM_ATTR bsp_rgb_vsync_cb(esp_lcd_panel_handle_t panel,
  * SOLUCION (la que dice Espressif): un BOUNCE BUFFER en RAM INTERNA de al menos
  * 20 lineas. El DMA lee siempre de ahi (memoria rapida, nunca se queda seco) y
  * la ISR lo va rellenando desde PSRAM. Aqui el driver lo hace solo porque
- * El driver lo hace solo porque hay framebuffers (num_fbs = 2): copia de ellos
+ * El driver lo hace solo porque hay un framebuffer (num_fbs = 1): copia de el
  * al bounce buffer desde su ISR. Con num_fbs = 0 no funciona (pantalla negra):
  * sin framebuffers el driver no avanza nunca de cuadro.
  *

@@ -5,13 +5,11 @@ Firmware para la placa **Guition JC8048W550C**: **ESP32-S3 con pantalla de 5",
 proyecto de la autocaravana: la pantalla P4 del salón y esta pantalla de cabina
 se hablan por UDP.
 
-> **Estado: bring-up, sin verificar en hardware.** Está montado y compila el
-> arranque de la placa (pantalla, táctil, brillo y red), con una pantalla de
-> prueba para comprobarlo. Los pines y el timing salen de la documentación de
-> esta familia de placas y **están sin confirmar en la placa**: el primer
-> arranque es una prueba, no una instalación. La aplicación se monta encima
-> cuando el arranque esté verificado, y **qué se enseña en ella depende de lo
-> que pida la cabina**: aquí no hay funcionalidades heredadas que respetar.
+> **Estado: bring-up TERMINADO y verificado en la placa (8-oct-2026).** La
+> pantalla se ve bien, quieta, el táctil responde en toda la superficie y llegan
+> los paquetes UDP de la P4. Lo que costó llegar aquí está contado abajo, en
+> **Trampas de esta placa**: son cuatro cosas que no se ven venir y que ya nos
+> costaron una tarde cada una. La aplicación del satélite se monta encima.
 
 ## La placa
 
@@ -20,28 +18,35 @@ se hablan por UDP.
 | Modelo | Guition **JC8048W550C** (la "C" es táctil capacitiva) |
 | Chip | **ESP32-S3**, 16 MB de flash + 8 MB de PSRAM **octal (OPI)** |
 | Pantalla | **5" IPS 800×480**, RGB paralelo, controlador **ST7262** (sin comandos: solo timing) |
-| Táctil | **GT911** por I2C |
+| Táctil | **GT911** por I2C (dirección 0x5D, sin reset conectado) |
 | Extra | microSD, conector de cámara, altavoz, 2 USB (USB + UART1), GPIOs expuestos |
 
 Dos consecuencias prácticas de que el panel sea RGB:
 
-- El panel **lee su framebuffer de la PSRAM continuamente**. Cualquier saturación
-  de la PSRAM se ve como parpadeo, así que el framebuffer (768 KB) va en PSRAM y
-  los buffers de dibujo de LVGL en **RAM interna**.
+- El panel **lee su framebuffer continuamente**. Como ese framebuffer está en
+  PSRAM, hay que darle de comer a tiempo o la imagen se desalinea (ver
+  *Trampas*, apartado 3). El framebuffer (768 KB) va en PSRAM y los buffers de
+  dibujo de LVGL en **RAM interna**, porque dibujar en PSRAM en esta placa da
+  4 fotogramas por segundo (medido).
 - No hay "tabla de comandos" del panel: si algo se ve mal (desplazado, colores
   cambiados), el problema es el **timing o los pines**, no la inicialización.
 
 ## Estado (8-oct-2026)
 
-**La placa ya arranca y se ve la prueba**: panel RGB 800×480, táctil GT911 en
-0x5D y UDP en el 4242, sin un solo panic. Ver `## Arranque: la placa NO arranca
-sin QIO` antes de tocar el `sdkconfig`.
+**Verificado en la placa**, con estos números medidos:
+
+| | |
+|---|---|
+| Refresco de LVGL | **12 fotogramas/s** (el panel barre a **39,0 Hz**, estable) |
+| Heap interno libre | **92 KB** (con WiFi arrancado) |
+| Táctil | Responde en toda la pantalla (31 toques de prueba con coordenadas correctas) |
+| Red | UDP en el 4242 a la espera de la P4, WiFi conectando |
+| Rearranques | **Ninguno** en marcha normal (los únicos resets son los que provoca abrir el puerto serie) |
 
 - Proyecto ESP-IDF para `esp32s3` (16 MB, PSRAM octal, dos huecos de OTA).
-- `main/display.h`: pines y timing **ya verificados en esta placa** (el mapa
-  coincide con el xlsx oficial de Guition: B IO8/3/46/9/1, G IO5/6/7/15/16/4,
-  R IO45/48/47/21/14, HSYNC 39, VSYNC 41, DE 40, PCLK 42, táctil SCL 20 /
-  SDA 19 / RST 38, retroiluminación 2).
+- `main/display.h`: pines y timing **verificados en esta placa** (B IO8/3/46/9/1,
+  G IO5/6/7/15/16/4, R IO45/48/47/21/14, HSYNC 39, VSYNC 41, DE 40, PCLK 42,
+  táctil SCL 20 / SDA 19 / INT 38, retroiluminación 2).
 - `main/esp_bsp.c` + `esp_bsp.h`: panel RGB, GT911, brillo por LEDC, bus I2C
   compartido y el contrato de BSP (arranque, cerrojo de LVGL, brillo). Incluye
   el **puente de panel IO** que necesita `esp_lvgl_port` con paneles RGB (los
@@ -51,7 +56,12 @@ sin QIO` antes de tocar el `sdkconfig`.
   rejilla de 100 px, coordenadas del táctil en vivo, IP y contador de paquetes
   UDP de la P4 en el puerto 4242.
 
-## Arranque: la placa NO arranca sin QIO (leer antes de tocar nada)
+## Trampas de esta placa (las cuatro nos costaron una tarde cada una)
+
+Están en orden de aparición. Si algo va mal en el arranque o en la imagen, casi
+seguro es una de estas cuatro.
+
+### 1. No arranca: bucle de reset silencioso → falta QIO
 
 Esta placa lleva un **ESP32-S3 rev v0.2 con PSRAM octal AP_3v3 de 8 MB**, y esa
 combinación **no arranca en modo de flash DIO**, que es el que trae ESP-IDF por
@@ -76,19 +86,70 @@ probó a 40 y 80 MHz en el reporte, sin efecto):
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 ```
 
-Dos detalles que confunden y por eso están aquí escritos:
+El `sdkconfig` generado **sigue diciendo `CONFIG_ESPTOOLPY_FLASHMODE="dio"`**
+aunque QIO esté puesto, y es correcto: esptool graba siempre el bootloader en
+DIO y es el bootloader de 2ª etapa el que activa QIO él mismo. En el arranque
+bueno se ve `qio_mode: Enabling default flash chip QIO` y luego
+`SPI Mode : QIO`. Si esa línea no sale, QIO no se aplicó.
 
-- El `sdkconfig` generado **sigue diciendo `CONFIG_ESPTOOLPY_FLASHMODE="dio"`**
-  aunque QIO esté puesto. Es correcto: esptool graba siempre el bootloader en
-  DIO y es el bootloader de 2ª etapa el que activa QIO él mismo. En el arranque
-  bueno se ve `qio_mode: Enabling default flash chip QIO` y luego
-  `SPI Mode : QIO`. Si esa línea no sale, QIO no se aplicó.
-- **La consola de esta placa va por UART, no por USB.** La placa se conecta por
-  un **CH340** (`/dev/ttyUSB0`, GPIO43/44), no por el USB nativo del chip. Con
-  `CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y` (lo que traía el proyecto) el log de
-  arranque se va a un USB que no está conectado al PC y **parece que la placa
-  está muerta cuando en realidad está arrancando bien**. Por eso el proyecto
-  usa `CONFIG_ESP_CONSOLE_UART_DEFAULT=y`.
+### 2. Parece muerta y está arrancando → la consola va por UART, no por USB
+
+La placa se conecta por un **CH340** (`/dev/ttyUSB0`, GPIO43/44), no por el USB
+nativo del chip. Con `CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y` (lo que traía el
+proyecto) el log se va a un USB que no está conectado al PC y **la placa parece
+muerta cuando en realidad está arrancando bien**. Por eso el proyecto usa
+`CONFIG_ESP_CONSOLE_UART_DEFAULT=y`.
+
+### 3. La imagen se corre sola hacia un lado (*screen drift*) → bounce buffer
+
+Este es el peor de los cuatro, y el más fácil de diagnosticar mal. La imagen
+entera se va desplazando sola, hacia un lado, como si hiciera *scroll*.
+
+Lo que **no** es (todo comprobado en esta placa):
+
+- No es efecto de escribir en el framebuffer mientras el panel lo lee: el fallo
+  sigue igual con un patrón escrito **una sola vez** y el refresco de LVGL
+  congelado.
+- No es el reloj ni la PSRAM: el panel barre a **39,0 Hz clavados**, ventana a
+  ventana.
+- No es el modo de refresco: pasó igual con buffers parciales en RAM interna, en
+  PSRAM, con framebuffer doble, sincronizado al retrazo y con `avoid_tearing`.
+
+La causa la documenta Espressif como
+[**screen drift**](https://docs.espressif.com/projects/esp-techpedia/en/latest/esp-friends/advanced-development/lcd-application-note/rgb-summary.html):
+el **GDMA no llega a tiempo a servir píxeles desde PSRAM**, el FIFO del LCD se
+queda vacío (*under-run*) y su puntero se desalinea; a partir de ahí el
+controlador lee de la dirección equivocada y muestra las líneas siguientes como
+si fueran las primeras: la imagen se desplaza línea a línea.
+
+El arreglo es un **bounce buffer** de al menos 20 líneas en RAM interna: el DMA
+lee siempre de ahí (memoria rápida, nunca se queda seco) y la ISR lo rellena
+desde PSRAM. En este proyecto está en `esp_bsp.c`
+(`.bounce_buffer_size_px = 20 * LCD_H_RES`, `.num_fbs = 1`), y además está
+abierto XIP desde PSRAM, que es la otra recomendación del mismo documento.
+
+**Con `num_fbs = 0` la pantalla se queda NEGRA**: el driver solo avanza de
+framebuffer cuando el buffer de dibujo está dentro de uno, así que con cero
+framebuffers no avanza nunca. Está comentado en el código para no repetirlo.
+
+### 4. El táctil no registra la interrupción → IO38 es INT, no RST
+
+En esta placa el único pin de control del táctil (IO38) es la **interrupción**,
+no el reset (la definición oficial de la placa dice `RESET_PIN = -1`,
+`INTERRUPT_PIN = 38`). Sin reset, el GT911 se queda en su dirección por defecto
+(0x5D), que es justo la que responde. Con el reset mal puesto el driver hace la
+secuencia de selección de dirección, el táctil queda a medias y el port de LVGL
+avisa con `Error in register touch interrupt`.
+
+Y de propina, dos avisos sobre los **colores** y los **pines**:
+
+- Los canales **R y B no se pueden deducir del xlsx** de Guition: los dos grupos
+  llevan los mismos números de pin (`IO8/IO3/IO46/IO9/IO1` e
+  `IO45/IO48/IO47/IO21/IO14`) y solo cambia la etiqueta. La asignación buena es
+  la de `display.h`, comprobada pidiendo **azul puro**: con los grupos cruzados
+  el azul sale rojo y el blanco sale amarillo.
+- Si se toca el timing, `hsync_idle_low` y `vsync_idle_low` van en **false**,
+  como en la definición oficial de la placa.
 
 ## Cómo se prueba en la placa
 

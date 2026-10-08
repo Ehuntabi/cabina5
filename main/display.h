@@ -1,13 +1,27 @@
 /* Pines y timing de la placa Guition JC8048W550C (ESP32-S3, 5" 800x480).
  *
- * DE DONDE SALEN: del BSP de su placa hermana Sunton/Guition 8048S050C
- * (github.com/mr-sven/esp32-8048S050C), que es la misma familia de modulo con
- * 5" y 800x480. En estos clones los pines coinciden casi siempre, pero ESTO NO
- * ESTA PROBADO EN NUESTRA PLACA: si el panel sale en blanco, con la imagen
- * desplazada o con los colores cambiados, el sospechoso numero uno es este
- * fichero. Se corrige mirando el esquema que viene en la caja.
+ * ESTADO: VERIFICADO EN LA PLACA (8-oct-2026). La pantalla se ve bien, quieta y
+ * con los colores correctos, y el tactil responde en toda la superficie. Lo que
+ * esta aqui ya no es una suposicion.
  *
- * Todo lo de aqui es suposicion a verificar en el bring-up (marcado con [V]). */
+ * DE DONDE SALEN los numeros, porque hay dos fuentes y NO coinciden:
+ *   1. El xlsx oficial de Guition (5-IO pin distribution) del paquete de
+ *      descarga. Es comodo pero tiene una errata: en el canal G las etiquetas de
+ *      bit no van seguidas (DB6, DB8, DB9, DB10, DB11, DB7).
+ *   2. La definicion oficial de placa (JC8048W550C.json del proyecto
+ *      platformio-espressif32-sunton) y el repo ESP32-S3-JC8048W550-LVGL-ESPIDF-EEZ,
+ *      que es codigo que funciona en esta placa.
+ * Manda la 2, y ademas se ha comprobado en la pantalla pidiendo COLORES PUROS.
+ *
+ * OJO CON LOS CANALES R Y B: los dos grupos llevan los MISMOS numeros de pin y
+ * solo cambia la etiqueta, asi que el xlsx no sirve para decidirlos. La
+ * asignacion de abajo es la buena, y se comprobo pidiendo azul puro (0x001F):
+ * con los grupos cruzados el azul sale ROJO y el blanco sale AMARILLO. No la
+ * "arregles" mirando la hoja de calculo.
+ *
+ * El timing NO vive aqui: esta en esp_bsp.c, con la explicacion de por que el
+ * bounce buffer es imprescindible (si no, la imagen se corre sola).
+ */
 #pragma once
 
 #include "driver/gpio.h"
@@ -16,10 +30,10 @@
 #define LCD_H_RES               800
 #define LCD_V_RES               480
 
-#define LCD_PIN_HSYNC           GPIO_NUM_39   /* [V] */
-#define LCD_PIN_VSYNC           GPIO_NUM_41   /* [V] */
-#define LCD_PIN_DE              GPIO_NUM_40   /* [V] */
-#define LCD_PIN_PCLK            GPIO_NUM_42   /* [V] */
+#define LCD_PIN_HSYNC           GPIO_NUM_39
+#define LCD_PIN_VSYNC           GPIO_NUM_41
+#define LCD_PIN_DE              GPIO_NUM_40
+#define LCD_PIN_PCLK            GPIO_NUM_42
 
 /* Orden B0..B4, G0..G5, R0..R4 (RGB565 en paralelo).
  *
@@ -50,15 +64,15 @@
 #define LCD_PIN_DATA_R4         GPIO_NUM_14
 
 /* ── Retroiluminacion (PWM por LEDC) ──────────────────────────────────────── */
-#define LCD_PIN_BACKLIGHT       GPIO_NUM_2    /* [V] */
+#define LCD_PIN_BACKLIGHT       GPIO_NUM_2 
 #define LCD_BL_LEDC_TIMER       LEDC_TIMER_0
 #define LCD_BL_LEDC_CHANNEL     LEDC_CHANNEL_0
 #define LCD_BL_LEDC_FREQ_HZ     4000
 #define LCD_BL_LEDC_RES         LEDC_TIMER_8_BIT
 
 /* ── Tactil GT911 por I2C ─────────────────────────────────────────────────── */
-#define TOUCH_PIN_SCL           GPIO_NUM_20   /* [V] */
-#define TOUCH_PIN_SDA           GPIO_NUM_19   /* [V] */
+#define TOUCH_PIN_SCL           GPIO_NUM_20
+#define TOUCH_PIN_SDA           GPIO_NUM_19
 /* IO38 es la INTERRUPCION del tactil, no su reset. El GT911 de esta placa no
  * lleva reset conectado: se queda en su direccion por defecto (0x5D). */
 #define TOUCH_PIN_RST           GPIO_NUM_NC
