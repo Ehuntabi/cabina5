@@ -95,6 +95,11 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # OJO: esta placa lleva un CH340 en UART0 (GPIO43/44), no el USB nativo.
 # Con USB_SERIAL_JTAG el log de arranque no sale por ningun sitio visible.
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+# 460800 Y NO 115200: por este mismo puerto salen las capturas de pantalla del
+# modo captura (1,15 MB por pantalla en ARGB8888). A 115200 tardaban 100 s por
+# pantalla y el CH340 perdia bytes por el camino (las imagenes salian rayadas);
+# a 460800 son ~25 s y llegan enteras. El log normal no se entera.
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=460800
 # ...y el USB nativo APAGADO. No hace falta (la placa se lee por el CH340) y
 # ademas en este banco el /dev/ttyACM* que aparece es la P4, no esta placa.
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y

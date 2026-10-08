@@ -23,12 +23,17 @@
  *     --size 32 --bpp 4 --format lvgl --lv-include lvgl.h --no-compress \
  *     -o main/icons/iconos_32.c
  *
- * DOS TAMANOS, y por que (8-oct-2026): la UI usa iconos_44. La 32 es la medida
- * original -- cuando las casillas del menu median 146x145 px en la pantalla de
- * 3,5" -- y con las casillas de 253x210 de esta pantalla se quedaba pequena al
- * lado del rotulo, que si subio de escalon. La 32 se queda en el proyecto
- * porque es la receta de la que sale la 44: para rehacer la grande, el mismo
- * comando con --size 44 y -o main/icons/iconos_44.c.
+ * TRES TAMANOS, y por que (8-oct-2026): la UI usa iconos_72.
+ *
+ *   - 32: la medida original (casillas de 146x145 en la pantalla de 3,5").
+ *   - 44: el primer intento en esta pantalla; se quedo pequena en cuanto los
+ *     rotulos de las casillas subieron a la letra 48 -- el icono parecia un
+ *     adorno al lado del texto.
+ *   - 72: el que usa la UI. NO es el 44 multiplicado por 1,667: en una casilla
+ *     de 253x210 con el rotulo en letra 48, un icono de 60-72 px es lo que
+ *     equilibra la tarjeta cuando se mira desde el asiento.
+ *
+ * Para rehacer cualquiera: el mismo comando con --size y -o distintos.
  *
  * Al añadir un icono hay que meter su codigo en el --range Y aqui: si falta en
  * la fuente sale un hueco vacio, que es peor que no poner icono. Hay que
@@ -39,7 +44,8 @@
 #include "lvgl.h"
 
 LV_FONT_DECLARE(iconos_32);
-LV_FONT_DECLARE(iconos_44);   /* el que usa la UI (ver arriba) */
+LV_FONT_DECLARE(iconos_44);
+LV_FONT_DECLARE(iconos_72);   /* el que usa la UI (ver arriba) */
 
 #define ICO_PARADA     "\xEF\x81\x81"   /* U+F041  chincheta de mapa */
 #define ICO_AGUAS      "\xEF\x81\x83"   /* U+F043  gota */

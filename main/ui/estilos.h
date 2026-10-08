@@ -70,6 +70,32 @@
 #define lv_font_montserrat_32   FUENTE_GRANDE
 /* La 40 y la 48 ya son el techo: se quedan donde estan. */
 
+/* ── La ESCALA de la pantalla ────────────────────────────────────────────────
+ *
+ * LA CLAVE DE TODO ESTO, y conviene entenderla porque explica los bandazos de
+ * hoy: esta pantalla es de 800x480. La UI venia de una de 480x320 (->
+ * "apaisada" en los comentarios viejos). 800/480 = 1,667.
+ *
+ * Mas resolucion NO es "todo mas grande": es MAS SITIO. Si un boton se define
+ * con 120 px de ancho, en esta pantalla sigue midiendo 120 px fisicos, que con
+ * 181 ppp son menos centimetros que antes -> se ve PEQUENO. Para que se vea
+ * igual de grande que en la de 3,5" hay que multiplicar por 1,667. Y si ademas
+ * se quiere MAS grande (que es lo que se ha comprado esta pantalla, y lo que
+ * pidio el usuario: "he comprado esta pantalla para que todo se vea mas
+ * grande"), se multiplica un poco mas: de ahi el 1,8.
+ *
+ * Como se usa: ESC(20) = 36. Se aplica a las MEDIDAS (anchos, altos, separaciones,
+ * margenes) en el sitio donde se escriben. NO se aplica a la letra: los tamanos
+ * de fuente ya estan elegidos a mano en la escala de arriba, que sube dos
+ * escalones (no 1,8x) para que el texto no se salga de las cajas.
+ *
+ * Lo que NO se toca: porcentajes (lv_pct), LV_SIZE_CONTENT, colores, indices y
+ * los valores que ya se pusieron a escala nueva a mano (el boton de Volver de
+ * 192x56, las casillas de 253, los campos de 50...). */
+#define UI_ESCALA   1.8
+#define ESC(v)      ((lv_coord_t)((v) * UI_ESCALA))
+
+
 /* ── Ajuste automatico del texto de un boton ─────────────────────────────────
  *
  * POR QUE: al subir la escala de fuentes, los rotulos largos de los botones

@@ -23,6 +23,7 @@
  * aguas encoge: antes ocupaba un cuarto de la pantalla para mostrar cinco
  * lucecitas.
  */
+#include "estilos.h"   /* ESC(): la escala de la pantalla */
 #include "view_info.h"
 #include "brillo.h"
 #include "net/viaje_cola.h"   /* VIAJE_COLA_CAPACIDAD, para el aviso de casi llena */
@@ -1500,7 +1501,7 @@ void view_info_create(lv_obj_t *parent)
      * tarjeta por su cuenta: asi quedan a la misma altura pase lo que pase
      * con el alto exacto de cada una, sin ajustar offsets a ojo. */
     s_frigo_fan_track = lv_obj_create(temp_card);
-    lv_obj_set_size(s_frigo_fan_track, 120, 14);
+    lv_obj_set_size(s_frigo_fan_track, ESC(120), ESC(14));
     lv_obj_set_style_bg_color(s_frigo_fan_track, lv_color_hex(0x333333), 0);
     lv_obj_set_style_bg_opa(s_frigo_fan_track, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_frigo_fan_track, 0, 0);

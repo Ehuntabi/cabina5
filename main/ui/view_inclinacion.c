@@ -421,7 +421,7 @@ void view_inclinacion_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_sin_sensor, lv_color_hex(0xFFD54F), 0);
     lv_obj_set_style_text_font(s_sin_sensor, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_align(s_sin_sensor, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(s_sin_sensor, 400);
+    lv_obj_set_width(s_sin_sensor, ESC(400));
     lv_obj_align(s_sin_sensor, LV_ALIGN_TOP_MID, 0, 84);
     lv_obj_add_flag(s_sin_sensor, LV_OBJ_FLAG_HIDDEN);
 
@@ -442,7 +442,7 @@ void view_inclinacion_create(lv_obj_t *parent)
     lv_obj_align(s_label_status, LV_ALIGN_TOP_MID, 0, 258);
 
     s_calib_btn = lv_btn_create(right);
-    lv_obj_set_size(s_calib_btn, 300, 68);
+    lv_obj_set_size(s_calib_btn, ESC(300), ESC(68));
     lv_obj_set_style_bg_color(s_calib_btn, lv_color_hex(0x333333), 0);
     lv_obj_add_event_cb(s_calib_btn, calib_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_align(s_calib_btn, LV_ALIGN_BOTTOM_MID, 0, -24);

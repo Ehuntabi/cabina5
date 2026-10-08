@@ -646,7 +646,7 @@ static lv_obj_t *make_money_field_stacked(lv_obj_t *parent, const char *label_te
      * poder alinearla a mano sin que empuje al resto de hijos. */
     lv_obj_t *dd = lv_dropdown_create(cont);
     lv_dropdown_set_options(dd, CURRENCY_OPTIONS);
-    lv_obj_set_size(dd, 90, MONEY_BIG_DD_H);
+    lv_obj_set_size(dd, ESC(90), MONEY_BIG_DD_H);
     lv_obj_set_style_text_font(dd, &lv_font_montserrat_20, 0);
     lv_obj_add_flag(dd, LV_OBJ_FLAG_FLOATING);
     lv_obj_align(dd, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
@@ -2835,13 +2835,25 @@ static void build_pernocta(lv_obj_t *form)
 
     precio_row_t o;
     s_pern_precio_row    = make_precio_row(form, &o, pern_cobro_cb);
+    /* LA PERNOCTA, REPARTIDA POR TODO EL ALTO (8-oct-2026).
+     *
+     * Con el contenido a su tamano natural, los campos acababan a media
+     * pantalla y quedaban ~150 px negros debajo, con los botones flotando en
+     * medio. Aqui se reparte: la fila del precio se estira (es la que puede
+     * crecer sin romperse: sus controles se centran solos) y la fila de
+     * acciones se queda con su alto y se va AL FONDO. Asi la pantalla queda
+     * llena y los botones donde los busca el dedo. */
+    lv_obj_set_flex_grow(s_pern_precio_row, 1);
+    lv_obj_set_style_min_height(s_pern_precio_row, 96, 0);
     s_pern_precio_lbl    = o.lbl;
     s_pern_precio_ta     = o.ta;
     s_pern_currency_dd   = o.dd;
     s_pern_cobro_bm      = o.bm;
 
     lv_obj_t *acciones = lv_obj_create(form);
-    lv_obj_set_size(acciones, lv_pct(100), 50);
+    /* Alto 76 y no 50: los rotulos de estos dos botones van con letra 26 y con
+     * 50 el texto quedaba pegado a los bordes. */
+    lv_obj_set_size(acciones, lv_pct(100), 76);
     lv_obj_set_style_bg_opa(acciones, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(acciones, 0, 0);
     lv_obj_set_style_pad_all(acciones, 0, 0);
@@ -2850,7 +2862,7 @@ static void build_pernocta(lv_obj_t *form)
     lv_obj_set_flex_flow(acciones, LV_FLEX_FLOW_ROW);
 
     lv_obj_t *serv_btn = lv_btn_create(acciones);
-    lv_obj_set_height(serv_btn, 50);
+    lv_obj_set_height(serv_btn, lv_pct(100));
     lv_obj_set_flex_grow(serv_btn, 1);
     lv_obj_set_style_bg_color(serv_btn, lv_color_hex(COL_VIAJE), 0);
     lv_obj_set_style_bg_color(serv_btn,
@@ -4594,7 +4606,7 @@ static void abiertos_fila_crear(lv_obj_t *body, int idx)
     lv_obj_t *f = lv_obj_create(body);
     lv_obj_remove_style_all(f);
     lv_obj_set_width(f, lv_pct(100));
-    lv_obj_set_height(f, 58);
+    lv_obj_set_height(f, ESC(58));
     lv_obj_clear_flag(f, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(f, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(f, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -4769,8 +4781,8 @@ static void crear_menus(lv_obj_t *parent)
      * grow y se fija un tamano concreto -- mas grande que boton_chico
      * (46 px) pero acotado. */
     lv_obj_set_flex_grow(s_puntual_fin_btn, 0);
-    lv_obj_set_width(s_puntual_fin_btn, 260);
-    lv_obj_set_height(s_puntual_fin_btn, 90);
+    lv_obj_set_width(s_puntual_fin_btn, ESC(260));
+    lv_obj_set_height(s_puntual_fin_btn, ESC(90));
     lv_obj_add_flag(s_puntual_fin_cont, LV_OBJ_FLAG_HIDDEN);
 
     /* --- 6. Por que paras --- */
@@ -4844,7 +4856,7 @@ static void crear_menus(lv_obj_t *parent)
     for (int p = PAN_PRINCIPAL; p < PAN_COUNT; p += 3) {
         lv_obj_t *fp = fila(body);
         lv_obj_set_flex_grow(fp, 0);
-        lv_obj_set_height(fp, 58);
+        lv_obj_set_height(fp, ESC(58));
         for (int k = p; k < p + 3 && k < PAN_COUNT; k++) {
             char rot[40];
             snprintf(rot, sizeof(rot), "%d. %s", k, PAN_NOMBRE[k]);
@@ -4862,7 +4874,7 @@ static void crear_menus(lv_obj_t *parent)
     for (int c = 0; c < CAT_COUNT; c += 3) {
         lv_obj_t *fc = fila(body);
         lv_obj_set_flex_grow(fc, 0);
-        lv_obj_set_height(fc, 58);
+        lv_obj_set_height(fc, ESC(58));
         for (int k = c; k < c + 3 && k < CAT_COUNT; k++) {
             lv_obj_set_flex_grow(casilla(fc, NULL, CAT_NOMBRE[k], NULL, COL_BOMBONA,
                                          CEL3_W, lv_pct(100), icon_click_cb,

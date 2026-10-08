@@ -51,7 +51,21 @@ static const char *TAG = "35CABINA";
 static void splash_done_cb(lv_timer_t *t) {
     /* En LVGL 9 lv_timer_t es OPACO: el user_data se lee con su accesorio. */
     lv_obj_t *splash_bg = (lv_obj_t *)lv_timer_get_user_data(t);
+    ESP_LOGI("SPLASH", "quito el splash (%s)", splash_bg ? "hay objeto" : "SIN OBJETO");
     lv_obj_del(splash_bg);
+
+    /* DIAGNOSTICO: quien queda en pantalla y si tiene contenido. */
+    lv_obj_t *act = lv_screen_active();
+    if (act) {
+        lv_obj_t *hijo = lv_obj_get_child(act, 0);
+        ESP_LOGW("SPLASH", "pantalla activa %p: %u hijos, primera %p (%dx%d) tam %dx%d",
+                 (void *)act, (unsigned)lv_obj_get_child_count(act), (void *)hijo,
+                 hijo ? (int)lv_obj_get_width(hijo) : 0,
+                 hijo ? (int)lv_obj_get_height(hijo) : 0,
+                 (int)lv_obj_get_width(act), (int)lv_obj_get_height(act));
+    } else {
+        ESP_LOGE("SPLASH", "NO hay pantalla activa");
+    }
 }
 
 static void splash_create(void) {
@@ -84,6 +98,8 @@ static void splash_create(void) {
 
     lv_timer_t *t = lv_timer_create(splash_done_cb, SPLASH_MS, splash_bg);
     lv_timer_set_repeat_count(t, 1);
+    ESP_LOGI("SPLASH", "puesto el splash (%d ms), temporizador %s",
+             SPLASH_MS, t ? "creado" : "NO CREADO");
 }
 
 /* Heartbeat: diagnostico cada 30s (uptime, heap, PSRAM, contador de vida
