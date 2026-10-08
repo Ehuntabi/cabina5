@@ -247,32 +247,25 @@ static void guardar_cb(lv_event_t *e)
                         "Si, cambiar", "Cancelar", do_guardar, NULL);
 }
 
-/* ── El contenido va en una COLUMNA CENTRADA, no a todo lo ancho ─────────────
+/* ── A PANTALLA COMPLETA, que es de 5" ──────────────────────────────────────
  *
- * POR QUE (8-oct-2026): en los 800 px de esta pantalla, un campo de texto a
- * pantalla completa deja el rotulo en una punta y el valor en la otra, y un
- * boton de 800 x 64 parece una franja, no un boton. Las dos pantallas de
- * Ajustes (el menu y el formulario de Wi-Fi) se quedan por tanto en una columna
- * de UI_ANCHO_COLUMNA centrada, con el resto de margen.
+ * POR QUE CAMBIO (8-oct-2026): la primera version metia el contenido en una
+ * columna centrada de 560 px, para que un campo de texto no acabara con el
+ * rotulo en una punta y el valor en la otra. El resultado, visto en la placa,
+ * era justo lo contrario de lo que se buscaba: dos franjas negras a los lados y
+ * media pantalla vacia debajo, o sea una interfaz que parecia de la pantalla de
+ * 3,5". El usuario lo dijo claro: "el tamano no ves que es el de la de 5".
  *
- * Se hace con un contenedor intermedio y no cambiando el ancho de cada widget:
- * asi el reparto de dentro (botones al 100%, filas, tarjeta de version con
- * flex_grow) sigue igual que estaba y no hay que tocar ni una linea de mas.
- */
-static lv_obj_t *columna_centrada(lv_obj_t *parent)
-{
-    lv_obj_t *c = lv_obj_create(parent);
-    lv_obj_set_size(c, UI_ANCHO_COLUMNA, lv_pct(100));
-    lv_obj_align(c, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_set_style_bg_opa(c, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(c, 0, 0);
-    lv_obj_set_style_pad_all(c, 8, 0);
-    lv_obj_set_style_pad_row(c, 8, 0);
-    lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
-    return c;
-}
-
+ * Ahora la pantalla se aprovecha ENTERA:
+ *   - Los botones de accion ocupan los 800 px de ancho y se reparten el alto
+ *     (110 px cada uno, con el rotulo en letra 30: se leen desde el asiento).
+ *   - La tarjeta de la version se queda con TODO el alto que sobra, con el
+ *     numero en letra 48.
+ *   - Los campos del formulario de Wi-Fi se ensanchan a la pantalla, con
+ *     margen a los lados pero sin columna.
+ *
+ * El unico sitio donde el ancho se limita a proposito es el ancho MAXIMO de un
+ * campo de texto (ver UI_ANCHO_COLUMNA en estilos.h), porque ahi si molesta. */
 void view_ajustes_refresh(void)
 {
     udp_rx_get_credentials(s_ssid_orig, sizeof(s_ssid_orig),
@@ -298,7 +291,14 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
     /* ── El MENU: un boton de Wi-Fi y, en el resto, la version ───────────── */
-    s_menu = columna_centrada(parent);
+    s_menu = lv_obj_create(parent);
+    lv_obj_set_size(s_menu, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_opa(s_menu, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_menu, 0, 0);
+    lv_obj_set_style_pad_all(s_menu, 16, 0);
+    lv_obj_set_style_pad_row(s_menu, 14, 0);
+    lv_obj_clear_flag(s_menu, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(s_menu, LV_FLEX_FLOW_COLUMN);
 
     lv_obj_t *mrow = lv_obj_create(s_menu);
     lv_obj_set_size(mrow, lv_pct(100), 34);
@@ -324,25 +324,29 @@ void view_ajustes_create(lv_obj_t *parent)
 
     /* El unico boton, y grande: es lo unico que se toca aqui. */
     lv_obj_t *wbtn = lv_btn_create(s_menu);
-    lv_obj_set_size(wbtn, lv_pct(100), 64);
+    lv_obj_set_size(wbtn, lv_pct(100), 110);
+    lv_obj_set_flex_grow(wbtn, 1);
     lv_obj_set_style_bg_color(wbtn, lv_color_hex(0x1565C0), 0);
     lv_obj_add_event_cb(wbtn, wifi_open_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *wlbl = lv_label_create(wbtn);
     lv_label_set_text(wlbl, LV_SYMBOL_WIFI "   Wi-Fi");
-    lv_obj_set_style_text_font(wlbl, &lv_font_montserrat_24, 0);
+    /* Letra 30 y el ajuste automatico de rotulos de estilos.h como red: en 800
+     * px de ancho entra de sobra, y asi se lee de lejos. */
+    lv_obj_set_style_text_font(wlbl, &lv_font_montserrat_30, 0);
     lv_obj_center(wlbl);
 
     /* Brillo y contraste. Existe porque el doble toque de la pantalla de datos
      * no sale a la primera: aqui hay un boton y se acabaron las peripecias.
      * Cambia las dos cosas a la vez, igual que el gesto. 30-sep-2026. */
     lv_obj_t *bbtn = lv_btn_create(s_menu);
-    lv_obj_set_size(bbtn, lv_pct(100), 64);
+    lv_obj_set_size(bbtn, lv_pct(100), 110);
+    lv_obj_set_flex_grow(bbtn, 1);
     lv_obj_set_style_bg_color(bbtn, lv_color_hex(0x37474F), 0);
     lv_obj_add_event_cb(bbtn, brillo_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *blbl = lv_label_create(bbtn);
     lv_label_set_text_fmt(blbl, LV_SYMBOL_EYE_OPEN "   Brillo y contraste: %u%%",
                           (unsigned)brillo_nivel());
-    lv_obj_set_style_text_font(blbl, &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_font(blbl, &lv_font_montserrat_28, 0);
     lv_obj_center(blbl);
     s_brillo_lbl = blbl;
 
@@ -351,12 +355,13 @@ void view_ajustes_create(lv_obj_t *parent)
      * sin esto no hay forma de revisarlos. Va el ultimo de los botones y con el
      * color de "Ajustes": no apunta nada, es una herramienta. */
     lv_obj_t *pbtn = lv_btn_create(s_menu);
-    lv_obj_set_size(pbtn, lv_pct(100), 64);
+    lv_obj_set_size(pbtn, lv_pct(100), 110);
+    lv_obj_set_flex_grow(pbtn, 1);
     lv_obj_set_style_bg_color(pbtn, lv_color_hex(0x455A64), 0);
     lv_obj_add_event_cb(pbtn, paseo_open_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *plbl = lv_label_create(pbtn);
     lv_label_set_text(plbl, LV_SYMBOL_LIST "   Ver todas las pantallas");
-    lv_obj_set_style_text_font(plbl, &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_font(plbl, &lv_font_montserrat_28, 0);
     lv_obj_center(plbl);
 
     /* Estado del enlace con la P4. Vive AQUI y no en la pantalla de datos
@@ -396,18 +401,18 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_t *vrot = lv_label_create(vcard);
     lv_label_set_text(vrot, "Version instalada");
     lv_obj_set_style_text_color(vrot, lv_color_hex(0x888888), 0);
-    lv_obj_set_style_text_font(vrot, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(vrot, &lv_font_montserrat_26, 0);
 
     s_ver_lbl = lv_label_create(vcard);
     lv_label_set_text(s_ver_lbl, app ? app->version : "?");
     lv_obj_set_style_text_color(s_ver_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(s_ver_lbl, &lv_font_montserrat_40, 0);
+    lv_obj_set_style_text_font(s_ver_lbl, &lv_font_montserrat_48, 0);
 
     lv_obj_t *vfecha = lv_label_create(vcard);
     if (app) lv_label_set_text_fmt(vfecha, "%s  %s", app->date, app->time);
     else     lv_label_set_text(vfecha, "");
     lv_obj_set_style_text_color(vfecha, lv_color_hex(0xAAAAAA), 0);
-    lv_obj_set_style_text_font(vfecha, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(vfecha, &lv_font_montserrat_26, 0);
 
     /* Chivato de reinicio (ver diag_reset.c): aparece SOLO si el arranque
      * anterior no lo provoco el contacto (watchdog, panic, cuelgue). Con el
@@ -425,8 +430,13 @@ void view_ajustes_create(lv_obj_t *parent)
     }
 
     /* ── El formulario del WI-FI ─────────────────────────────────────────── */
-    s_wifi = columna_centrada(parent);
-    lv_obj_set_style_pad_row(s_wifi, 4, 0);
+    s_wifi = lv_obj_create(parent);
+    lv_obj_set_size(s_wifi, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_opa(s_wifi, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_wifi, 0, 0);
+    lv_obj_set_style_pad_all(s_wifi, 16, 0);
+    lv_obj_set_style_pad_row(s_wifi, 8, 0);
+    lv_obj_set_flex_flow(s_wifi, LV_FLEX_FLOW_COLUMN);
     /* Cuatro campos y dos explicaciones caben justos en 480 px de alto (en la
      * pantalla de 320 px logicos no cabian, y de ahi que se deslice). Se deja
      * que se pueda deslizar igualmente: con la letra un escalon mas y un campo
