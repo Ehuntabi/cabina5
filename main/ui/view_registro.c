@@ -102,6 +102,11 @@ static bool      s_ui_lista;
  * sea elastica y la casilla ocupe todo el alto disponible. */
 #define MENU_PAD     10
 #define MENU_GAP     10
+/* Margen del cuerpo de una pantalla y hueco entre filas. Viven aqui arriba
+ * (y no junto a pantalla_crear(), que es de donde salieron) porque
+ * make_form_container() tambien los usa y esta antes en el fichero. */
+#define PAN_PAD      12
+#define PAN_GAP      10
 #define CEL3_W      253
 #define CEL2_W      (CEL3_W * 3 / 2 + MENU_GAP / 2)   /* dos casillas + su hueco */
 
@@ -362,6 +367,12 @@ static const char *const CURRENCY_CODES[] = {
     "EUR", "GBP", "CHF", "SEK", "NOK", "DKK", "PLN", "CZK", "HUF", "RON"
 };
 
+/* El ajuste del rotulo al ancho del boton vive en estilos.h (rotulo_autoajustable),
+ * compartido con el dialogo de confirmacion: se hacia en DOS sitios y la primera
+ * version, que corria dentro del pintado, colgaba la placa por recursion (ver el
+ * comentario de estilos.h). */
+
+
 /* === Navegacion grid <-> formulario ===================================== */
 
 /* Definidos abajo, junto a los widgets que tocan. */
@@ -533,7 +544,6 @@ static void ta_click_cb(lv_event_t *e)
  *
  *   letra 32 -> 38 de linea  ->  50 de campo
  *   letra 40 -> 47 de linea  ->  50 de campo (el mismo sirve) */
-#define FIELD_MIN_H  84
 #define FIELD_TA_H   50
 
 /* La cabecera crece de 34 a 48 para que quepa el boton de Volver en pastilla.
@@ -548,7 +558,14 @@ static lv_obj_t *make_field_row(lv_obj_t *parent)
     lv_obj_t *cont = lv_obj_create(parent);
     lv_obj_set_width(cont, lv_pct(100));
     lv_obj_set_height(cont, LV_SIZE_CONTENT);
-    lv_obj_set_style_min_height(cont, FIELD_MIN_H, 0);
+    /* SIN min_height A PROPOSITO (quitado el 8-oct-2026): esta fila tiene dos
+     * formatos -- etiqueta encima del campo (columna) y etiqueta al lado
+     * (fila, el caso de "Litros + Kilometros") -- y el min_height que se puso
+     * para el primero RECORTABA al segundo. Medido: en columna la fila mide
+     * 26+50+aire = 84 y el minimo no estorba, pero en fila cada campo mide 50 y
+     * con la etiqueta encima son 84+84 = 168: la fila metia 84 y los dos campos
+     * se solapaban encima del siguiente. Ahora la fila mide lo que mide su
+     * contenido y crece sola. */
     lv_obj_set_flex_grow(cont, 1);
     lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(cont, 0, 0);
@@ -1301,7 +1318,10 @@ static void valoracion_nota_cb(lv_event_t *e)
 static lv_obj_t *make_readonly_row(lv_obj_t *parent, const char *label_text)
 {
     lv_obj_t *cont = lv_obj_create(parent);
-    lv_obj_set_size(cont, lv_pct(100), 42);
+    /* 56 y no 42: el valor va con letra 34 (40 px de linea) y con 42 mas 2 de
+     * relleno el texto quedaba recortado por arriba y por abajo -- es la fila
+     * del precio por litro calculado, que se lee al repostar. */
+    lv_obj_set_size(cont, lv_pct(100), 56);
     lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(cont, 0, 0);
     lv_obj_set_style_pad_all(cont, 2, 0);
@@ -1333,6 +1353,10 @@ static lv_obj_t *make_form_container(lv_obj_t *parent)
      * COLUMNA CENTRADA de ancho comodo (ver abajo), y asi el negro de fuera
      * sigue tapando la pantalla entera. */
     lv_obj_set_style_pad_all(form, 0, 0);
+    /* COLUMNA y no fila, con dos hijos: la cabecera (fija) y el contenido (que
+     * se desliza). Ver el porque en el comentario de la columna. */
+    lv_obj_set_flex_flow(form, LV_FLEX_FLOW_COLUMN);
+    lv_obj_clear_flag(form, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(form, LV_OBJ_FLAG_HIDDEN);
 
     /* COLUMNA CENTRADA (8-oct-2026). En los 800 px de esta pantalla, un campo a
@@ -1343,18 +1367,49 @@ static lv_obj_t *make_form_container(lv_obj_t *parent)
      *
      * Los menus NO pasan por aqui: sus casillas se reparten los 776 px utiles a
      * proposito (ver CEL3_W). */
+    /* CABECERA FIJA: el titulo y el boton de Volver NO se deslizan.
+     *
+     * POR QUE: los formularios largos (Mantenimiento, Servicios) no caben de
+     * alto con la letra nueva -- medido, Mantenimiento pasa de 600 px -- y la
+     * solucion barata era dejar que se deslice todo. Pero entonces el "Volver"
+     * se va fuera de la pantalla y hay que bajar para poder salir, que es
+     * justo lo que no se puede pedir. La cabecera se queda arriba (fuera del
+     * area que se desliza) y lo unico que se mueve es el contenido.
+     *
+     * No cuesta nada: el ancho de la cabecera lo pone el contenedor, asi que
+     * "Volver" y el titulo siguen cayendo en las esquinas de la pantalla como
+     * en los menus. */
+    lv_obj_t *cab = lv_obj_create(form);
+    lv_obj_set_width(cab, lv_pct(100));
+    lv_obj_set_height(cab, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(cab, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(cab, 0, 0);
+    lv_obj_set_style_pad_hor(cab, PAN_PAD, 0);
+    lv_obj_set_style_pad_top(cab, 4, 0);
+    lv_obj_set_style_pad_bottom(cab, 2, 0);
+    lv_obj_clear_flag(cab, LV_OBJ_FLAG_SCROLLABLE);
+
     lv_obj_t *col = lv_obj_create(form);
-    lv_obj_set_size(col, UI_ANCHO_COLUMNA, lv_pct(100));
-    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_width(col, UI_ANCHO_COLUMNA);
+    lv_obj_set_flex_grow(col, 1);
     lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(col, 0, 0);
     lv_obj_set_style_pad_all(col, 8, 0);
     lv_obj_set_style_pad_row(col, 4, 0);
     lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
-    lv_obj_clear_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+    /* Solo se desliza en vertical; en horizontal el gesto es del carrusel. */
+    lv_obj_set_scroll_dir(col, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(col, LV_SCROLLBAR_MODE_AUTO);
 
-    /* Devuelve la COLUMNA: quien construye el formulario mete ahi sus widgets.
-     * Colgar del formulario y no de la columna dejaria los campos a 800 px. */
+    /* La columna va centrada dentro del formulario. Al ser una columna flex,
+     * el align del padre no la centra en horizontal (la cruzaria el
+     * cross-align), asi que se le pone un margen izquierdo calculado: el
+     * sobrante se reparte a los dos lados. */
+    lv_obj_set_style_pad_left(col, (UI_ANCHO - UI_ANCHO_COLUMNA) / 2, 0);
+    lv_obj_set_style_pad_right(col, (UI_ANCHO - UI_ANCHO_COLUMNA) / 2, 0);
+
+    /* Devuelve la COLUMNA: quien construye el formulario mete ahi sus widgets
+     * (el contenido que se desliza). La cabecera la rellena add_header(). */
     return col;
 }
 
@@ -2324,6 +2379,7 @@ static lv_obj_t *make_save_button(lv_obj_t *parent, const char *text, lv_event_c
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(COL_TILE_FG), 0);
     lv_obj_center(lbl);
+    rotulo_autoajustable(btn, lbl);
     return btn;
 }
 
@@ -2883,8 +2939,6 @@ static lv_obj_t *s_ab_hora[SALIDA_EVENTOS_MAX];
 static lv_obj_t *s_ab_fin[SALIDA_EVENTOS_MAX];
 
 #define BAR_H     26
-#define PAN_PAD   12
-#define PAN_GAP   10
 #define CONN_MS   5000   /* mismo criterio que view_info.c */
 
 static void mostrar_menu(pantalla_t p);
@@ -3075,6 +3129,7 @@ static lv_obj_t *boton_grande(lv_obj_t *padre, const char *icono,
     lv_label_set_text(l, texto);
     lv_obj_set_style_text_color(l, lv_color_hex(COL_TILE_FG), 0);
     lv_obj_set_style_text_font(l, &lv_font_montserrat_32, 0);
+    rotulo_autoajustable(b, l);
     if (apoyo) {
         lv_obj_t *s = lv_label_create(b);
         lv_label_set_text(s, apoyo);
@@ -3085,6 +3140,7 @@ static lv_obj_t *boton_grande(lv_obj_t *padre, const char *icono,
     }
     return b;
 }
+
 
 /* Boton pequeno de abajo. Alto fijo: no debe competir con el grande.
  *
@@ -3110,6 +3166,10 @@ static lv_obj_t *boton_chico(lv_obj_t *padre, const char *texto, uint32_t color,
     lv_obj_set_style_text_color(l, lv_color_hex(COL_TILE_FG), 0);
     lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
     lv_obj_center(l);
+    /* El ancho de estos botones a veces lo decide el reparto de una fila
+     * flexible (los dos de abajo de la pantalla de salida), asi que el rotulo
+     * se ajusta al pintar, no aqui. */
+    rotulo_autoajustable(b, l);
     return b;
 }
 

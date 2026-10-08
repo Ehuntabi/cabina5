@@ -227,17 +227,6 @@ static esp_lcd_panel_handle_t bsp_rgb_panel_new(void)
 }
 
 /* ── Tactil (GT911) ───────────────────────────────────────────────────────── */
-/* DIAGNOSTICO temporal: cuantas veces ha saltado la interrupcion del tactil.
- * El GT911 tiene su INT en IO38, y de ahi depende el modo event-driven que
- * trae el port de Espressif por defecto. */
-static volatile uint32_t s_int_tactil = 0;
-
-static void IRAM_ATTR bsp_touch_int_cb(esp_lcd_touch_handle_t tp)
-{
-    (void)tp;
-    s_int_tactil++;
-}
-
 static esp_lcd_touch_handle_t bsp_touch_new(void)
 {
     esp_lcd_panel_io_handle_t io = NULL;
@@ -279,9 +268,13 @@ static esp_lcd_touch_handle_t bsp_touch_new(void)
         },
     };
     ESP_ERROR_CHECK(esp_lcd_touch_new_i2c_gt911(io, &touch_cfg, &touch));
-    /* Solo para el diagnostico: cuenta las interrupciones que llegan de verdad
-     * (ver el log de 2 s). No cambia el comportamiento del driver. */
-    esp_lcd_touch_register_interrupt_callback(touch, bsp_touch_int_cb);
+    /* OJO: aqui NO se registra ningun callback de interrupcion propio. Se hizo
+     * durante la puesta a punto para contar las interrupciones y salieron CERO
+     * en 30 s (el pin no hace de interrupcion en esta placa), que es el dato
+     * que explica el modo sondeo de mas abajo. Ademas, registrarlo PISA el
+     * callback que pone el driver (el que despierta la tarea de LVGL), asi que
+     * dejarlo puesto seria cambiar el comportamiento medido. */
+    (void)0;
     /* OJO, COSA RARA DEL COMPONENTE (no tocar sin leer esto): pedimos
      * rst = NC (-1) e int = 38, que es lo correcto para esta placa, pero el
      * handle devuelve los dos campos AL REVES (rst = 38, int = 0). Aun asi el
@@ -295,15 +288,18 @@ static esp_lcd_touch_handle_t bsp_touch_new(void)
     return touch;
 }
 
-/* DIAGNOSTICO temporal: cuenta las lecturas que pide LVGL Y los toques que
- * devuelve el chip. Las dos cifras juntas son las que dicen donde esta el
- * fallo: si "lecturas" sube y "puntos" se queda en 0 al tocar, el problema es
- * el chip o el cableado; si "lecturas" no sube, el problema es que LVGL no
- * esta leyendo el dispositivo (el temporizador pausado que ya nos costo una
- * tarde). Se quitan cuando la UI este estable (ver docs/RELEVO). */
+/* Cuenta las lecturas que pide LVGL Y los toques que devuelve el chip.
+ *
+ * NO ES UN ADORNO: las dos cifras juntas dicen donde esta el fallo cuando el
+ * tactil no responde -- si "lecturas" sube y "puntos" no, el problema es el
+ * chip o el cableado; si "lecturas" no sube, LVGL no esta leyendo el
+ * dispositivo. Los dos fallos ya han costado una tarde cada uno en esta placa
+ * (ver el comentario de LV_INDEV_MODE_TIMER mas abajo y docs/RELEVO), asi que
+ * la comprobacion del arranque se queda. */
 static lv_indev_read_cb_t s_read_cb_original = NULL;
 static volatile uint32_t s_lecturas = 0;
 static volatile uint32_t s_puntos = 0;
+static bool s_tactil_comprobado = false;
 
 static void bsp_touch_read_contado(lv_indev_t *indev, lv_indev_data_t *datos)
 {
@@ -378,20 +374,40 @@ static void bsp_lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t
 static void bsp_display_fps_cb(lv_timer_t *t)
 {
     (void)t;
-    /* DIAGNOSTICO DEL TACTIL (8-oct-2026). Hasta aqui se imprimia una linea
-     * solo CUANDO el contador cambiaba, y eso tapaba justo el caso malo: si
-     * LVGL no pide leer el dispositivo ni una vez, no cambia nada y el log
-     * calla. Ahora se imprime el numero cada 2 s pase lo que pase, con el
-     * estado del temporizador y del dispositivo de entrada al lado. */
-    if (s_indev) {
-        lv_timer_t *lectura = lv_indev_get_read_timer(s_indev);
-        ESP_LOGI(TAG, "tactil: %u lecturas | temporizador %s | puntos %u | "
-                 "INT IO%d=%d, %u interrupciones",
-                 (unsigned)s_lecturas,
-                 (lectura && !lv_timer_get_paused(lectura)) ? "en marcha" : "PAUSADO",
-                 (unsigned)s_puntos,
-                 (int)TOUCH_PIN_INT, (int)gpio_get_level(TOUCH_PIN_INT),
-                 (unsigned)s_int_tactil);
+    /* UN AVISO, UNA VEZ, MEDIO SEGUNDO DESPUES DE ARRANCAR (8-oct-2026).
+     *
+     * POR QUE AQUI Y NO AL MONTAR EL TACTIL: al montarlo el temporizador
+     * acaba de reanudarse y su contador vale 1 -- da igual como este la cosa,
+     * siempre parece bien. La comprobacion que vale es esta: medio segundo
+     * despues, con la pantalla ya refrescando, el contador tiene que haber
+     * subido (son ~30 lecturas/s). Si no sube, el tactil esta muerto y se ve
+     * en el log de arranque, que es donde se mira.
+     *
+     * Se quito el informe cada 2 s que hubo durante la puesta a punto: con la
+     * UI en marcha es puro ruido. El contador sigue (cuesta una suma) porque es
+     * lo unico que distingue "el chip no detecta" de "LVGL no lee", que son los
+     * dos fallos que ya nos han costado una tarde cada uno. */
+    if (s_indev && !s_tactil_comprobado) {
+        /* No se comprueba a una hora fija: el arranque esta ocupado (WiFi, P4,
+         * autotest) y el primer tic del temporizador de LVGL puede tardar mas
+         * de medio segundo -- medido, a los 500 ms solo habia 3 lecturas y
+         * saltaba una alarma falsa. Se espera a que haya lecturas suficientes,
+         * con un tope de tiempo para no callarse si de verdad no lee. */
+        static uint32_t t_espera = 0;
+        const uint32_t ahora = (uint32_t)(esp_timer_get_time() / 1000);
+        if (t_espera == 0) t_espera = ahora;
+        if (s_lecturas >= 20) {
+            s_tactil_comprobado = true;
+            ESP_LOGI(TAG, "Tactil comprobado: %u lecturas, %u toques | temporizador %s",
+                     (unsigned)s_lecturas, (unsigned)s_puntos,
+                     (lv_timer_get_paused(lv_indev_get_read_timer(s_indev)))
+                         ? "PAUSADO (mal)" : "en marcha");
+        } else if (ahora - t_espera > 5000) {
+            s_tactil_comprobado = true;
+            ESP_LOGE(TAG, "TACTIL: solo %u lecturas en 5 s -- LVGL NO esta "
+                     "leyendo el dispositivo (revisa el modo y el temporizador)",
+                     (unsigned)s_lecturas);
+        }
     }
     static uint32_t t0 = 0;
     const uint32_t ahora = (uint32_t)(esp_timer_get_time() / 1000);
@@ -528,7 +544,9 @@ lv_display_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
     }
 
     if (bsp_display_lock(0)) {
-        lv_timer_create(bsp_display_fps_cb, 1000, NULL);
+        /* 500 ms: el primer tic es la comprobacion del tactil (ver arriba) y a
+         * partir de ahi el informe de refrescos cada 2 s. */
+        lv_timer_create(bsp_display_fps_cb, 500, NULL);
         bsp_display_unlock();
     }
 

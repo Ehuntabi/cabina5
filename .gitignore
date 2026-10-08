@@ -12,6 +12,9 @@ dependencies.lock
 # Credenciales reales de la red (el de fabrica si se versiona)
 main/wifi_credentials_local.h
 
+# Volcados de capturas y logs de la placa (artefactos de trabajo)
+capturas/
+
 # Editores
 .vscode/
 *.swp

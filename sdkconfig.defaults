@@ -95,3 +95,6 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # OJO: esta placa lleva un CH340 en UART0 (GPIO43/44), no el USB nativo.
 # Con USB_SERIAL_JTAG el log de arranque no sale por ningun sitio visible.
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+# ...y el USB nativo APAGADO. No hace falta (la placa se lee por el CH340) y
+# ademas en este banco el /dev/ttyACM* que aparece es la P4, no esta placa.
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y

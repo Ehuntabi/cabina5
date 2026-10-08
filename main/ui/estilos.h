@@ -70,6 +70,99 @@
 #define lv_font_montserrat_32   FUENTE_GRANDE
 /* La 40 y la 48 ya son el techo: se quedan donde estan. */
 
+/* ── Ajuste automatico del texto de un boton ─────────────────────────────────
+ *
+ * POR QUE: al subir la escala de fuentes, los rotulos largos de los botones
+ * empezaron a salirse -- medido con las metricas reales de las fuentes,
+ * "Terminar salida" en letra 40 mide 350 px y su boton tiene 260: se salia
+ * 102 px. Ir arreglando boton a boton es pelearse con el sintoma; lo que hace
+ * falta es que el rotulo se ajuste al hueco que tiene.
+ *
+ * COMO: se mide el texto con la fuente de verdad (lv_font_get_glyph_width, que
+ * es sumar los anchos de los glifos) y se baja de escalon SOLO lo que haga
+ * falta. Se aplica al pintar (LV_EVENT_DRAW_MAIN) y no solo al crear, porque
+ * muchos de estos botones son cajas flexibles cuyo ancho definitivo no se sabe
+ * hasta que LVGL hace el reparto.
+ *
+ * El tope inferior (FUENTE_MUY_PEQUENA) es a proposito: por debajo de esa letra
+ * el boton ya no se lee de lejos y lo que hay que cambiar es el rotulo, no
+ * seguir encogiendo.
+ *
+ * OJO, ESTO YA SE HIZO MAL UNA VEZ (8-oct-2026, y la placa se quedo colgada):
+ * la primera version aplicaba la fuente desde el evento DRAW_MAIN, o sea
+ * DENTRO del pintado. Cambiar la fuente invalida el objeto, la invalidacion
+ * vuelve a pintarlo y el pintado vuelve a entrar aqui: recursion hasta que
+ * salta el watchdog (medido: "task_wdt: Task watchdog got triggered", con la
+ * traza repitiendo lv_obj_redraw -> rotulo_ajustar_cb -> lv_obj_set_style_text_font).
+ * Por eso ahora se hace con LV_EVENT_SIZE_CHANGED / STYLE_CHANGED y con un
+ * cerrojo de reentrada: fuera del pintado y una sola vez por cambio. */
+static inline lv_coord_t texto_ancho(const lv_font_t *f, const char *txt)
+{
+    lv_coord_t w = 0;
+    if (!f || !txt) return 0;
+    while (*txt) {
+        uint32_t letra = (uint32_t)(unsigned char)*txt;
+        w += lv_font_get_glyph_width(f, letra, (uint32_t)(unsigned char)txt[1]);
+        txt++;
+    }
+    return w;
+}
+
+/* Escalones que se prueban, de mayor a menor. El ultimo es el tope inferior:
+ * por debajo, lo que hay que cambiar es el rotulo, no seguir encogiendo. */
+#define ROTULO_ESCALONES { &FUENTE_GRANDE, &FUENTE_MEDIA_GRANDE, &FUENTE_MEDIA, \
+                           &FUENTE_NORMAL, &FUENTE_PEQUENA, &FUENTE_MUY_PEQUENA }
+
+/* Pone en `lbl` la letra mas grande que quepa en el ancho del boton `btn`.
+ * Se guarda cual se aplico (en el user_data del ROTULO) para no repetir el
+ * trabajo ni invalidar el objeto sin motivo en cada evento. */
+static inline void rotulo_ajustar(lv_obj_t *btn, lv_obj_t *lbl)
+{
+    if (!btn || !lbl) return;
+
+    /* Cerrojo: cambiar la fuente puede mandar STYLE_CHANGED otra vez, y sin
+     * esto la cadena se repite sola. */
+    static bool dentro = false;
+    if (dentro) return;
+    dentro = true;
+
+    const lv_coord_t disponible = lv_obj_get_content_width(btn) - 8;
+    const lv_font_t *actual = lv_obj_get_style_text_font(lbl, LV_PART_MAIN);
+    if (disponible > 0 && actual != (const lv_font_t *)(lv_intptr_t)
+                                        (lv_intptr_t)lv_obj_get_user_data(lbl)) {
+        const char *txt = lv_label_get_text(lbl);
+        const lv_font_t *escalones[] = ROTULO_ESCALONES;
+        const lv_font_t *elegida = &FUENTE_MUY_PEQUENA;
+        for (size_t i = 0; i < sizeof(escalones) / sizeof(escalones[0]); i++) {
+            if (texto_ancho(escalones[i], txt) <= disponible) {
+                elegida = escalones[i];
+                break;
+            }
+        }
+        lv_obj_set_style_text_font(lbl, elegida, 0);
+        lv_obj_set_user_data(lbl, (void *)(lv_intptr_t)elegida);
+    }
+    dentro = false;
+}
+
+/* Deja el rotulo de un boton ajustandose solo: una vez al crearlo y cada vez
+ * que el boton cambie de tamano (el reparto de una fila flexible no se sabe
+ * hasta que LVGL lo ha hecho). */
+static void rotulo_evento_cb(lv_event_t *e)
+{
+    lv_obj_t *btn = lv_event_get_target(e);
+    rotulo_ajustar(btn, (lv_obj_t *)lv_obj_get_user_data(btn));
+}
+
+static inline void rotulo_autoajustable(lv_obj_t *btn, lv_obj_t *lbl)
+{
+    if (!btn || !lbl) return;
+    lv_obj_set_user_data(btn, lbl);
+    lv_obj_add_event_cb(btn, rotulo_evento_cb, LV_EVENT_SIZE_CHANGED, NULL);
+    lv_obj_add_event_cb(btn, rotulo_evento_cb, LV_EVENT_STYLE_CHANGED, NULL);
+    rotulo_ajustar(btn, lbl);
+}
+
 /* ── Medidas de la pantalla (8-oct-2026) ──────────────────────────────────────
  *
  * POR QUE ESTE BLOQUE: la UI se porto del satelite de 3,5", que dibujaba en

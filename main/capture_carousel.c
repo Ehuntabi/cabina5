@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_task_wdt.h"
 #include "mini_proto.h"
 #include "data_model.h"
 #include "ui/view_info.h"
@@ -64,9 +65,11 @@ static void inject_sim_data(void)
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "mbedtls/base64.h"
+#include "esp_task_wdt.h"
 
-static const char *TAG = "capture";
+/* La segunda definicion de TAG que habia aqui ("capture") sobraba y rompia la
+ * compilacion ("redefinition of TAG") en cuanto se encendia
+ * CAPTURE_CAROUSEL_ENABLE. Quitada el 8-oct-2026. */
 
 typedef enum {
     STEP_INCLINACION,
@@ -116,32 +119,48 @@ static void dump_screen_uart(const char *name)
     size_t raw_len = (size_t)hres * vres * sizeof(lv_color_t);
     const uint8_t *fb = (const uint8_t *)pix;
 
-    size_t b64_cap = raw_len * 4 / 3 + 16;
-    char *b64 = malloc(b64_cap);
-    if (!b64) {
-        ESP_LOGE(TAG, "sin memoria para base64 (%u bytes)", (unsigned)b64_cap);
-        return;
-    }
+    /* ── EL VOLCADO: BINARIO CON LONGITUD DECLARADA, no base64 ─────────────
+     *
+     * POR QUE CAMBIO (8-oct-2026): con base64, cualquier byte que se cuele en
+     * medio (una traza del watchdog, un aviso de otra tarea) rompe el bloque
+     * ENTERO y no hay forma de saber cuanto falta: la primera tanda salio con
+     * 500 KB de mas por pantalla y no se pudo decodificar ni una. Con el
+     * formato de abajo:
+     *
+     *   ===BIN:<nombre>:<ancho>x<alto>:<bytes>===\n
+     *   <bytes en crudo, RGB565 little endian>
+     *   \n===FIN===\n
+     *
+     * el receptor sabe EXACTAMENTE cuantos bytes esperar, asi que un corte o un
+     * reintento se detecta en vez de corromper la imagen. Y quita el 33% de
+     * sobrecarga del base64: ~67 s por pantalla en vez de ~90.
+     *
+     * El log se baja a ERROR mientras dura (no a NONE): un aviso grave todavia
+     * sale, y como la longitud manda, lo que salga se puede descartar. */
+    ESP_LOGI(TAG, "volcando '%s' (%ux%u, %u bytes, ~%u s a 115200)", name,
+             (unsigned)hres, (unsigned)vres, (unsigned)raw_len,
+             (unsigned)(raw_len / 11520));
+    esp_log_level_set("*", ESP_LOG_ERROR);
 
-    size_t out_len = 0;
-    mbedtls_base64_encode((unsigned char *)b64, b64_cap, &out_len, fb, raw_len);
+    printf("===BIN:%s:%ux%u:%u===\n", name, (unsigned)hres, (unsigned)vres,
+           (unsigned)raw_len);
+    fflush(stdout);
 
-    /* El volcado tarda ~30s a 115200 baudios (tarea A DEMANDA por USB
-     * serie): cualquier log de OTRA tarea (heartbeat, watchdog...) que se
-     * cuele por el mismo puerto en medio rompe el bloque base64. Silenciar
-     * el log mientras dura, restaurar siempre al salir (incluido el path de
-     * fallo, por si acaso se anade uno mas adelante). */
-    esp_log_level_set("*", ESP_LOG_NONE);
-    printf("===CAPTURE:%s:%ux%u===\n", name, (unsigned)hres, (unsigned)vres);
-    const size_t CHUNK = 512;
-    for (size_t i = 0; i < out_len; i += CHUNK) {
-        size_t n = (out_len - i < CHUNK) ? (out_len - i) : CHUNK;
-        fwrite(b64 + i, 1, n, stdout);
-        putchar('\n');
+    const size_t TROZO = 2048;
+    for (size_t i = 0; i < raw_len; i += TROZO) {
+        size_t n = (raw_len - i < TROZO) ? (raw_len - i) : TROZO;
+        fwrite(fb + i, 1, n, stdout);
+        fflush(stdout);
+        /* ~180 ms por trozo: se cede la CPU (que es lo que deja correr a IDLE y
+         * al watchdog) y se alimenta el WDT por si esta tarea estuviera
+         * suscrita. Sin esto el Task WDT saltaba a mitad del volcado y sus
+         * trazas se colaban en el flujo. */
+        esp_task_wdt_reset();
+        vTaskDelay(1);
     }
-    printf("===END===\n");
+    printf("\n===FIN===\n");
+    fflush(stdout);
     esp_log_level_set("*", ESP_LOG_INFO);
-    free(b64);
 }
 
 /* Muestra una pantalla/formulario de registro ya creado (via el "mostrar"

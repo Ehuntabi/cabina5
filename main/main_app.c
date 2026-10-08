@@ -28,6 +28,7 @@
 #include "esp_system.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
+#include "icons/splash_logo_5.h"
 #include "esp_task_wdt.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
@@ -67,11 +68,18 @@ static void splash_create(void) {
     lv_obj_set_style_pad_all(splash_bg, 0, 0);
     lv_obj_clear_flag(splash_bg, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *rotulo = lv_label_create(splash_bg);
-    lv_label_set_text(rotulo, "cabina");
-    lv_obj_set_style_text_font(rotulo, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_color(rotulo, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(rotulo);
+    /* LA AUTOCARAVANA, no un rotulo: es el mismo splash que llevaba el satelite
+     * de 3,5" (alli en 480x320). El 8-oct-2026 se recupero la imagen del
+     * volcado de pixeles del proyecto viejo y se rehizo para esta pantalla
+     * (ver main/icons/splash_logo_5.c). Aqui no se escala nada: se dibuja a su
+     * tamano (665x394) porque se genero ya a esa medida, y escalar en tiempo
+     * real costaria un repintado por pixel en cada arranque. */
+    lv_obj_t *logo = lv_image_create(splash_bg);
+    lv_image_set_src(logo, &splash_logo_5);
+    /* SOLO la imagen: ni rotulo ni version (quitados el 8-oct-2026, a peticion
+     * del usuario: "el texto del splash es horrible"). La version se mira en
+     * Ajustes, que es donde toca. Centrada sin mas. */
+    lv_obj_center(logo);
 
     lv_timer_t *t = lv_timer_create(splash_done_cb, SPLASH_MS, splash_bg);
     lv_timer_set_repeat_count(t, 1);

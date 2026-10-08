@@ -64,6 +64,9 @@ static void no_cb(lv_event_t *e)
 
 /* El color de un boton, con su tono de pulsado. Aparte porque los dos botones
  * cambian de color segun el dialogo (ver confirm_screen_ok_destructivo). */
+/* El ajuste del rotulo al ancho del boton vive en estilos.h (rotulo_autoajustable). */
+
+
 static void btn_color(lv_obj_t *btn, uint32_t color)
 {
     lv_obj_set_style_bg_color(btn, lv_color_hex(color), 0);
@@ -85,6 +88,9 @@ static lv_obj_t *make_btn(lv_obj_t *parent, uint32_t color, lv_event_cb_t cb,
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(COL_FG), 0);
     lv_obj_center(lbl);
+    /* El rotulo se ajusta al ancho del boton (ver estilos.h): los textos los
+     * pone quien llama y son distintos en cada sitio. */
+    rotulo_autoajustable(btn, lbl);
     if (lbl_out) *lbl_out = lbl;
     return btn;
 }
