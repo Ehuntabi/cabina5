@@ -236,3 +236,12 @@ static inline void rotulo_autoajustable(lv_obj_t *btn, lv_obj_t *lbl)
  * leyendose de un vistazo. Si algun dia hay una pantalla mas ancha, se sube
  * este numero y ya esta: no hay que tocar ninguna vista. */
 #define UI_ANCHO_COLUMNA  560
+
+/* Margen lateral de la columna de contenido, y su variante ESTRECHA.
+ *
+ * Los formularios con dos campos por fila (o con un desplegable y un selector
+ * al lado del importe, como la pernocta) necesitan mas ancho: con el margen
+ * ancho, el contenido se queda en 320 px y las tres cosas de la fila de precio
+ * salen apretadas y pegadas a la izquierda. Con UI_MARGEN_ANCHO el contenido
+ * respira (680 px) sin llegar a los 800, que es lo que se lee mal. */
+#define UI_MARGEN_ANCHO  60

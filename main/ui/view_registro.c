@@ -1459,6 +1459,19 @@ static lv_obj_t *form_col(lv_obj_t *form)
     return form ? lv_obj_get_child(form, 1) : NULL;
 }
 
+/* Lo mismo, pero con el margen ESTRECHO: el contenido pasa de 320 a 680 px.
+ * Para los formularios que van en fila (el precio de la pernocta, los campos
+ * por parejas), que con el margen ancho salen apretados. */
+static lv_obj_t *form_col_ancha(lv_obj_t *form)
+{
+    lv_obj_t *col = form_col(form);
+    if (col) {
+        lv_obj_set_style_pad_left(col, UI_MARGEN_ANCHO, 0);
+        lv_obj_set_style_pad_right(col, UI_MARGEN_ANCHO, 0);
+    }
+    return col;
+}
+
 /* Devuelve el rotulo del titulo: la pantalla de viaje lo reescribe segun haya
  * viaje en marcha o no. 'back_to' es a donde lleva el Volver (BACK_TO_GRID al
  * menu de iconos, o el indice de otra pantalla). */
@@ -1515,7 +1528,13 @@ static lv_obj_t *add_header(lv_obj_t *form, const char *title, lv_color_t color,
     lv_label_set_text(t, title);
     lv_obj_set_style_text_color(t, color, 0);
     lv_obj_set_style_text_font(t, &lv_font_montserrat_28, 0);
-    lv_obj_set_width(t, HEADER_TITLE_MAX_W);
+    /* Ancho = el que necesita el texto, con tope. Se pone con lv_obj_set_width
+     * y ademas se ajusta al contenido para que el centrado de LVGL (que centra
+     * DENTRO del objeto) coincida con el de la pantalla: con un ancho fijo
+     * mayor que el texto, el rotulo se centraba en su caja y salia corrido
+     * hacia la izquierda, porque la caja empieza donde acaba el boton. */
+    lv_obj_set_width(t, LV_SIZE_CONTENT);
+    lv_obj_set_style_max_width(t, HEADER_TITLE_MAX_W, 0);
     /* LONG_DOT necesita alto FIJO de una linea ademas del ancho: con alto
      * automatico (el por defecto) LVGL calcula el texto partido en dos
      * lineas antes de recortar con puntos, y algun caracter suelto (la "O"
@@ -4944,19 +4963,22 @@ void view_registro_create(lv_obj_t *parent)
     build_bombona(form_col(s_forms[CAT_BOMBONA]));
 
     s_forms[CAT_MANTENIMIENTO] = make_form_container(parent);
-    build_mantenimiento(form_col(s_forms[CAT_MANTENIMIENTO]));
+    build_mantenimiento(form_col_ancha(s_forms[CAT_MANTENIMIENTO]));
 
     s_forms[CAT_AGUAS] = make_form_container(parent);
-    build_aguas(form_col(s_forms[CAT_AGUAS]));
+    build_aguas(form_col_ancha(s_forms[CAT_AGUAS]));
 
     s_forms[CAT_ITV] = make_form_container(parent);
     build_itv(form_col(s_forms[CAT_ITV]));
 
     s_forms[CAT_PERNOCTA] = make_form_container(parent);
-    build_pernocta(form_col(s_forms[CAT_PERNOCTA]));
+    /* La pernocta va con la columna ANCHA: su fila de precio lleva importe,
+     * moneda y "Noche / 24 h" uno al lado del otro, y con el margen ancho esos
+     * tres controles se quedaban en 320 px (apretados y a la izquierda). */
+    build_pernocta(form_col_ancha(s_forms[CAT_PERNOCTA]));
 
     s_forms[CAT_SERVICIOS] = make_form_container(parent);
-    build_servicios(form_col(s_forms[CAT_SERVICIOS]));
+    build_servicios(form_col_ancha(s_forms[CAT_SERVICIOS]));
 
     s_forms[CAT_VALORACION] = make_form_container(parent);
     build_valoracion(form_col(s_forms[CAT_VALORACION]));
