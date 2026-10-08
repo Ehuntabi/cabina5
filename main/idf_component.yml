@@ -1,19 +1,28 @@
 ## Dependencias (se bajan solas en el primer build a managed_components/).
 ##
-## VERSIONES ELEGIDAS A PROPOSITO: LVGL 8.4 + esp_lvgl_port 1.x, que es la
-## combinacion estable de la familia ESP32-S3 con paneles RGB. La P4 (otro
-## proyecto) va con LVGL 9 y esp_lvgl_port 2.x; subir aqui a LVGL 9 es otra
-## migracion de API encima del port, y con la placa sin estrenar no se suman dos
-## riesgos: primero el hardware, y si luego merece la pena, se sube.
+## VERSIONES ELEGIDAS A PROPOSITO: LVGL 9 + esp_lvgl_port 2.x.
+##
+## Por que se subio desde LVGL 8.4 + port 1.x (8-oct-2026): el motivo es
+## `avoid_tearing`, que es la unica forma de que un panel RGB no muestre una
+## banda moviendose. Solo existe en el port 2.x, y el port 2.x implementa el
+## camino de paneles RGB (lvgl_port_add_disp_rgb) unicamente para LVGL 9. La
+## placa de referencia de este mismo modelo (ESP32-S3-JC8048W550-LVGL-ESPIDF-EEZ)
+## usa exactamente esta combinacion: LVGL 9.2 + esp_lvgl_port 2.x.
 dependencies:
   idf:
     version: ">=5.4"
   lvgl/lvgl:
-    version: "~8.4.0"
+    version: "~9.2.0"
+  # 2.5.0 y no la ultima (2.9.0): la 2.9.0 pide esp_lcd_touch_get_data(), que
+  # solo existe en el esp_lcd_touch de esp-bsp master, NO en el que publica el
+  # registro de componentes (1.2.1). Con 2.5.0 el port sigue teniendo
+  # avoid_tearing para paneles RGB y compila con el tactil del registro.
   espressif/esp_lvgl_port:
-    version: "~1.4.0"
+    version: "2.5.0"
   # Tactil de esta placa (GT911 por I2C).
+  # El port 2.x lee el tactil con esp_lcd_touch_get_data(), que es API de la
+  # version 2 del componente: con la 1.x no compila.
   espressif/esp_lcd_touch_gt911:
-    version: "~1.0.4"
+    version: "^1.2.0"
   espressif/esp_lcd_touch:
-    version: "~1.1.2"
+    version: "^1.2.0"

@@ -22,9 +22,7 @@ extern "C" {
 #endif
 
 typedef struct {
-    lvgl_port_cfg_t lvgl_port_cfg;  /*!< Configuracion del port de LVGL */
-    uint32_t buffer_size;           /*!< Tamano del buffer de pantalla en pixeles */
-    lv_disp_rot_t rotate;           /*!< Rotacion (el panel ya es horizontal) */
+    lvgl_port_cfg_t lvgl_port_cfg;  /*!< Configuracion del port de LVGL (tarea y tic) */
 } bsp_display_cfg_t;
 
 /* ── I2C ──────────────────────────────────────────────────────────────────── */
@@ -36,7 +34,7 @@ esp_err_t bsp_i2c_deinit(void);
 /* Arranca panel RGB + tactil + LVGL. La retroiluminacion se enciende al final
  * (y la ajusta luego brillo.c con el nivel guardado). Devuelve NULL si algo
  * falla. */
-lv_disp_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg);
+lv_display_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg);
 
 /* Indice del LVGL (tactil). Ya queda listo dentro del arranque. */
 lv_indev_t *bsp_display_get_input_dev(void);

@@ -37,12 +37,18 @@ CONFIG_ESP32S3_DATA_CACHE_64KB=y
 CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
 CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
 
-# ── LVGL 8.4 (version fijada a proposito: ver main/idf_component.yml) ─────────
+# ── LVGL 9 (version fijada en main/idf_component.yml) ────────────────────────
+# OJO con las claves: en LVGL 9 ya no existen LV_MEM_CUSTOM ni
+# LV_DISP_DEF_REFR_PERIOD ni LV_COLOR_16_SWAP. El orden de bytes del RGB565 lo
+# fija ahora el formato de color del display (LV_COLOR_FORMAT_RGB565), no una
+# casilla del Kconfig.
 CONFIG_LV_COLOR_DEPTH_16=y
-CONFIG_LV_COLOR_16_SWAP=y
-CONFIG_LV_MEM_CUSTOM=y
-CONFIG_LV_MEM_CUSTOM_INCLUDE="stdlib.h"
-CONFIG_LV_DISP_DEF_REFR_PERIOD=30
+CONFIG_LV_USE_CLIB_MALLOC=y
+CONFIG_LV_DEF_REFR_PERIOD=30
+# LVGL 9 necesita saber con que sistema operativo corre (el port de Espressif no
+# lo pone solo en el Kconfig del proyecto).
+CONFIG_LV_USE_OS=y
+CONFIG_LV_OS_FREERTOS=y
 # FUENTES: esta pantalla tiene 181 ppp (5" a 800x480), asi que las de 14/16 px
 # se ven pequenas: el juego va un escalon por encima de lo habitual. Los tamanos
 # que se usan de verdad se declaran aqui; si falta uno, salta "undeclared".

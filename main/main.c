@@ -128,7 +128,7 @@ static void red_init(void)
 /* ── Pantalla de prueba ───────────────────────────────────────────────────── */
 static void pantalla_prueba(void)
 {
-    lv_obj_t *scr = lv_scr_act();
+    lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -235,10 +235,10 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "=== cabina5: prueba de placa JC8048W550C (%dx%d) ===", LCD_H_RES, LCD_V_RES);
 
+    /* El refresco lo lleva el BSP: buffers parciales en RAM interna y copia
+     * sincronizada al retrazo del panel. Ver el comentario largo de esp_bsp.c. */
     bsp_display_cfg_t cfg = {
         .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
-        .buffer_size = LCD_H_RES * 40,
-        .rotate = LV_DISP_ROT_NONE,
     };
     if (!bsp_display_start_with_config(&cfg)) {
         ESP_LOGE(TAG, "la pantalla no arranco");
