@@ -1383,6 +1383,15 @@ static lv_obj_t *make_form_container(lv_obj_t *parent)
     lv_obj_set_flex_flow(form, LV_FLEX_FLOW_COLUMN);
     lv_obj_clear_flag(form, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(form, LV_OBJ_FLAG_HIDDEN);
+    /* FUERA DEL LAYOUT DE LA PANTALLA. La pantalla es una COLUMNA FLEX (franja +
+     * cuerpo): si los formularios participan, se reparten el alto con el cuerpo
+     * y COLAPSAN. Medido: el contenedor salia de 800x6 px, y con el encogia
+     * todo lo de dentro (la columna pedia 560 y quedaba en 320, la cabecera se
+     * echaba encima de los campos, el "Volver" se salia de su caja y no
+     * respondia, y el negro no llegaba a los bordes). Con IGNORE_LAYOUT manda su
+     * tamano (100%x100%) y es lo que tiene que ser: una capa del tamano de la
+     * pantalla. Mismo apaño que los overlays. */
+    lv_obj_add_flag(form, LV_OBJ_FLAG_IGNORE_LAYOUT);
 
     /* COLUMNA CENTRADA (8-oct-2026). En los 800 px de esta pantalla, un campo a
      * todo lo ancho deja el rotulo en una punta y el valor en la otra, y una
@@ -1405,8 +1414,14 @@ static lv_obj_t *make_form_container(lv_obj_t *parent)
      * "Volver" y el titulo siguen cayendo en las esquinas de la pantalla como
      * en los menus. */
     lv_obj_t *cab = lv_obj_create(form);
-    lv_obj_set_width(cab, lv_pct(100));
-    lv_obj_set_height(cab, LV_SIZE_CONTENT);
+    /* ANCHO DE PANTALLA (no el de la columna): el titulo se centra DENTRO de su
+     * caja, asi que si la cabecera mide lo que la columna el rotulo sale pegado
+     * al boton de Volver. Y ALTO FIJO: con LV_SIZE_CONTENT la cabecera se
+     * quedaba en 6 px (el contenedor se crea oculto y ese calculo no se
+     * resuelve), con lo que el titulo y el boton se salian de su caja. */
+    lv_obj_set_width(cab, UI_ANCHO);
+    lv_obj_set_height(cab, HEADER_H);
+    lv_obj_align(cab, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_opa(cab, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(cab, 0, 0);
     lv_obj_set_style_pad_hor(cab, PAN_PAD, 0);
@@ -1415,23 +1430,25 @@ static lv_obj_t *make_form_container(lv_obj_t *parent)
     lv_obj_clear_flag(cab, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *col = lv_obj_create(form);
-    lv_obj_set_width(col, UI_ANCHO_COLUMNA);
-    lv_obj_set_flex_grow(col, 1);
+    /* A LO ANCHO DE LA PANTALLA (800) con margen interior de 60 por lado: 680
+     * px utiles. Antes media 560 y encima llevaba margenes, o sea 440 utiles
+     * (o 320) sobre una pantalla de 800: todo lo de dentro se calculaba sobre
+     * ese ancho y salia apretado por mucho que se afinaran los porcentajes. */
+    lv_obj_set_width(col, UI_ANCHO);
+    lv_obj_set_height(col, UI_ALTO - HEADER_H);
+    /* Sin flex_grow: con grow se repartia el alto con la cabecera y la dejaba
+     * en 6 px. Se coloca a mano debajo de ella. */
+    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, HEADER_H);
     lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(col, 0, 0);
-    lv_obj_set_style_pad_all(col, 8, 0);
-    lv_obj_set_style_pad_row(col, 4, 0);
+    lv_obj_set_style_pad_all(col, UI_MARGEN_ANCHO, 0);
+    lv_obj_set_style_pad_row(col, 10, 0);
     lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
     /* Solo se desliza en vertical; en horizontal el gesto es del carrusel. */
     lv_obj_set_scroll_dir(col, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(col, LV_SCROLLBAR_MODE_AUTO);
 
-    /* La columna va centrada dentro del formulario. Al ser una columna flex,
-     * el align del padre no la centra en horizontal (la cruzaria el
-     * cross-align), asi que se le pone un margen izquierdo calculado: el
-     * sobrante se reparte a los dos lados. */
-    lv_obj_set_style_pad_left(col, (UI_ANCHO - UI_ANCHO_COLUMNA) / 2, 0);
-    lv_obj_set_style_pad_right(col, (UI_ANCHO - UI_ANCHO_COLUMNA) / 2, 0);
+
 
     /* DEVUELVE EL CONTENEDOR, NO LA COLUMNA (esto ya se hizo mal una vez, el
      * 8-oct-2026, y costo un rato largo: "los formularios salen en negro").
@@ -1454,6 +1471,29 @@ static lv_obj_t *make_form_container(lv_obj_t *parent)
  * constructores de formulario meten sus widgets en la columna, nunca en el
  * contenedor: si se metieran en el contenedor acabarian fuera de la columna
  * centrada y a 800 px de ancho. */
+/* Vuelca al log el arbol de un objeto con posicion y tamano REALES de cada
+ * hijo. Es la unica forma de afinar geometria sin ver la pantalla: las fotos
+ * dicen QUE se solapa, esto dice CUANTO y DONDE. DIAGNOSTICO. */
+static void form_volcar(lv_obj_t *o, int nivel)
+{
+    for (int i = 0; i < lv_obj_get_child_count(o); i++) {
+        lv_obj_t *c = lv_obj_get_child(o, i);
+        const char *tipo = "obj";
+        if (lv_obj_check_type(c, &lv_label_class))          tipo = "label";
+        else if (lv_obj_check_type(c, &lv_textarea_class))  tipo = "textarea";
+        else if (lv_obj_check_type(c, &lv_button_class))    tipo = "boton";
+        else if (lv_obj_check_type(c, &lv_dropdown_class))  tipo = "despleg";
+        else if (lv_obj_check_type(c, &lv_buttonmatrix_class)) tipo = "matriz";
+        ESP_LOGW(TAG, "%*s[%d] %-8s x=%d y=%d %dx%d%s%s%s", nivel * 2, "", i, tipo,
+                 (int)lv_obj_get_x(c), (int)lv_obj_get_y(c),
+                 (int)lv_obj_get_width(c), (int)lv_obj_get_height(c),
+                 lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN) ? " OCULTO" : "",
+                 lv_obj_has_flag(c, LV_OBJ_FLAG_FLOATING) ? " FLOTANTE" : "",
+                 lv_obj_check_type(c, &lv_label_class) ? lv_label_get_text(c) : "");
+        if (nivel < 4) form_volcar(c, nivel + 1);
+    }
+}
+
 static lv_obj_t *form_col(lv_obj_t *form)
 {
     return form ? lv_obj_get_child(form, 1) : NULL;
@@ -1528,20 +1568,15 @@ static lv_obj_t *add_header(lv_obj_t *form, const char *title, lv_color_t color,
     lv_label_set_text(t, title);
     lv_obj_set_style_text_color(t, color, 0);
     lv_obj_set_style_text_font(t, &lv_font_montserrat_28, 0);
-    /* Ancho = el que necesita el texto, con tope. Se pone con lv_obj_set_width
-     * y ademas se ajusta al contenido para que el centrado de LVGL (que centra
-     * DENTRO del objeto) coincida con el de la pantalla: con un ancho fijo
-     * mayor que el texto, el rotulo se centraba en su caja y salia corrido
-     * hacia la izquierda, porque la caja empieza donde acaba el boton. */
+    /* ANCHO: el del texto, con tope. Y EL MODO DE RECORTE IMPORTA, que esto ya
+     * ha costado dos vueltas: con LV_LABEL_LONG_DOT y ancho de contenido, LVGL
+     * mide el ancho a CERO ("no cabe, habria que recortar") y el titulo sale
+     * como tres puntitos. Medido en la placa: "..." de 18x36 px en la cabecera
+     * de la pernocta. Con CLIP no hay ese calculo: la etiqueta mide su texto y
+     * lo que no quepa se corta, sin puntos. */
     lv_obj_set_width(t, LV_SIZE_CONTENT);
     lv_obj_set_style_max_width(t, HEADER_TITLE_MAX_W, 0);
-    /* LONG_DOT necesita alto FIJO de una linea ademas del ancho: con alto
-     * automatico (el por defecto) LVGL calcula el texto partido en dos
-     * lineas antes de recortar con puntos, y algun caracter suelto (la "O"
-     * final de "MANTENIMIENTO") se colaba en esa segunda linea en vez de
-     * recortarse. */
-    lv_obj_set_height(t, lv_font_get_line_height(&lv_font_montserrat_28) + 6);
-    lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
+    lv_label_set_long_mode(t, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(t, LV_ALIGN_CENTER, 0, 0);
     return t;
@@ -2440,14 +2475,17 @@ static void viaje_finalizar_cb(lv_event_t *e)
 static lv_obj_t *make_save_button(lv_obj_t *parent, const char *text, lv_event_cb_t cb, void *user_data)
 {
     lv_obj_t *btn = lv_btn_create(parent);
-    lv_obj_set_size(btn, lv_pct(100), 50);
+    /* 72 de alto y letra 26 (la de la escala nueva): con 50 y letra 20 el boton
+     * mas importante de cada formulario era el mas pequeno de la pantalla, y en
+     * una fila de 76 quedaba descolgado. */
+    lv_obj_set_size(btn, lv_pct(100), 72);
     lv_obj_set_style_bg_color(btn, lv_color_hex(COL_ACCION_OK), 0);
     lv_obj_set_style_bg_color(btn, lv_color_darken(lv_color_hex(COL_ACCION_OK), LV_OPA_30),
                               LV_STATE_PRESSED);
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, user_data);
     lv_obj_t *lbl = lv_label_create(btn);
     lv_label_set_text(lbl, text);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(COL_TILE_FG), 0);
     lv_obj_center(lbl);
     rotulo_autoajustable(btn, lbl);
@@ -4907,6 +4945,15 @@ static void crear_menus(lv_obj_t *parent)
  * comprueba nada de la salida en curso a proposito -- su razon de ser es
  * precisamente poder ver las pantallas SIN salida.
  */
+void view_registro_diag_arbol(int idx)
+{
+    if (idx < 0 || idx >= CAT_COUNT) return;
+    lv_obj_t *f = s_forms[idx];
+    ESP_LOGW(TAG, "MARCA-1417 ARBOL '%s': %dx%d", CAT_NOMBRE[idx],
+             (int)lv_obj_get_width(f), (int)lv_obj_get_height(f));
+    form_volcar(f, 0);
+}
+
 void view_registro_paseo_mostrar(void)
 {
     s_paseo = true;

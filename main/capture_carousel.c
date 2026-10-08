@@ -252,6 +252,11 @@ static void carousel_task(void *arg)
 
 void capture_carousel_start(void)
 {
+#if CAPTURE_PEAJE_DIAG
+    lv_timer_t *t = lv_timer_create(pernocta_diag_cb, 6000, NULL);
+    lv_timer_set_repeat_count(t, 1);
+    return;
+#endif
     /* 6 KB y no 8: con 8192 el xTaskCreate DEVOLVIA FALLO (visto el 14-sep-2026
      * con una traza) y el carrusel no llegaba a existir nunca -- no salia
      * ninguna captura y NO habia ni un error en el log, que es la peor forma de
@@ -265,9 +270,43 @@ void capture_carousel_start(void)
 #else
 
 
+#if CAPTURE_PEAJE_DIAG
+/* DIAGNOSTICO: abre la pernocta a los 6 s y vuelca su arbol de objetos al log.
+ * Va AQUI, en la rama que se compila con el modo captura APAGADO: la primera
+ * version quedo dentro del bloque de capturas y no se compilaba nunca (por eso
+ * el log no traia el volcado). */
+#include "lvgl.h"
+#include "ui/nav.h"
+#include "ui/view_registro.h"
+/* El volcado NO puede ir justo despues de mostrar el formulario: en ese momento
+ * LVGL todavia no ha calculado la geometria (el layout se hace al refrescar), y
+ * las medidas que salen son de antes -- 6 px de alto, anchos viejos, solapes que
+ * no existen. Medido: asi salieron varias tandas de numeros enganosos. Se deja
+ * medio segundo para que el layout este hecho. */
+static void pernocta_medir_cb(lv_timer_t *t)
+{
+    (void)t;
+    view_registro_diag_arbol(8);
+}
+
+static void pernocta_diag_cb(lv_timer_t *t)
+{
+    (void)t;
+    ESP_LOGW("diag", "abro la pernocta para medirla");
+    nav_ir_a_registros();
+    view_registro_mostrar_formulario(8);
+    lv_timer_t *m = lv_timer_create(pernocta_medir_cb, 800, NULL);
+    lv_timer_set_repeat_count(m, 1);
+}
+#endif
+
 void capture_carousel_start(void)
 {
-#if CAPTURE_CAROUSEL_SOLO_DATOS
+#if CAPTURE_PEAJE_DIAG
+    lv_timer_t *t = lv_timer_create(pernocta_diag_cb, 6000, NULL);
+    lv_timer_set_repeat_count(t, 1);
+    return;
+#elif CAPTURE_CAROUSEL_SOLO_DATOS
     inject_sim_data();
     view_info_captura_alarma_silenciada();
     ESP_LOGW(TAG, "datos de ejemplo inyectados (modo banco, sin carrusel)");

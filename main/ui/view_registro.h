@@ -63,6 +63,9 @@ const char *view_registro_nombre_formulario(int idx);
  * Nada de esto toca los datos: es solo que pantalla se ve. */
 void view_registro_paseo_mostrar(void);
 
+/* DIAGNOSTICO: vuelca el arbol de objetos de un formulario al log. */
+void view_registro_diag_arbol(int idx);
+
 /* DIAGNOSTICO temporal: vuelca al log el arbol de objetos de un formulario con
  * posiciones y tamanos reales (ver view_registro.c). */
 bool view_registro_paseo_activo(void);
