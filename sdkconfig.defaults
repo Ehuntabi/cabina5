@@ -43,7 +43,15 @@ CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
 # fija ahora el formato de color del display (LV_COLOR_FORMAT_RGB565), no una
 # casilla del Kconfig.
 CONFIG_LV_COLOR_DEPTH_16=y
-CONFIG_LV_USE_CLIB_MALLOC=y
+# Pool propio de LVGL (256 KB) en vez de coger del monton general.
+# POR QUE: en la 3,5" la UI se crea ANTES que WiFi y da igual de donde salga la
+# RAM; en la 5" el BSP necesita ademas el bounce buffer (RAM interna, sin el la
+# imagen se corre sola), asi que con CLIB el reparto es una loteria y
+# esp_wifi_init() se queda sin memoria ("create wifi task: failed to create
+# task"). Con el pool, LVGL se lleva SU trozo de una vez y no toca el monton.
+# Asignador propio de LVGL sobre PSRAM: ver main/lv_mem_psram.c (ahi esta la
+# cuenta de RAM medida que obliga a esto).
+CONFIG_LV_USE_CUSTOM_MALLOC=y
 CONFIG_LV_DEF_REFR_PERIOD=30
 # LVGL 9 necesita saber con que sistema operativo corre (el port de Espressif no
 # lo pone solo en el Kconfig del proyecto).
@@ -53,7 +61,9 @@ CONFIG_LV_OS_FREERTOS=y
 # se ven pequenas: el juego va un escalon por encima de lo habitual. Los tamanos
 # que se usan de verdad se declaran aqui; si falta uno, salta "undeclared".
 CONFIG_LV_FONT_MONTSERRAT_16=y
+CONFIG_LV_FONT_MONTSERRAT_18=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_22=y
 CONFIG_LV_FONT_MONTSERRAT_24=y
 CONFIG_LV_FONT_MONTSERRAT_28=y
 CONFIG_LV_FONT_MONTSERRAT_32=y

@@ -281,6 +281,16 @@ static esp_lcd_touch_handle_t bsp_touch_new(void)
     return touch;
 }
 
+/* DIAGNOSTICO temporal: cuenta las lecturas que pide LVGL. */
+static lv_indev_read_cb_t s_read_cb_original = NULL;
+static volatile uint32_t s_lecturas = 0;
+
+static void bsp_touch_read_contado(lv_indev_t *indev, lv_indev_data_t *datos)
+{
+    s_lecturas++;
+    if (s_read_cb_original) s_read_cb_original(indev, datos);
+}
+
 /* ── Arranque completo ────────────────────────────────────────────────────── */
 static lv_display_t *s_disp = NULL;
 static lv_indev_t *s_indev = NULL;
@@ -344,9 +354,14 @@ static void bsp_lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t
 
 /* DIAGNOSTICO: refrescos por segundo. Sirve para comparar configuraciones (con
  * y sin avoid_tearing, buffers en RAM interna o en PSRAM) sin adivinar. */
+static volatile uint32_t s_lecturas_ref = 0;
 static void bsp_display_fps_cb(lv_timer_t *t)
 {
     (void)t;
+    if (s_lecturas != s_lecturas_ref) {
+        ESP_LOGW(TAG, "GANCHO: LVGL ha pedido leer el tactil %u veces", (unsigned)s_lecturas);
+        s_lecturas_ref = s_lecturas;
+    }
     static uint32_t t0 = 0;
     const uint32_t ahora = (uint32_t)(esp_timer_get_time() / 1000);
 
@@ -434,6 +449,23 @@ lv_display_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
     };
     s_indev = lvgl_port_add_touch(&touch_cfg);
 
+    /* ESTO ES LO QUE HACE QUE EL TACTIL FUNCIONE, no lo borres.
+     *
+     * En LVGL 9 el temporizador de lectura de un dispositivo de entrada nace
+     * PAUSADO (lv_indev_create -> lv_timer_create -> lv_timer_pause), y el port
+     * de Espressif no lo reanuda al anadirlo. Sintoma exacto que costo media
+     * tarde: el chip detecta los toques (24 en 25 s, medidos leyendolo a pelo),
+     * el driver los lee con coordenadas correctas, y LVGL NO REPARTE NI UN
+     * EVENTO porque nunca llega a leer el dispositivo. Se comprobo midiendo:
+     * lv_timer_get_paused(lv_indev_get_read_timer(indev)) == 1.
+     *
+     * Se reanuda aqui, cuando ya esta todo montado. */
+    if (s_indev) {
+        lv_timer_t *lectura = lv_indev_get_read_timer(s_indev);
+        if (lectura) lv_timer_resume(lectura);
+        ESP_LOGI(TAG, "Tactil: temporizador de lectura %s",
+                 (lectura && !lv_timer_get_paused(lectura)) ? "EN MARCHA" : "PAUSADO (mal)");
+    }
 
     if (bsp_display_lock(0)) {
         lv_timer_create(bsp_display_fps_cb, 1000, NULL);

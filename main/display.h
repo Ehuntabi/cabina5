@@ -30,6 +30,12 @@
 #define LCD_H_RES               800
 #define LCD_V_RES               480
 
+/* Nombres que espera la aplicacion portada del satelite de 3,5" (alli el BSP
+ * los llamaba asi). Se mantienen para no tocar la app en 30 sitios. */
+#define BSP_LCD_H_RES               LCD_H_RES
+#define BSP_LCD_V_RES               LCD_V_RES
+#define BSP_LCD_BITS_PER_PIXEL      16
+
 #define LCD_PIN_HSYNC           GPIO_NUM_39
 #define LCD_PIN_VSYNC           GPIO_NUM_41
 #define LCD_PIN_DE              GPIO_NUM_40
