@@ -14,6 +14,7 @@
 #include "estilos.h"   /* la escala de fuentes y el ancho de columna */
 #include "../brillo.h"
 #include "view_info.h"
+#include "nav.h"       /* nav_ir_a_paseo(): el indice de todas las pantallas */
 #include "../net/udp_rx.h"
 #include "confirm_screen.h"
 #include "config_storage.h"
@@ -163,6 +164,15 @@ static void wifi_back_cb(lv_event_t *e)
 {
     (void)e;
     mostrar_menu(true);
+}
+
+/* Entra al indice de todas las pantallas (modo paseo). Se cierra Ajustes de
+ * paso: el carrusel de registro vive en otra pantalla y si no se quedaria
+ * abierto por debajo. */
+static void paseo_open_cb(lv_event_t *e)
+{
+    (void)e;
+    nav_ir_a_paseo();
 }
 
 static void wifi_open_cb(lv_event_t *e)
@@ -335,6 +345,19 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(blbl, &lv_font_montserrat_22, 0);
     lv_obj_center(blbl);
     s_brillo_lbl = blbl;
+
+    /* Ver TODAS las pantallas del cuaderno (modo paseo, ver view_registro.h).
+     * Los menus de registro solo se abren desde dentro de una salida, asi que
+     * sin esto no hay forma de revisarlos. Va el ultimo de los botones y con el
+     * color de "Ajustes": no apunta nada, es una herramienta. */
+    lv_obj_t *pbtn = lv_btn_create(s_menu);
+    lv_obj_set_size(pbtn, lv_pct(100), 64);
+    lv_obj_set_style_bg_color(pbtn, lv_color_hex(0x455A64), 0);
+    lv_obj_add_event_cb(pbtn, paseo_open_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *plbl = lv_label_create(pbtn);
+    lv_label_set_text(plbl, LV_SYMBOL_LIST "   Ver todas las pantallas");
+    lv_obj_set_style_text_font(plbl, &lv_font_montserrat_22, 0);
+    lv_obj_center(plbl);
 
     /* Estado del enlace con la P4. Vive AQUI y no en la pantalla de datos
      * (mudado el 30-sep-2026): es lo que se mira cuando algo no va, y en

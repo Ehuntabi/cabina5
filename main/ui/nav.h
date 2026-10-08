@@ -37,6 +37,15 @@ void nav_ir_a_sin_cerrar(void);
 /* Vuelve del carrusel a la pantalla de info. */
 void nav_close_ajustes(void);
 
+/* Abre el carrusel de registro en MODO PASEO: el indice con todas las
+ * pantallas, sin necesidad de tener una salida abierta (ver view_registro.h).
+ * Lo llama el boton "Ver todas las pantallas" de Ajustes.
+ *
+ * Pasa por aqui y no llama directo a view_registro_paseo_mostrar() para que el
+ * carrusel sepa en que pantalla esta: si no, el estado de nav y el de la vista
+ * se pelean y el primer deslizamiento deja la pantalla que no toca. */
+void nav_ir_a_paseo(void);
+
 #ifdef __cplusplus
 }
 #endif

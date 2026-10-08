@@ -403,7 +403,8 @@ static void valoracion_reset(void);
  * cosas de mas arriba necesitan nombrarlas -- el 409 de la P4, sin ir mas
  * lejos, manda a PAN_VIAJE_P4. */
 typedef enum {
-    PAN_PRINCIPAL = 0,   /* Nueva salida / Configuracion */
+    PAN_PASEO = 0,       /* indice de TODAS las pantallas (modo paseo) */
+    PAN_PRINCIPAL,       /* Nueva salida / Configuracion */
     PAN_TIPO,            /* Viaje / Puntual */
     PAN_SALIDA,          /* Anadir parada / Terminar salida / Configuracion */
     PAN_TIPOS,           /* las seis cosas que se anotan en un viaje */
@@ -415,6 +416,11 @@ typedef enum {
     PAN_COUNT
 } pantalla_t;
 
+static const char *PAN_NOMBRE[PAN_COUNT] = {
+    "paseo", "principal", "tipo", "salida", "tipos", "puntual",
+    "motivo", "sitio", "abiertos", "viaje_p4",
+};
+
 /* Dos destinos de la flecha que NO son pantallas. Van detras de PAN_COUNT para
  * no ocupar sitio en los arrays. */
 #define PAN_CANCELA_PUNTUAL  (PAN_COUNT)       /* la flecha cancela, no navega */
@@ -422,6 +428,9 @@ typedef enum {
 
 /* Definidas abajo, con los menus de la salida. */
 static void ocultar_menus(void);
+/* Modo paseo: ver la API en view_registro.h. */
+static bool s_paseo = false;
+
 static void volver_al_menu(void);
 static void mostrar_menu(pantalla_t p);
 static void puntual_refresh(void);
@@ -439,9 +448,13 @@ static void show_grid(void)
     /* Salir del formulario sin guardar deja el evento como estaba: abierto y
      * en la lista. Lo unico que se descarta es la intencion de cerrarlo. */
     s_cerrando = -1;
-    clear_forms();
-    for (int i = 0; i < CAT_COUNT; i++) {
-        lv_obj_add_flag(s_forms[i], LV_OBJ_FLAG_HIDDEN);
+    /* En paseo NO se vacian los formularios: se va y se vuelve sin perder lo
+     * tecleado, que es lo que hace falta para revisarlos uno a uno. */
+    if (!s_paseo) {
+        clear_forms();
+        for (int i = 0; i < CAT_COUNT; i++) {
+            lv_obj_add_flag(s_forms[i], LV_OBJ_FLAG_HIDDEN);
+        }
     }
     volver_al_menu();
 }
@@ -502,6 +515,9 @@ void view_registro_abrir_sin_cerrar(void)
 void view_registro_reset(void)
 {
     if (!s_ui_lista) return;
+    /* En paseo no se toca NADA: ni el formulario ni la pantalla en la que
+     * estabas. Es justo lo que se pide al pasear (ver view_registro.h). */
+    if (s_paseo) return;
     entry_screen_close();
     confirm_screen_close();
     filtros_screen_close();
@@ -4553,6 +4569,14 @@ static void abiertos_fila_crear(lv_obj_t *body, int idx)
     boton_chico(f, "Borrar", COL_ACCION_STOP, 110, borrar_cb, (void *)(intptr_t)idx);
 }
 
+/* Salir del paseo: deja de pasear, limpia lo que hubiera a medias y vuelve al
+ * menu que toque segun la salida en curso (ver view_registro_paseo_salir). */
+static void paseo_salir_cb(lv_event_t *e)
+{
+    (void)e;
+    view_registro_paseo_salir();
+}
+
 static void crear_menus(lv_obj_t *parent)
 {
     lv_obj_t *body, *f;
@@ -4739,6 +4763,61 @@ static void crear_menus(lv_obj_t *parent)
     body = pantalla_crear(parent, PAN_ABIERTOS, "SIN CERRAR", PAN_VOLVER);
     for (int i = 0; i < SALIDA_EVENTOS_MAX; i++) abiertos_fila_crear(body, i);
 
+    /* --- 0. PASEO: el indice de TODAS las pantallas (ver view_registro.h) ----
+     *
+     * Existe para poder RECORRER el cuaderno sin una salida abierta: los menus
+     * de registro solo se abren desde dentro de un viaje o una puntual, asi que
+     * sin esto no hay manera de revisarlos. No toca ningun dato: solo cambia
+     * que pantalla se ve.
+     *
+     * Se entra desde Ajustes ("Ver todas las pantallas") y se sale con el boton
+     * "Salir del paseo", aqui abajo del todo.
+     *
+     * El cuerpo SE DESLIZA porque 18 botones no caben de alto en 480 px: se
+     * reparten en tres columnas y aun asi hay que bajar un poco. */
+    body = pantalla_crear(parent, PAN_PASEO, "PASEO: TODAS LAS PANTALLAS", -1);
+    lv_obj_set_scroll_dir(body, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_AUTO);
+
+    lv_obj_t *titulo_p = lv_label_create(body);
+    lv_label_set_text(titulo_p, "MENUS (sin salida abierta)");
+    lv_obj_set_style_text_font(titulo_p, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(titulo_p, lv_color_hex(COL_LABEL), 0);
+
+    /* Los nueve menus, en tres filas de tres. Se empieza por PAN_PRINCIPAL:
+     * PAN_PASEO es este mismo indice y volver a el no aporta nada. */
+    for (int p = PAN_PRINCIPAL; p < PAN_COUNT; p += 3) {
+        lv_obj_t *fp = fila(body);
+        lv_obj_set_flex_grow(fp, 0);
+        lv_obj_set_height(fp, 58);
+        for (int k = p; k < p + 3 && k < PAN_COUNT; k++) {
+            char rot[40];
+            snprintf(rot, sizeof(rot), "%d. %s", k, PAN_NOMBRE[k]);
+            lv_obj_set_flex_grow(casilla(fp, NULL, rot, NULL, COL_VIAJE,
+                                         CEL3_W, lv_pct(100), ir_a_cb,
+                                         (void *)(uintptr_t)k), 1);
+        }
+    }
+
+    lv_obj_t *titulo_f = lv_label_create(body);
+    lv_label_set_text(titulo_f, "FORMULARIOS");
+    lv_obj_set_style_text_font(titulo_f, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(titulo_f, lv_color_hex(COL_LABEL), 0);
+
+    for (int c = 0; c < CAT_COUNT; c += 3) {
+        lv_obj_t *fc = fila(body);
+        lv_obj_set_flex_grow(fc, 0);
+        lv_obj_set_height(fc, 58);
+        for (int k = c; k < c + 3 && k < CAT_COUNT; k++) {
+            lv_obj_set_flex_grow(casilla(fc, NULL, CAT_NOMBRE[k], NULL, COL_BOMBONA,
+                                         CEL3_W, lv_pct(100), icon_click_cb,
+                                         (void *)(uintptr_t)k), 1);
+        }
+    }
+
+    lv_obj_set_flex_grow(boton_chico(body, "Salir del paseo", COL_AJUSTES,
+                                     lv_pct(100), paseo_salir_cb, NULL), 0);
+
     /* --- 9. La P4 tiene un viaje abierto ---
      * Se llega sola cuando la P4 contesta 409 al empezar un viaje. Se resuelve
      * DESDE AQUI porque la P4 esta en la parte de atras: levantarse del asiento
@@ -4753,6 +4832,30 @@ static void crear_menus(lv_obj_t *parent)
     lv_obj_set_flex_grow(boton_chico(body, "Apartarlo (era una prueba)",
                                      COL_ACCION_STOP, lv_pct(100),
                                      viaje_p4_descartar_cb, NULL), 0);
+}
+
+/* ── Modo paseo (ver view_registro.h) ───────────────────────────────────────
+ *
+ * Entra desde Ajustes: se va al carrusel de registro y se abre el indice. No
+ * comprueba nada de la salida en curso a proposito -- su razon de ser es
+ * precisamente poder ver las pantallas SIN salida.
+ */
+void view_registro_paseo_mostrar(void)
+{
+    s_paseo = true;
+    mostrar_menu(PAN_PASEO);
+}
+
+bool view_registro_paseo_activo(void) { return s_paseo; }
+
+void view_registro_paseo_salir(void)
+{
+    if (!s_paseo) return;
+    s_paseo = false;
+    /* Al salir SI se limpia (es lo que hace reset, que en paseo no hace nada) y
+     * se vuelve al menu que toque segun la salida en curso. */
+    view_registro_reset();
+    mostrar_menu(PAN_PRINCIPAL);
 }
 
 void view_registro_create(lv_obj_t *parent)
@@ -4876,10 +4979,6 @@ void view_registro_create(lv_obj_t *parent)
  * antemano -- no dependen de que haya una salida abierta, asi que se
  * pueden llamar directamente pase lo que pase en salida_get(). */
 
-static const char *PAN_NOMBRE[PAN_COUNT] = {
-    "principal", "tipo", "salida", "tipos", "puntual",
-    "motivo", "sitio", "abiertos", "viaje_p4",
-};
 
 int view_registro_num_pantallas(void) { return PAN_COUNT; }
 int view_registro_num_formularios(void) { return CAT_COUNT; }

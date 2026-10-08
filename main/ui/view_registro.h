@@ -46,6 +46,25 @@ void view_registro_mostrar_formulario(int idx);
 const char *view_registro_nombre_pantalla(int p);
 const char *view_registro_nombre_formulario(int idx);
 
+/* ── Modo PASEO (8-oct-2026) ────────────────────────────────────────────────
+ *
+ * Para poder RECORRER todas las pantallas del cuaderno sin tener una salida
+ * abierta de verdad. Los menus de registro (y sus formularios) solo se abren
+ * desde dentro de un viaje o una salida puntual, asi que sin esto no hay forma
+ * de revisarlos: ni para mirarlos, ni para comprobar que se ven bien.
+ *
+ * Con el paseo en marcha:
+ *   - no se vacian los formularios al cambiar de pantalla, asi que se puede ir
+ *     y volver sin perder lo tecleado;
+ *   - nav.c NO devuelve la vista al menu de iconos al salir del carrusel (el
+ *     estado se queda donde lo dejaste, que es lo que quiere quien esta
+ *     paseando). Se sale con el boton "Salir del paseo", en la propia pantalla.
+ *
+ * Nada de esto toca los datos: es solo que pantalla se ve. */
+void view_registro_paseo_mostrar(void);
+bool view_registro_paseo_activo(void);
+void view_registro_paseo_salir(void);
+
 #ifdef __cplusplus
 }
 #endif

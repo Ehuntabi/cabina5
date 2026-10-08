@@ -58,7 +58,9 @@ static void gesture_cb(lv_event_t *e)
      * al regresar te encontrabas el formulario abierto donde lo dejaste, en vez
      * del menu. Cierra tambien el editor de campo y la confirmacion, y deja los
      * formularios en blanco (clear_forms(), dentro de show_grid()). */
-    if (s_current == NAV_REGISTRO) view_registro_reset();
+    /* En modo paseo NO se resetea: el estado de la pantalla se queda donde lo
+     * dejo el que esta mirando (ver view_registro_paseo_activo). */
+    if (s_current == NAV_REGISTRO && !view_registro_paseo_activo()) view_registro_reset();
 
     s_current = (uint8_t)next;
     lv_scr_load_anim(s_screens[s_current], anim, NAV_ANIM_MS, 0, false);
@@ -67,7 +69,7 @@ static void gesture_cb(lv_event_t *e)
 void nav_ir_a_inclinacion(void)
 {
     if (s_current == NAV_INCLINACION) return;
-    if (s_current == NAV_REGISTRO) view_registro_reset();
+    if (s_current == NAV_REGISTRO && !view_registro_paseo_activo()) view_registro_reset();
     lv_scr_load_anim_t anim = (s_current > NAV_INCLINACION)
         ? LV_SCR_LOAD_ANIM_MOVE_RIGHT : LV_SCR_LOAD_ANIM_MOVE_LEFT;
     s_current = NAV_INCLINACION;
@@ -77,7 +79,7 @@ void nav_ir_a_inclinacion(void)
 void nav_ir_a_info(void)
 {
     if (s_current == NAV_INFO) return;
-    if (s_current == NAV_REGISTRO) view_registro_reset();
+    if (s_current == NAV_REGISTRO && !view_registro_paseo_activo()) view_registro_reset();
     lv_scr_load_anim_t anim = (s_current < NAV_INFO)
         ? LV_SCR_LOAD_ANIM_MOVE_LEFT : LV_SCR_LOAD_ANIM_MOVE_RIGHT;
     s_current = NAV_INFO;
@@ -109,6 +111,19 @@ void nav_ir_a_registros(void)
     s_current = NAV_REGISTRO;
     lv_scr_load_anim(s_screens[NAV_REGISTRO], LV_SCR_LOAD_ANIM_MOVE_LEFT,
                      NAV_ANIM_MS, 0, false);
+}
+
+void nav_ir_a_paseo(void)
+{
+    lv_obj_t *scr = lv_scr_act();
+    if (scr == s_ajustes_screen) {
+        s_current = NAV_REGISTRO;
+        lv_scr_load_anim(s_screens[NAV_REGISTRO], LV_SCR_LOAD_ANIM_MOVE_BOTTOM,
+                         NAV_ANIM_MS, 0, false);
+    } else {
+        nav_ir_a_registros();
+    }
+    view_registro_paseo_mostrar();
 }
 
 void nav_ir_a_sin_cerrar(void)
