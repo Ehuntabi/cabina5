@@ -4563,14 +4563,23 @@ static void crear_menus(lv_obj_t *parent)
                           LV_FLEX_ALIGN_CENTER);
     boton_grande(body, ICO_MAS, "NUEVA SALIDA", "viaje o gestion suelta",
                  COL_ACCION_OK, ir_a_cb, (void *)(uintptr_t)PAN_TIPO);
-    /* 225 DE ANCHO Y NO 160 (8-oct-2026): con 160 el rotulo "Configuracion" no
-     * cabia NI en la letra mas pequena del ajuste automatico -- medido con las
-     * metricas de la fuente: 179 px en letra 20 (161 en la 18) contra 152 de
-     * hueco. El usuario lo vio como "el boton tiene el texto mas grande que el
-     * boton", y su arreglo es este: ensanchar el boton. Con 225 el hueco util
-     * son 217 px y el rotulo entra en letra 22 (197 px) sin bajar de escalon,
-     * que es como se lee de un vistazo. */
-    boton_chico(body, "Configuracion", COL_AJUSTES, 225, ajustes_click_cb, NULL);
+    /* EL BOTON SE MIDE SOLO A SU TEXTO (8-oct-2026), y no lleva ancho clavado.
+     *
+     * Historia de este boton, porque el detalle importa: con 160 px de ancho el
+     * rotulo "Configuracion" no cabia NI en la letra mas pequena del ajuste
+     * automatico -- medido con las metricas de la fuente, 197 px en letra 22 y
+     * 161 en la 18, contra 152 de hueco. El usuario lo vio como "el texto es
+     * mas grande que el boton" y luego pidio lo contrario de lo que yo habia
+     * hecho: NO acortar el rotulo ni encogerlo, sino ensanchar el boton para
+     * que el texto se lea grande.
+     *
+     * La forma de que eso no se vuelva a desajustar es LV_SIZE_CONTENT: el
+     * boton mide lo que mide su texto mas el relleno, asi que ni se sale ni se
+     * queda corto, y el ajuste automatico de rotulos no tiene nada que encoger.
+     * 24 px de relleno por lado: con 8 el texto quedaba pegado al canto. */
+    lv_obj_t *b_ajustes = boton_chico(body, "Configuracion", COL_AJUSTES, LV_SIZE_CONTENT,
+                                      ajustes_click_cb, NULL);
+    lv_obj_set_style_pad_hor(b_ajustes, 24, 0);
 
     /* --- 2. Tipo de salida --- */
     body = pantalla_crear(parent, PAN_TIPO, "TIPO DE SALIDA", PAN_PRINCIPAL);
