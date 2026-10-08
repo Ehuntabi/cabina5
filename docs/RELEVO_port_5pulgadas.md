@@ -160,3 +160,58 @@ Para volver a intentarlo: `CAPTURE_CAROUSEL_ENABLE` a 1 en
 `tools/decodifica_capturas.py` (que ya entiende el formato binario y avisa de lo
 que falte). Acuérdate de volver a ponerlo a 0: con el flag a 1 la pantalla
 muestra datos falsos.
+
+## Sesión del 8-oct-2026 (tarde): lo que se hizo y dónde se quedó
+
+**Objetivo del usuario, dicho por él:** que esta pantalla de 5" **sustituya a la
+35cabina**. No es un port "para ver": es el aparato que va a ir montado.
+
+### Lo que quedó funcionando y verificado
+
+| | |
+|---|---|
+| Táctil | **Modo sondeo** (el port lo dejaba leyendo solo por interrupción, y en esta placa esa interrupción no existe: 0 en 30 s, medido). Comprobado en cada arranque: `Tactil comprobado: N lecturas` |
+| Brillo | Nivel bajo a 60 % (con 30 % la pantalla parecía apagada y se reportó como "está negra") |
+| Splash | La autocaravana, sin texto, se quita solo a los 2 s |
+| Formularios | **Se ven** (antes salían en negro: el contenedor se quedaba oculto). Cabecera fija, contenido que se desliza, botones de atrás de 192×56 |
+| Modo paseo | Ajustes → "Ver todas las pantallas": índice con los 9 menús y los 9 formularios, sin necesidad de una salida abierta |
+| Volcado de geometría | La placa **dice en números lo que pinta** por el log (`view_registro_diag_arbol`) |
+
+### LA CUENTA QUE HAY QUE ENTENDER (esto es lo que faltaba al principio)
+
+```
+pantalla 3,5"   480x320 px  ->  165 ppp   (la UI original)
+pantalla 5"     800x480 px  ->  181 ppp   (esta)
+```
+
+**Casi el mismo píxel físico.** Portar la UI da **MÁS SITIO, no MÁS TAMAÑO**. Para
+que todo se vea más grande hay que subir el tamaño a mano: la letra **ya subió
+dos escalones** (`ui/estilos.h`), y lo que queda son **las cajas**, cuyas medidas
+viven en los `#define` de cada vista (unos 40 por fichero), **no** en las
+llamadas de layout. Ahí es donde hay que trabajar.
+
+### Lo que queda pendiente (en orden)
+
+1. **Repartir el alto de la pernocta.** Ya está reescrita con tres piezas
+   directas (información / precio / acciones) que crecen 1-2-2, y el volcado
+   dice que las tres existen con su tamaño; falta comprobar en pantalla que
+   llena de arriba abajo. El histórico de este problema: la fila que envolvía el
+   precio se quedaba con el hueco y dejaba ~120 px negros **arriba** (el rótulo
+   "Precio" acababa al fondo de su caja).
+2. **Pasar la escala de las cajas** en el resto de vistas (los `#define`).
+3. Repasar los formularios de lista (repostaje, ITV, mantenimiento) con el mismo
+   criterio: que llenen el alto.
+4. Publicar la versión para que la 5" sustituya a la 35cabina: `./release.sh`.
+
+### Cómo se mide sin ver la pantalla (lo que costó toda una tarde aprender)
+
+- El log de arranque dice si el táctil lee y a qué brillo está.
+- `view_registro_diag_arbol(idx)` vuelca el árbol de objetos con posición y
+  tamaño REALES. **Ojo: hay que llamarlo ~800 ms después de mostrar el
+  formulario**, porque antes LVGL no ha calculado el layout y las medidas salen
+  falsas (dio varias tandas de números engañosos).
+- `bsp_mirar_framebuffer("etiqueta")` dice si el framebuffer tiene contenido
+  (porcentaje de muestras negras y brillo medio): distingue "no se pinta" de "no
+  se ve".
+- Y las fotos del usuario: con una foto y un volcado se localiza un hueco en
+  minutos. Sin foto, a ciegas, se pierden tardes.

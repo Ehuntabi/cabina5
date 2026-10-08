@@ -327,7 +327,8 @@ static lv_obj_t *s_pern_precio_row;    /* oculta si el sitio es gratis */
 static lv_obj_t *s_pern_precio_lbl;
 static lv_obj_t *s_pern_precio_ta;
 static lv_obj_t *s_pern_currency_dd;
-static lv_obj_t *s_pern_cobro_bm;      /* noche / 24 h; oculto en camping */
+static lv_obj_t *s_pern_cobro_bm;      /* contenedor del selector; oculto en camping */
+static lv_obj_t *s_pern_cobro_btn[2];  /* Noche | 24 h, botones normales */
 static uint8_t   s_pern_sitio;
 static uint32_t  s_pern_ini, s_pern_fin;
 
@@ -2867,57 +2868,131 @@ static void build_pernocta(lv_obj_t *form)
 {
     add_header(form, "PERNOCTA", lv_color_hex(COL_VIAJE), BACK_TO_GRID);
 
-    /* Donde y cuantas noches, escrito y no preguntado: los dijiste al llegar y
-     * el aparato ya sabe la hora de entrada y la de salida. Aqui solo estan
-     * para que se vea que se esta cerrando LA de anoche y no otra cosa. */
+    /* LA PERNOCTA SE MONTA CON TRES PIEZAS DIRECTAS EN LA COLUMNA, y esto es
+     * una decision de diseño, no un capricho de codigo.
+     *
+     * LO QUE PASABA (visto en la placa, 8-oct-2026): la fila del precio venia
+     * envuelta en una fila de campo ("para que quede como los demas campos"),
+     * y esa fila de mas se quedaba con el hueco sobrante. Resultado: ~120 px
+     * NEGROS entre la cabecera y el rotulo "Precio", porque el rotulo acababa
+     * al FONDO de su caja (medido: rotulo en y=74 dentro de una fila de 96) y
+     * los controles detras, empujados hacia abajo. El usuario lo describio
+     * exacto: "el hueco negro esta arriba".
+     *
+     * Con tres piezas directas -- informacion, controles del precio y acciones
+     * -- el reparto es el que dice el flex de la columna y no hay cajas
+     * intermedias que se queden con el sitio:
+     *
+     *   informacion   crece 1  (es texto; crece poco, solo para repartir)
+     *   precio        crece 2  (los controles, que van centrados en su hueco)
+     *   acciones      crece 2  (los botones, que quedan abajo)
+     *
+     * Asi el contenido llena la pantalla de arriba abajo, que es lo que se pide
+     * en una pantalla de 5". */
     s_pern_info_lbl = lv_label_create(form);
     lv_label_set_text(s_pern_info_lbl, "");
     lv_obj_set_style_text_color(s_pern_info_lbl, lv_color_hex(COL_LABEL), 0);
     lv_obj_set_style_text_font(s_pern_info_lbl, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_align(s_pern_info_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(s_pern_info_lbl, lv_pct(100));
+    lv_obj_set_flex_grow(s_pern_info_lbl, 1);
 
-    precio_row_t o;
-    s_pern_precio_row    = make_precio_row(form, &o, pern_cobro_cb);
-    /* LA PERNOCTA, REPARTIDA POR TODO EL ALTO (8-oct-2026).
-     *
-     * Con el contenido a su tamano natural, los campos acababan a media
-     * pantalla y quedaban ~150 px negros debajo, con los botones flotando en
-     * medio. Aqui se reparte: la fila del precio se estira (es la que puede
-     * crecer sin romperse: sus controles se centran solos) y la fila de
-     * acciones se queda con su alto y se va AL FONDO. Asi la pantalla queda
-     * llena y los botones donde los busca el dedo. */
-    lv_obj_set_flex_grow(s_pern_precio_row, 1);
+    /* --- Los controles del precio, DIRECTOS en la columna --- */
+    s_pern_precio_row = lv_obj_create(form);
+    lv_obj_set_width(s_pern_precio_row, lv_pct(100));
+    lv_obj_set_flex_grow(s_pern_precio_row, 2);
     lv_obj_set_style_min_height(s_pern_precio_row, 96, 0);
-    s_pern_precio_lbl    = o.lbl;
-    s_pern_precio_ta     = o.ta;
-    s_pern_currency_dd   = o.dd;
-    s_pern_cobro_bm      = o.bm;
+    lv_obj_set_style_bg_opa(s_pern_precio_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_pern_precio_row, 0, 0);
+    lv_obj_set_style_pad_all(s_pern_precio_row, 0, 0);
+    lv_obj_set_style_pad_column(s_pern_precio_row, 10, 0);
+    lv_obj_clear_flag(s_pern_precio_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(s_pern_precio_row, LV_FLEX_FLOW_ROW);
+    /* Los controles, centrados en el alto de su hueco: asi el reparto mueve la
+     * caja pero no descoloca los campos. */
+    lv_obj_set_flex_align(s_pern_precio_row, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
+    /* El rotulo va ENCIMA de los controles en su propia columna, para no meter
+     * otra fila: asi el "Precio" queda pegado a sus campos. */
+    lv_obj_t *col_precio = lv_obj_create(s_pern_precio_row);
+    lv_obj_set_width(col_precio, lv_pct(26));
+    lv_obj_set_height(col_precio, lv_pct(100));
+    lv_obj_set_style_bg_opa(col_precio, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(col_precio, 0, 0);
+    lv_obj_set_style_pad_all(col_precio, 0, 0);
+    lv_obj_set_style_pad_row(col_precio, 6, 0);
+    lv_obj_clear_flag(col_precio, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(col_precio, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(col_precio, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START);
+
+    s_pern_precio_lbl = lv_label_create(col_precio);
+    lv_label_set_text(s_pern_precio_lbl, "Precio");
+    lv_obj_set_style_text_color(s_pern_precio_lbl, lv_color_hex(COL_LABEL), 0);
+    lv_obj_set_style_text_font(s_pern_precio_lbl, &lv_font_montserrat_26, 0);
+
+    s_pern_precio_ta = lv_textarea_create(col_precio);
+    lv_textarea_set_one_line(s_pern_precio_ta, true);
+    lv_textarea_set_placeholder_text(s_pern_precio_ta, "0.00");
+    lv_obj_set_size(s_pern_precio_ta, lv_pct(100), 64);
+    lv_obj_set_style_text_font(s_pern_precio_ta, &lv_font_montserrat_40, 0);
+    lv_obj_set_style_text_align(s_pern_precio_ta, LV_TEXT_ALIGN_CENTER, 0);
+    lv_textarea_set_accepted_chars(s_pern_precio_ta, "0123456789.");
+    lv_textarea_set_max_length(s_pern_precio_ta, 10);
+    lv_obj_set_user_data(s_pern_precio_ta, (void *)"Precio por noche");
+    lv_obj_add_event_cb(s_pern_precio_ta, ta_click_cb, LV_EVENT_CLICKED,
+                        (void *)(uintptr_t)true);
+
+    s_pern_currency_dd = lv_dropdown_create(s_pern_precio_row);
+    lv_dropdown_set_options(s_pern_currency_dd, CURRENCY_OPTIONS);
+    lv_obj_set_size(s_pern_currency_dd, lv_pct(22), 64);
+    lv_obj_set_style_text_font(s_pern_currency_dd, &lv_font_montserrat_26, 0);
+
+    /* Selector de cobro con DOS BOTONES (no btnmatrix: sus botones se salian de
+     * la caja). */
+    s_pern_cobro_bm = lv_obj_create(s_pern_precio_row);
+    lv_obj_remove_style_all(s_pern_cobro_bm);
+    lv_obj_set_size(s_pern_cobro_bm, lv_pct(30), 64);
+    lv_obj_set_style_pad_column(s_pern_cobro_bm, 8, 0);
+    lv_obj_set_flex_flow(s_pern_cobro_bm, LV_FLEX_FLOW_ROW);
+    lv_obj_clear_flag(s_pern_cobro_bm, LV_OBJ_FLAG_SCROLLABLE);
+
+    static const char *COBRO_TXT[2] = { "Noche", "24 h" };
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t *b = lv_btn_create(s_pern_cobro_bm);
+        lv_obj_set_size(b, lv_pct(48), lv_pct(100));
+        lv_obj_set_style_radius(b, 10, 0);
+        lv_obj_set_style_bg_color(b, lv_color_hex(0x263238), 0);
+        lv_obj_set_style_bg_color(b, lv_color_hex(COL_ACCION_OK), LV_STATE_CHECKED);
+        lv_obj_add_flag(b, LV_OBJ_FLAG_CHECKABLE);
+        lv_obj_add_event_cb(b, pern_cobro_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        lv_obj_t *l = lv_label_create(b);
+        lv_label_set_text(l, COBRO_TXT[i]);
+        lv_obj_set_style_text_font(l, &lv_font_montserrat_26, 0);
+        lv_obj_set_style_text_color(l, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_color(l, lv_color_hex(COL_TILE_FG), LV_STATE_CHECKED);
+        lv_obj_center(l);
+        if (i == PARADA_COBRO_NOCHE) lv_obj_add_state(b, LV_STATE_CHECKED);
+        s_pern_cobro_btn[i] = b;
+    }
+
+    /* --- Las acciones, abajo --- */
     lv_obj_t *acciones = lv_obj_create(form);
-    /* Alto 76 y no 50: los rotulos de estos dos botones van con letra 26 y con
-     * 50 el texto quedaba pegado a los bordes.
-     *
-     * Y CON flex_grow(1): la fila del precio y esta se reparten el hueco que
-     * sobra, de forma que el contenido llega al fondo de la pantalla en vez de
-     * quedarse a media altura (era lo que se veia: "no ocupa en vertical toda
-     * la pantalla"). */
-    lv_obj_set_size(acciones, lv_pct(100), 76);
-    /* Alto = todo lo que sobra: la fila del precio se queda con su minimo y esta
-     * se estira hasta el fondo. Medido antes: el contenido acababa en y=285 de
-     * 480 y quedaban ~150 px vacios abajo. */
-    lv_obj_set_flex_grow(acciones, 3);
-    lv_obj_set_content_height(acciones, lv_pct(100));
+    lv_obj_set_width(acciones, lv_pct(100));
+    lv_obj_set_flex_grow(acciones, 2);
+    lv_obj_set_style_min_height(acciones, 76, 0);
     lv_obj_set_style_bg_opa(acciones, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(acciones, 0, 0);
     lv_obj_set_style_pad_all(acciones, 0, 0);
-    lv_obj_set_style_pad_column(acciones, 8, 0);
+    lv_obj_set_style_pad_column(acciones, 10, 0);
     lv_obj_clear_flag(acciones, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(acciones, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(acciones, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     lv_obj_t *serv_btn = lv_btn_create(acciones);
-    lv_obj_set_height(serv_btn, lv_pct(100));
-    lv_obj_set_flex_grow(serv_btn, 1);
+    lv_obj_set_size(serv_btn, lv_pct(46), lv_pct(100));
     lv_obj_set_style_bg_color(serv_btn, lv_color_hex(COL_VIAJE), 0);
     lv_obj_set_style_bg_color(serv_btn,
                               lv_color_darken(lv_color_hex(COL_VIAJE), LV_OPA_30),
@@ -2925,14 +3000,14 @@ static void build_pernocta(lv_obj_t *form)
     lv_obj_add_event_cb(serv_btn, pern_servicios_open_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *serv_lbl = lv_label_create(serv_btn);
     lv_label_set_text(serv_lbl, "Servicios " LV_SYMBOL_RIGHT);
-    lv_obj_set_style_text_font(serv_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(serv_lbl, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_color(serv_lbl, lv_color_hex(COL_TILE_FG), 0);
     lv_obj_center(serv_lbl);
 
     lv_obj_t *guardar = make_save_button(acciones, "Guardar noche",
                                          save_generic_cb,
                                          (void *)(uintptr_t)CAT_PERNOCTA);
-    lv_obj_set_flex_grow(guardar, 2);
+    lv_obj_set_flex_grow(guardar, 1);
 }
 
 /* Una linea por servicio, con su casilla y su importe (24-ago-2026). Antes eran
