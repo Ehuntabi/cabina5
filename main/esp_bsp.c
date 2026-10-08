@@ -46,6 +46,11 @@ static const char *TAG = "bsp";
 
 /* Contador para el informe de refrescos/s (diagnostico). */
 static volatile uint32_t s_refrescos = 0;
+static volatile uint32_t s_vsyncs = 0;
+static bool s_congelado = false;
+/* 1 = prueba de banco: congela el refresco a los 8 s para ver si el movimiento
+ * es de LVGL o del panel. 0 = comportamiento normal. */
+#define PRUEBA_CONGELAR 1
 
 /* El bus I2C es compartido con lo que se cuelgue despues (acelerometro, etc.).
  * Se crea una sola vez. */
@@ -158,19 +163,32 @@ static esp_lcd_panel_handle_t bsp_rgb_panel_new(void)
          * comandos (no es un controlador con registros, es una pantalla RGB). */
         .disp_gpio_num = GPIO_NUM_NC,
         .timings = {
-            /* 16 MHz es lo que usa la referencia de esta placa. El panel
-             * refresca a ~38 Hz; subirlo acorta la ventana en la que se escribe
-             * encima de lo que el panel lee. */
+            /* TIMING COPIADO de la definicion oficial de la placa
+             * (JC8048W550C.json de platformio-espressif32-sunton) y del repo
+             * ESP32-S3-JC8048W550-LVGL-ESPIDF-EEZ: 820 px por linea y 500 por
+             * cuadro a 16 MHz.
+             *
+             * Y OJO: hsync_idle_low y vsync_idle_low van en FALSE, no en true.
+             * Eso decide donde engancha la sincronia y por tanto donde empieza
+             * cada linea; con ellos en true la imagen salia corrida hacia un
+             * lado (que es el sintoma que perseguiamos creyendo que era scroll
+             * del framebuffer). */
             .pclk_hz = 16 * 1000 * 1000,
             .h_res = LCD_H_RES,
             .v_res = LCD_V_RES,
-            .hsync_pulse_width = 7,
-            .hsync_back_porch  = 40,
-            .hsync_front_porch = 40,
-            .vsync_pulse_width = 7,
-            .vsync_back_porch  = 10,
-            .vsync_front_porch = 10,
-            .flags.pclk_active_neg = true,
+            .hsync_pulse_width = 4,
+            .hsync_back_porch  = 8,
+            .hsync_front_porch = 8,
+            .vsync_pulse_width = 4,
+            .vsync_back_porch  = 8,
+            .vsync_front_porch = 8,
+            .flags = {
+                .hsync_idle_low  = false,
+                .vsync_idle_low  = false,
+                .de_idle_high    = false,
+                .pclk_active_neg = true,
+                .pclk_idle_high  = false,
+            },
         },
         .hsync_gpio_num = LCD_PIN_HSYNC,
         .vsync_gpio_num = LCD_PIN_VSYNC,
@@ -247,6 +265,7 @@ static bool IRAM_ATTR bsp_rgb_vsync_cb(esp_lcd_panel_handle_t panel,
                                        void *user_ctx)
 {
     BaseType_t despertar = pdFALSE;
+    s_vsyncs++;        /* DIAGNOSTICO: frecuencia real de barrido del panel */
     if (s_vsync_sem) xSemaphoreGiveFromISR(s_vsync_sem, &despertar);
     return despertar == pdTRUE;
 }
@@ -275,12 +294,24 @@ static void bsp_display_fps_cb(lv_timer_t *t)
     (void)t;
     static uint32_t t0 = 0;
     const uint32_t ahora = (uint32_t)(esp_timer_get_time() / 1000);
+
+    /* PRUEBA DE BANCO (temporal): a los 8 s se PARA el refresco de LVGL. Si la
+     * pantalla se sigue moviendo con el framebuffer quieto, el problema es del
+     * panel (timing), no de LVGL. Quitar cuando se aclare. */
+    if (PRUEBA_CONGELAR && ahora > 8000 && !s_congelado) {
+        s_congelado = true;
+        lv_timer_t *refr = lv_display_get_refr_timer(s_disp);
+        if (refr) lv_timer_pause(refr);
+        ESP_LOGW(TAG, "PRUEBA: refresco de LVGL CONGELADO (framebuffer quieto)");
+    }
     if (t0 == 0) t0 = ahora;
     if (ahora - t0 >= 5000) {
-        ESP_LOGI(TAG, "refrescos: %.1f/s | heap interno %u KB libres",
+        ESP_LOGI(TAG, "refrescos LVGL: %.1f/s | barrido del panel: %.1f Hz | heap interno %u KB",
                  s_refrescos * 1000.0 / (ahora - t0),
+                 s_vsyncs * 1000.0 / (ahora - t0),
                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
         s_refrescos = 0;
+        s_vsyncs = 0;
         t0 = ahora;
     }
 }

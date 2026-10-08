@@ -21,23 +21,35 @@
 #define LCD_PIN_DE              GPIO_NUM_40   /* [V] */
 #define LCD_PIN_PCLK            GPIO_NUM_42   /* [V] */
 
-/* Orden B0..B4, G0..G5, R0..R4 (RGB565 en paralelo) */
-#define LCD_PIN_DATA_B0         GPIO_NUM_8    /* [V] */
-#define LCD_PIN_DATA_B1         GPIO_NUM_3
-#define LCD_PIN_DATA_B2         GPIO_NUM_46
-#define LCD_PIN_DATA_B3         GPIO_NUM_9
-#define LCD_PIN_DATA_B4         GPIO_NUM_1
+/* Orden B0..B4, G0..G5, R0..R4 (RGB565 en paralelo).
+ *
+ * OJO CON ESTO: los grupos B y R iban CAMBIADOS y costo una tarde de perseguir
+ * un "scroll" que en realidad era la imagen corrida. En el xlsx de Guition la
+ * tabla de pines pone DB1(B)..DB5(B) en IO8/IO3/IO46/IO9/IO1 y DB13(R)..DB17(R)
+ * en IO45/IO48/IO47/IO21/IO14, que es como estaba aqui; pero la definición
+ * oficial de la placa (JC8048W550C.json del proyecto platformio-espressif32-
+ * sunton, y el repo ESP32-S3-JC8048W550-LVGL-ESPIDF-EEZ) dice exactamente lo
+ * contrario:
+ *     ST7262_PANEL_CONFIG_DATA_R0..R4 = 8, 3, 46, 9, 1
+ *     ST7262_PANEL_CONFIG_DATA_B0..B4 = 45, 48, 47, 21, 14
+ * Como los MISMOS cinco numeros aparecen en los dos sitios, el xlsx no vale
+ * para decidir: manda la definición de placa, que es la que se ha probado. */
+#define LCD_PIN_DATA_B0         GPIO_NUM_45
+#define LCD_PIN_DATA_B1         GPIO_NUM_48
+#define LCD_PIN_DATA_B2         GPIO_NUM_47
+#define LCD_PIN_DATA_B3         GPIO_NUM_21
+#define LCD_PIN_DATA_B4         GPIO_NUM_14
 #define LCD_PIN_DATA_G0         GPIO_NUM_5
 #define LCD_PIN_DATA_G1         GPIO_NUM_6
 #define LCD_PIN_DATA_G2         GPIO_NUM_7
 #define LCD_PIN_DATA_G3         GPIO_NUM_15
 #define LCD_PIN_DATA_G4         GPIO_NUM_16
 #define LCD_PIN_DATA_G5         GPIO_NUM_4
-#define LCD_PIN_DATA_R0         GPIO_NUM_45
-#define LCD_PIN_DATA_R1         GPIO_NUM_48
-#define LCD_PIN_DATA_R2         GPIO_NUM_47
-#define LCD_PIN_DATA_R3         GPIO_NUM_21
-#define LCD_PIN_DATA_R4         GPIO_NUM_14
+#define LCD_PIN_DATA_R0         GPIO_NUM_8
+#define LCD_PIN_DATA_R1         GPIO_NUM_3
+#define LCD_PIN_DATA_R2         GPIO_NUM_46
+#define LCD_PIN_DATA_R3         GPIO_NUM_9
+#define LCD_PIN_DATA_R4         GPIO_NUM_1
 
 /* ── Retroiluminacion (PWM por LEDC) ──────────────────────────────────────── */
 #define LCD_PIN_BACKLIGHT       GPIO_NUM_2    /* [V] */
