@@ -1435,13 +1435,19 @@ static lv_obj_t *make_form_container(lv_obj_t *parent)
      * (o 320) sobre una pantalla de 800: todo lo de dentro se calculaba sobre
      * ese ancho y salia apretado por mucho que se afinaran los porcentajes. */
     lv_obj_set_width(col, UI_ANCHO);
-    lv_obj_set_height(col, UI_ALTO - HEADER_H);
+    /* El alto que QUEDA de verdad. La columna se coloca en y = HEADER_H + 11
+     * (la cabecera tiene 4+2 de relleno y 4 de separacion del flex), asi que su
+     * alto no puede ser UI_ALTO - HEADER_H: medido, con 416 se salia 11 px por
+     * debajo de la pantalla y el contenido acababa en y=296 dejando ~115 px
+     * vacios mas abajo. */
+    lv_obj_set_height(col, UI_ALTO - HEADER_H - 11);
     /* Sin flex_grow: con grow se repartia el alto con la cabecera y la dejaba
      * en 6 px. Se coloca a mano debajo de ella. */
-    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, HEADER_H);
+    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, HEADER_H + 11);
     lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(col, 0, 0);
     lv_obj_set_style_pad_all(col, UI_MARGEN_ANCHO, 0);
+    lv_obj_set_style_pad_bottom(col, 12, 0);
     lv_obj_set_style_pad_row(col, 10, 0);
     lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
     /* Solo se desliza en vertical; en horizontal el gesto es del carrusel. */
@@ -2890,8 +2896,18 @@ static void build_pernocta(lv_obj_t *form)
 
     lv_obj_t *acciones = lv_obj_create(form);
     /* Alto 76 y no 50: los rotulos de estos dos botones van con letra 26 y con
-     * 50 el texto quedaba pegado a los bordes. */
+     * 50 el texto quedaba pegado a los bordes.
+     *
+     * Y CON flex_grow(1): la fila del precio y esta se reparten el hueco que
+     * sobra, de forma que el contenido llega al fondo de la pantalla en vez de
+     * quedarse a media altura (era lo que se veia: "no ocupa en vertical toda
+     * la pantalla"). */
     lv_obj_set_size(acciones, lv_pct(100), 76);
+    /* Alto = todo lo que sobra: la fila del precio se queda con su minimo y esta
+     * se estira hasta el fondo. Medido antes: el contenido acababa en y=285 de
+     * 480 y quedaban ~150 px vacios abajo. */
+    lv_obj_set_flex_grow(acciones, 3);
+    lv_obj_set_content_height(acciones, lv_pct(100));
     lv_obj_set_style_bg_opa(acciones, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(acciones, 0, 0);
     lv_obj_set_style_pad_all(acciones, 0, 0);
