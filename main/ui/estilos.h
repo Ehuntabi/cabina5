@@ -110,8 +110,14 @@ static inline lv_coord_t texto_ancho(const lv_font_t *f, const char *txt)
 
 /* Escalones que se prueban, de mayor a menor. El ultimo es el tope inferior:
  * por debajo, lo que hay que cambiar es el rotulo, no seguir encogiendo. */
+/* El ultimo escalon es la RED DE SEGURIDAD: por debajo de el, un rotulo que no
+ * quepa significa que el texto es demasiado largo para ese boton y lo que hay
+ * que cambiar es el texto. Se llega hasta la 18 (que en esta pantalla se lee,
+ * aunque sea pequena) porque hay botones justos con textos legitimos: medido,
+ * "Apartarlo (era una prueba)" mide 284 px en letra 20 y su boton tiene ~350. */
 #define ROTULO_ESCALONES { &FUENTE_GRANDE, &FUENTE_MEDIA_GRANDE, &FUENTE_MEDIA, \
-                           &FUENTE_NORMAL, &FUENTE_PEQUENA, &FUENTE_MUY_PEQUENA }
+                           &FUENTE_NORMAL, &FUENTE_PEQUENA, &FUENTE_MUY_PEQUENA, \
+                           &lv_font_montserrat_18 }
 
 /* Pone en `lbl` la letra mas grande que quepa en el ancho del boton `btn`.
  * Se guarda cual se aplico (en el user_data del ROTULO) para no repetir el
@@ -127,12 +133,18 @@ static inline void rotulo_ajustar(lv_obj_t *btn, lv_obj_t *lbl)
     dentro = true;
 
     const lv_coord_t disponible = lv_obj_get_content_width(btn) - 8;
+    /* OJO CON ESTA COMPARACION, que ya se hizo mal una vez (8-oct-2026): lo que
+     * se guarda en el user_data del ROTULO es la FUENTE que se le aplico, y hay
+     * que compararla con la fuente que tiene ahora. La primera version guardaba
+     * ahi el propio puntero del rotulo y comparaba con la fuente, o sea que la
+     * condicion no se cumplia NUNCA y el ajuste no llegaba a hacer nada: el
+     * boton "Configuracion" se quedo con el texto mas grande que el boton. */
     const lv_font_t *actual = lv_obj_get_style_text_font(lbl, LV_PART_MAIN);
-    if (disponible > 0 && actual != (const lv_font_t *)(lv_intptr_t)
-                                        (lv_intptr_t)lv_obj_get_user_data(lbl)) {
+    const lv_font_t *aplicada = (const lv_font_t *)lv_obj_get_user_data(lbl);
+    if (disponible > 0 && actual != aplicada) {
         const char *txt = lv_label_get_text(lbl);
         const lv_font_t *escalones[] = ROTULO_ESCALONES;
-        const lv_font_t *elegida = &FUENTE_MUY_PEQUENA;
+        const lv_font_t *elegida = &lv_font_montserrat_18;
         for (size_t i = 0; i < sizeof(escalones) / sizeof(escalones[0]); i++) {
             if (texto_ancho(escalones[i], txt) <= disponible) {
                 elegida = escalones[i];
@@ -140,7 +152,7 @@ static inline void rotulo_ajustar(lv_obj_t *btn, lv_obj_t *lbl)
             }
         }
         lv_obj_set_style_text_font(lbl, elegida, 0);
-        lv_obj_set_user_data(lbl, (void *)(lv_intptr_t)elegida);
+        lv_obj_set_user_data(lbl, (void *)elegida);
     }
     dentro = false;
 }
