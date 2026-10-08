@@ -11,6 +11,7 @@
  * sin reflashear.
  */
 #include "view_ajustes.h"
+#include "estilos.h"   /* la escala de fuentes y el ancho de columna */
 #include "../brillo.h"
 #include "view_info.h"
 #include "../net/udp_rx.h"
@@ -236,6 +237,32 @@ static void guardar_cb(lv_event_t *e)
                         "Si, cambiar", "Cancelar", do_guardar, NULL);
 }
 
+/* ── El contenido va en una COLUMNA CENTRADA, no a todo lo ancho ─────────────
+ *
+ * POR QUE (8-oct-2026): en los 800 px de esta pantalla, un campo de texto a
+ * pantalla completa deja el rotulo en una punta y el valor en la otra, y un
+ * boton de 800 x 64 parece una franja, no un boton. Las dos pantallas de
+ * Ajustes (el menu y el formulario de Wi-Fi) se quedan por tanto en una columna
+ * de UI_ANCHO_COLUMNA centrada, con el resto de margen.
+ *
+ * Se hace con un contenedor intermedio y no cambiando el ancho de cada widget:
+ * asi el reparto de dentro (botones al 100%, filas, tarjeta de version con
+ * flex_grow) sigue igual que estaba y no hay que tocar ni una linea de mas.
+ */
+static lv_obj_t *columna_centrada(lv_obj_t *parent)
+{
+    lv_obj_t *c = lv_obj_create(parent);
+    lv_obj_set_size(c, UI_ANCHO_COLUMNA, lv_pct(100));
+    lv_obj_align(c, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_opa(c, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(c, 0, 0);
+    lv_obj_set_style_pad_all(c, 8, 0);
+    lv_obj_set_style_pad_row(c, 8, 0);
+    lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
+    return c;
+}
+
 void view_ajustes_refresh(void)
 {
     udp_rx_get_credentials(s_ssid_orig, sizeof(s_ssid_orig),
@@ -261,14 +288,7 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
     /* ── El MENU: un boton de Wi-Fi y, en el resto, la version ───────────── */
-    s_menu = lv_obj_create(parent);
-    lv_obj_set_size(s_menu, lv_pct(100), lv_pct(100));
-    lv_obj_set_style_bg_opa(s_menu, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(s_menu, 0, 0);
-    lv_obj_set_style_pad_all(s_menu, 8, 0);
-    lv_obj_set_style_pad_row(s_menu, 8, 0);
-    lv_obj_clear_flag(s_menu, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(s_menu, LV_FLEX_FLOW_COLUMN);
+    s_menu = columna_centrada(parent);
 
     lv_obj_t *mrow = lv_obj_create(s_menu);
     lv_obj_set_size(mrow, lv_pct(100), 34);
@@ -382,16 +402,14 @@ void view_ajustes_create(lv_obj_t *parent)
     }
 
     /* ── El formulario del WI-FI ─────────────────────────────────────────── */
-    s_wifi = lv_obj_create(parent);
-    lv_obj_set_size(s_wifi, lv_pct(100), lv_pct(100));
-    lv_obj_set_style_bg_opa(s_wifi, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(s_wifi, 0, 0);
-    lv_obj_set_style_pad_all(s_wifi, 8, 0);
+    s_wifi = columna_centrada(parent);
     lv_obj_set_style_pad_row(s_wifi, 4, 0);
-    lv_obj_set_flex_flow(s_wifi, LV_FLEX_FLOW_COLUMN);
-    /* Cuatro campos y dos explicaciones NO caben en 320 px de alto, asi que
-     * esta pantalla se desliza. Solo en vertical: en horizontal no hay nada que
-     * ver y ademas confundiria con el gesto del carrusel. */
+    /* Cuatro campos y dos explicaciones caben justos en 480 px de alto (en la
+     * pantalla de 320 px logicos no cabian, y de ahi que se deslice). Se deja
+     * que se pueda deslizar igualmente: con la letra un escalon mas y un campo
+     * de texto alto, es la red de seguridad para que nada quede inalcanzable.
+     * Solo en vertical: en horizontal no hay nada que ver y ademas confundiria
+     * con el gesto del carrusel. */
     lv_obj_set_scroll_dir(s_wifi, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(s_wifi, LV_SCROLLBAR_MODE_AUTO);
 

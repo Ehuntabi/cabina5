@@ -53,21 +53,37 @@ CONFIG_LV_COLOR_DEPTH_16=y
 # cuenta de RAM medida que obliga a esto).
 CONFIG_LV_USE_CUSTOM_MALLOC=y
 CONFIG_LV_DEF_REFR_PERIOD=30
+# Captura de pantalla (lv_snapshot_take): la usa el modo de capturas del
+# carrusel (ver main/lv_port_compat.c y capture_carousel.c). En LVGL 9 no viene
+# activada de serie, y si falta, el build falla con "implicit declaration of
+# function 'lv_snapshot_take'".
+CONFIG_LV_USE_SNAPSHOT=y
 # LVGL 9 necesita saber con que sistema operativo corre (el port de Espressif no
 # lo pone solo en el Kconfig del proyecto).
 CONFIG_LV_USE_OS=y
 CONFIG_LV_OS_FREERTOS=y
-# FUENTES: esta pantalla tiene 181 ppp (5" a 800x480), asi que las de 14/16 px
-# se ven pequenas: el juego va un escalon por encima de lo habitual. Los tamanos
-# que se usan de verdad se declaran aqui; si falta uno, salta "undeclared".
+# FUENTES: esta pantalla tiene 181 ppp (5" a 800x480) y se mira desde el asiento
+# del conductor, no de cerca: el 8-oct-2026 se subio TODA la escala otro escalon
+# mas (ver main/ui/estilos.h). Los tamanos que se usan de verdad se declaran
+# aqui; si falta uno, salta "undeclared".
+# OJO: LVGL no trae Montserrat 56 (llega hasta 48), asi que ese escalon no
+# existe: el titular de 48 se queda en 48 a proposito.
 CONFIG_LV_FONT_MONTSERRAT_16=y
 CONFIG_LV_FONT_MONTSERRAT_18=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
 CONFIG_LV_FONT_MONTSERRAT_22=y
 CONFIG_LV_FONT_MONTSERRAT_24=y
+CONFIG_LV_FONT_MONTSERRAT_26=y
 CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_FONT_MONTSERRAT_30=y
 CONFIG_LV_FONT_MONTSERRAT_32=y
+CONFIG_LV_FONT_MONTSERRAT_34=y
+CONFIG_LV_FONT_MONTSERRAT_36=y
+CONFIG_LV_FONT_MONTSERRAT_38=y
 CONFIG_LV_FONT_MONTSERRAT_40=y
+CONFIG_LV_FONT_MONTSERRAT_42=y
+CONFIG_LV_FONT_MONTSERRAT_44=y
+CONFIG_LV_FONT_MONTSERRAT_46=y
 CONFIG_LV_FONT_MONTSERRAT_48=y
 CONFIG_LV_FONT_DEFAULT_MONTSERRAT_20=y
 

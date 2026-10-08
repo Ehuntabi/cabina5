@@ -26,7 +26,7 @@
 #include "confirm_screen.h"
 #include "view_info.h"
 #include "../icons/iconos.h"
-#include "../fonts/montserrat_bold.h"
+#include "estilos.h"   /* escala de fuentes y medidas de la pantalla */
 #include "config_storage.h"
 #include "p4_api.h"
 #include "viaje_cola.h"
@@ -87,19 +87,23 @@ static uint32_t s_cerrando_id;
  * puede llegar antes de que la vista exista (el carrusel la crea perezosa). */
 static bool      s_ui_lista;
 
-/* --- Reparto 3+2 del menu, a pantalla completa (480x320 apaisada) ---------
+/* --- Reparto del menu, a pantalla completa (800x480, ver estilos.h) --------
  *
  * Los tamanos van en pixeles y no en porcentaje a proposito: en LVGL el hueco
  * entre celdas (pad_gap) NO se descuenta del porcentaje, asi que tres celdas
  * al 33% + dos huecos se salen del ancho y la tercera baja de fila.
  *
- * Seis celdas iguales en 3+3. Si algun dia cambia la resolucion:
- *   ancho = (480 - 2*PAD - 2*GAP) / 3      alto = (320 - 2*PAD - GAP) / 2
- */
+ * Rehecho el 8-oct-2026 al pasar de los 480x320 logicos a los 800x480 reales:
+ * tres columnas en vez de dos, que es lo que pide una pantalla apaisada de 800
+ * (dos casillas de 380 px de ancho para un icono y una palabra quedaban como
+ * dos franjas). Con tres:
+ *   ancho = (800 - 2*PAD - 2*GAP) / 3 = 253      alto = (480 - BAR_H - 2*PAD - GAP) / 2
+ * El alto depende de la franja de arriba (BAR_H), asi que se deja que la fila
+ * sea elastica y la casilla ocupe todo el alto disponible. */
 #define MENU_PAD     10
 #define MENU_GAP     10
-#define MENU_TILE_W  146
-#define MENU_TILE_H  145
+#define CEL3_W      253
+#define CEL2_W      (CEL3_W * 3 / 2 + MENU_GAP / 2)   /* dos casillas + su hueco */
 
 /* Un color por categoria: fondos CLAROS y vivos con el contenido en NEGRO.
  *
@@ -521,12 +525,20 @@ static void ta_click_cb(lv_event_t *e)
  *
  * Dentro va en columna centrada: rotulo arriba, valor debajo. Asi el contenido
  * queda en el medio de la fila por alta que sea, en vez de pegado al borde. */
-#define FIELD_MIN_H  56
-#define FIELD_TA_H   40
+/* ALTURAS DE LOS CAMPOS. Subidas el 8-oct-2026 al subir toda la letra un
+ * escalon (ver estilos.h): el campo de texto pasa de llevar letra 24/32 a
+ * 26/40, y con el alto viejo el texto se salia por arriba y por abajo (el
+ * usuario lo vio en el formulario de Bombona). Regla: el alto del campo es
+ * "linea de la letra mas grande + 12 de aire".
+ *
+ *   letra 32 -> 38 de linea  ->  50 de campo
+ *   letra 40 -> 47 de linea  ->  50 de campo (el mismo sirve) */
+#define FIELD_MIN_H  84
+#define FIELD_TA_H   50
 
 /* La cabecera crece de 34 a 48 para que quepa el boton de Volver en pastilla.
  * Los 14 px extra los ceden las filas de campo, que son elasticas. */
-#define HEADER_H     48
+#define HEADER_H     64
 
 /* Ancho maximo del titulo para no pisar el boton de Volver. Ver add_header(). */
 #define HEADER_TITLE_MAX_W  208
@@ -557,8 +569,8 @@ static lv_obj_t *make_field_row(lv_obj_t *parent)
  * los dos a lo ancho y con letra mayor. Solo la usa peaje, que tiene un unico
  * campo y por tanto una fila que se estira hasta ~195 px: sitio de sobra. En
  * repostaje no cabria, porque comparte el alto con litros y precio/litro. */
-#define MONEY_BIG_DD_H   48
-#define MONEY_BIG_TA_H   58
+#define MONEY_BIG_DD_H   52
+#define MONEY_BIG_TA_H   64
 
 static lv_obj_t *make_money_field_stacked(lv_obj_t *parent, const char *label_text,
                                            lv_obj_t **dd_out)
@@ -633,7 +645,7 @@ static lv_obj_t *make_half_number(lv_obj_t *row, const char *label_text,
                     horizontal ? FIELD_TA_H : MONEY_BIG_TA_H);
     lv_obj_set_style_text_font(ta, &lv_font_montserrat_32, 0);
     lv_obj_set_style_text_align(ta, LV_TEXT_ALIGN_CENTER, 0);
-    /* Sin esto el 32 no queda centrado en vertical dentro de FIELD_TA_H (40):
+    /* Sin esto el campo no queda centrado en vertical dentro de su alto:
      * mismo caso que Bombona, ver make_money_field. */
     lv_obj_set_style_pad_top(ta, 0, 0);
     lv_obj_set_style_pad_bottom(ta, 0, 0);
@@ -681,10 +693,11 @@ static lv_obj_t *make_money_field(lv_obj_t *parent, const char *label_text,
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
 
     /* Sub-fila para poner numero y moneda uno al lado del otro dentro de la
-     * columna centrada de make_field_row(). Con la fuente 32 de Bombona,
-     * FIELD_TA_H (40) se queda justo -- el texto no cabe centrado, se pega
-     * arriba o se recorta. Un poco mas de alto solo en esa variante. */
-    lv_coord_t ta_h = moneda_izda ? (FIELD_TA_H + 10) : FIELD_TA_H;
+     * columna centrada de make_field_row(). Las dos variantes usan el MISMO
+     * alto: FIELD_TA_H ya esta calculado para la letra mas grande que se usa
+     * aqui (ver su comentario), asi que ya no hace falta el +10 que llevaba la
+     * de Bombona cuando el campo se quedo corto con la letra 32. */
+    lv_coord_t ta_h = FIELD_TA_H;
     lv_obj_t *row = lv_obj_create(cont);
     lv_obj_set_size(row, lv_pct(100), ta_h);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
@@ -760,7 +773,7 @@ static lv_obj_t *make_choice_row(lv_obj_t *parent, const char *label_text,
  *
  * Se reparten en dos columnas para que la casilla y su texto sigan siendo
  * grandes; en una sola columna las cuatro no caben sin encoger. */
-#define CHK_H      32   /* alto de cada casilla con su texto */
+#define CHK_H      44   /* alto de cada casilla con su texto (letra 22 + aire) */
 #define CHK_GAP     6
 /* La pantalla de servicios usa DOS huecos y los cambia sobre la marcha, porque
  * el sitio da para uno o para el otro segun este el selector de valoracion:
@@ -833,7 +846,7 @@ static lv_obj_t *make_check_grid(lv_obj_t *parent, const char *const *options,
  * guardar, el formulario de aguas se pasaria de los 304 px utiles y Guardar
  * quedaria fuera de la pantalla -- y aqui no hay scroll que valga. Con la
  * altura clavada salen 298. */
-#define CHKMONEY_ROW_H  46   /* el de aguas, que tiene sitio de sobra */
+#define CHKMONEY_ROW_H  60   /* el de aguas, que tiene sitio de sobra */
 #define CHKMONEY_TA_W  150
 
 /* 'alto' porque la misma fila se usa en dos sitios con sitio muy distinto: en
@@ -899,7 +912,7 @@ static void make_check_money_row(lv_obj_t *parent, const char *label_text,
 /* Moneda en UNA linea: rotulo a la izquierda y desplegable a la derecha.
  * make_currency_row() se lleva 68 px con el rotulo encima; en aguas esos 68 px
  * son justo los que necesitan los tres importes. */
-#define MONEDA_ROW_H  42
+#define MONEDA_ROW_H  56
 #define MONEDA_DD_W  150
 
 static lv_obj_t *make_currency_inline_row(lv_obj_t *parent, const char *label_text)
@@ -1316,11 +1329,33 @@ static lv_obj_t *make_form_container(lv_obj_t *parent)
     lv_obj_set_style_bg_color(form, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(form, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(form, 0, 0);
-    lv_obj_set_style_pad_all(form, 8, 0);
-    lv_obj_set_style_pad_row(form, 4, 0);
-    lv_obj_set_flex_flow(form, LV_FLEX_FLOW_COLUMN);
+    /* El formulario en si NO lleva relleno: el contenido va dentro de una
+     * COLUMNA CENTRADA de ancho comodo (ver abajo), y asi el negro de fuera
+     * sigue tapando la pantalla entera. */
+    lv_obj_set_style_pad_all(form, 0, 0);
     lv_obj_add_flag(form, LV_OBJ_FLAG_HIDDEN);
-    return form;
+
+    /* COLUMNA CENTRADA (8-oct-2026). En los 800 px de esta pantalla, un campo a
+     * todo lo ancho deja el rotulo en una punta y el valor en la otra, y una
+     * fila de dos campos parte el formulario en dos mitades separadas 400 px:
+     * se lee fatal. El contenido se queda en UI_ANCHO_COLUMNA (560) centrado,
+     * como en la pantalla de Ajustes (mismo criterio, ver estilos.h).
+     *
+     * Los menus NO pasan por aqui: sus casillas se reparten los 776 px utiles a
+     * proposito (ver CEL3_W). */
+    lv_obj_t *col = lv_obj_create(form);
+    lv_obj_set_size(col, UI_ANCHO_COLUMNA, lv_pct(100));
+    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(col, 0, 0);
+    lv_obj_set_style_pad_all(col, 8, 0);
+    lv_obj_set_style_pad_row(col, 4, 0);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_clear_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* Devuelve la COLUMNA: quien construye el formulario mete ahi sus widgets.
+     * Colgar del formulario y no de la columna dejaria los campos a 800 px. */
+    return col;
 }
 
 /* Devuelve el rotulo del titulo: la pantalla de viaje lo reescribe segun haya
@@ -2963,7 +2998,13 @@ static lv_obj_t *pantalla_crear(lv_obj_t *parent, pantalla_t id,
     lv_obj_set_width(body, lv_pct(100));
     lv_obj_set_flex_grow(body, 1);
     lv_obj_set_style_pad_all(body, PAN_PAD, 0);
-    lv_obj_clear_flag(body, LV_OBJ_FLAG_SCROLLABLE);
+    /* SE DESLIZA EN VERTICAL (8-oct-2026). Antes no hacia falta -- todo cabia
+     * en 480x320 -- pero con la letra un escalon mas, los formularios con mas
+     * campos (Repostaje, Mantenimiento) pasan de la pantalla y sin esto el
+     * boton de Guardar quedaria fuera, inalcanzable. Solo en vertical: en
+     * horizontal el gesto es del carrusel. */
+    lv_obj_set_scroll_dir(body, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(body, PAN_GAP, 0);
     return body;
@@ -3028,7 +3069,7 @@ static lv_obj_t *boton_grande(lv_obj_t *padre, const char *icono,
         lv_obj_t *ic = lv_label_create(b);
         lv_label_set_text(ic, icono);
         lv_obj_set_style_text_color(ic, lv_color_hex(COL_TILE_FG), 0);
-        lv_obj_set_style_text_font(ic, &iconos_32, 0);
+        lv_obj_set_style_text_font(ic, &iconos_44, 0);
     }
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, texto);
@@ -3045,12 +3086,19 @@ static lv_obj_t *boton_grande(lv_obj_t *padre, const char *icono,
     return b;
 }
 
-/* Boton pequeno de abajo. Alto fijo: no debe competir con el grande. */
+/* Boton pequeno de abajo. Alto fijo: no debe competir con el grande.
+ *
+ * 64 de alto y no 46 (8-oct-2026): con letra 22, "Terminar salida" no cabia en
+ * un boton de 46 ni de ancho ni de alto -- el texto se salia por los lados (lo
+ * vio el usuario en la pantalla de salida). 64 es el alto que pide esa letra
+ * con aire DEBAJO del texto, que es lo que faltaba: los dos botones de esa fila
+ * llevan rotulos largos ("Terminar salida", "Configuracion"). */
+#define BOTON_CHICO_H  64
 static lv_obj_t *boton_chico(lv_obj_t *padre, const char *texto, uint32_t color,
                              lv_coord_t ancho, lv_event_cb_t cb, void *ud)
 {
     lv_obj_t *b = lv_btn_create(padre);
-    lv_obj_set_size(b, ancho, 46);
+    lv_obj_set_size(b, ancho, BOTON_CHICO_H);
     lv_obj_set_style_bg_color(b, lv_color_hex(color), 0);
     lv_obj_set_style_bg_color(b, lv_color_darken(lv_color_hex(color), LV_OPA_30),
                               LV_STATE_PRESSED);
@@ -3092,7 +3140,7 @@ static lv_obj_t *casilla(lv_obj_t *padre, const char *icono, const char *texto,
         lv_obj_t *ic = lv_label_create(b);
         lv_label_set_text(ic, icono);
         lv_obj_set_style_text_color(ic, lv_color_hex(COL_TILE_FG), 0);
-        lv_obj_set_style_text_font(ic, &iconos_32, 0);
+        lv_obj_set_style_text_font(ic, &iconos_44, 0);
         /* Se probo lv_obj_set_style_transform_zoom para agrandarlo sin
          * generar una fuente nueva: esta fuente de iconos no se escala bien
          * por software con zoom (el glifo desaparece). Revertido -- para
@@ -3155,7 +3203,7 @@ static lv_obj_t *casilla_sitio(lv_obj_t *padre, const char *nombre, bool de_pago
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, nombre);
     lv_obj_set_style_text_color(l, lv_color_hex(COL_TILE_FG), 0);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_bold_32, 0);
+    lv_obj_set_style_text_font(l, &FUENTE_NEGRITA_GRANDE, 0);
 
     lv_obj_t *tag = lv_obj_create(b);
     lv_obj_remove_style_all(tag);
@@ -3174,7 +3222,7 @@ static lv_obj_t *casilla_sitio(lv_obj_t *padre, const char *nombre, bool de_pago
 
     lv_obj_t *t = lv_label_create(tag);
     lv_label_set_text(t, de_pago ? "DE PAGO" : "gratis");
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_bold_20, 0);
+    lv_obj_set_style_text_font(t, &FUENTE_NEGRITA, 0);
     lv_obj_set_style_text_color(t, lv_color_hex(de_pago ? 0xFFFFFF : COL_TILE_FG), 0);
     if (!de_pago) lv_obj_set_style_text_opa(t, LV_OPA_70, 0);
     return b;
@@ -4348,19 +4396,16 @@ static void terminar_salida_cb(lv_event_t *e)
 
 /* --- Las siete pantallas --------------------------------------------------
  *
- * Geometria (480x320): la franja se come 26, quedan 294; con PAN_PAD de 12 por
- * lado el cuerpo util es 456 x 270. De ahi salen los tamanos:
- *
- *   rejilla de 3 columnas: (456 - 2*10)/3 = 145 de ancho
- *   rejilla de 2 columnas: (456 - 10)/2   = 223
- *   dos filas:             (270 - 10)/2   = 130 de alto
+ * Geometria (800x480, ver estilos.h). La franja de arriba se come BAR_H, y con
+ * PAN_PAD a cada lado el cuerpo util es de 776 px de ancho. De ahi salen los
+ * tamanos, que estan definidos ARRIBA del todo (CEL3_W/CEL2_W, junto a
+ * MENU_PAD): aqui solo queda dicho de donde salen, para no tener dos sitios
+ * donde cambiarlos.
  *
  * No van en porcentaje: en LVGL el hueco entre celdas NO se descuenta del
  * porcentaje y la tercera columna se caeria de fila (ver el bloque del menu
  * viejo, mismo motivo).
  */
-#define CEL3_W  145
-#define CEL2_W  223
 
 /* La tira de estado de un menu de salida. Es un rotulo, pero se TOCA: es la
  * puerta a la lista de lo que queda abierto. Area de toque generosa por lo de
@@ -4482,7 +4527,7 @@ static void crear_menus(lv_obj_t *parent)
      * uno solo, y asi el grande se queda con el sitio. */
     f = fila(body);
     lv_obj_set_flex_grow(f, 0);
-    lv_obj_set_height(f, 46);
+    lv_obj_set_height(f, BOTON_CHICO_H);
     lv_obj_set_flex_grow(boton_chico(f, "Terminar salida", COL_ACCION_STOP, 0,
                                      terminar_salida_cb, NULL), 1);
     lv_obj_set_flex_grow(boton_chico(f, "Configuracion", COL_AJUSTES, 0,

@@ -227,6 +227,17 @@ static esp_lcd_panel_handle_t bsp_rgb_panel_new(void)
 }
 
 /* ── Tactil (GT911) ───────────────────────────────────────────────────────── */
+/* DIAGNOSTICO temporal: cuantas veces ha saltado la interrupcion del tactil.
+ * El GT911 tiene su INT en IO38, y de ahi depende el modo event-driven que
+ * trae el port de Espressif por defecto. */
+static volatile uint32_t s_int_tactil = 0;
+
+static void IRAM_ATTR bsp_touch_int_cb(esp_lcd_touch_handle_t tp)
+{
+    (void)tp;
+    s_int_tactil++;
+}
+
 static esp_lcd_touch_handle_t bsp_touch_new(void)
 {
     esp_lcd_panel_io_handle_t io = NULL;
@@ -268,6 +279,9 @@ static esp_lcd_touch_handle_t bsp_touch_new(void)
         },
     };
     ESP_ERROR_CHECK(esp_lcd_touch_new_i2c_gt911(io, &touch_cfg, &touch));
+    /* Solo para el diagnostico: cuenta las interrupciones que llegan de verdad
+     * (ver el log de 2 s). No cambia el comportamiento del driver. */
+    esp_lcd_touch_register_interrupt_callback(touch, bsp_touch_int_cb);
     /* OJO, COSA RARA DEL COMPONENTE (no tocar sin leer esto): pedimos
      * rst = NC (-1) e int = 38, que es lo correcto para esta placa, pero el
      * handle devuelve los dos campos AL REVES (rst = 38, int = 0). Aun asi el
@@ -281,14 +295,21 @@ static esp_lcd_touch_handle_t bsp_touch_new(void)
     return touch;
 }
 
-/* DIAGNOSTICO temporal: cuenta las lecturas que pide LVGL. */
+/* DIAGNOSTICO temporal: cuenta las lecturas que pide LVGL Y los toques que
+ * devuelve el chip. Las dos cifras juntas son las que dicen donde esta el
+ * fallo: si "lecturas" sube y "puntos" se queda en 0 al tocar, el problema es
+ * el chip o el cableado; si "lecturas" no sube, el problema es que LVGL no
+ * esta leyendo el dispositivo (el temporizador pausado que ya nos costo una
+ * tarde). Se quitan cuando la UI este estable (ver docs/RELEVO). */
 static lv_indev_read_cb_t s_read_cb_original = NULL;
 static volatile uint32_t s_lecturas = 0;
+static volatile uint32_t s_puntos = 0;
 
 static void bsp_touch_read_contado(lv_indev_t *indev, lv_indev_data_t *datos)
 {
     s_lecturas++;
     if (s_read_cb_original) s_read_cb_original(indev, datos);
+    if (datos->state == LV_INDEV_STATE_PRESSED) s_puntos++;
 }
 
 /* ── Arranque completo ────────────────────────────────────────────────────── */
@@ -354,13 +375,23 @@ static void bsp_lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t
 
 /* DIAGNOSTICO: refrescos por segundo. Sirve para comparar configuraciones (con
  * y sin avoid_tearing, buffers en RAM interna o en PSRAM) sin adivinar. */
-static volatile uint32_t s_lecturas_ref = 0;
 static void bsp_display_fps_cb(lv_timer_t *t)
 {
     (void)t;
-    if (s_lecturas != s_lecturas_ref) {
-        ESP_LOGW(TAG, "GANCHO: LVGL ha pedido leer el tactil %u veces", (unsigned)s_lecturas);
-        s_lecturas_ref = s_lecturas;
+    /* DIAGNOSTICO DEL TACTIL (8-oct-2026). Hasta aqui se imprimia una linea
+     * solo CUANDO el contador cambiaba, y eso tapaba justo el caso malo: si
+     * LVGL no pide leer el dispositivo ni una vez, no cambia nada y el log
+     * calla. Ahora se imprime el numero cada 2 s pase lo que pase, con el
+     * estado del temporizador y del dispositivo de entrada al lado. */
+    if (s_indev) {
+        lv_timer_t *lectura = lv_indev_get_read_timer(s_indev);
+        ESP_LOGI(TAG, "tactil: %u lecturas | temporizador %s | puntos %u | "
+                 "INT IO%d=%d, %u interrupciones",
+                 (unsigned)s_lecturas,
+                 (lectura && !lv_timer_get_paused(lectura)) ? "en marcha" : "PAUSADO",
+                 (unsigned)s_puntos,
+                 (int)TOUCH_PIN_INT, (int)gpio_get_level(TOUCH_PIN_INT),
+                 (unsigned)s_int_tactil);
     }
     static uint32_t t0 = 0;
     const uint32_t ahora = (uint32_t)(esp_timer_get_time() / 1000);
@@ -461,9 +492,38 @@ lv_display_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
      *
      * Se reanuda aqui, cuando ya esta todo montado. */
     if (s_indev) {
+        /* Antes de reanudar, se mete el contador de lecturas: el port ya ha
+         * puesto su lvgl_port_touchpad_read, y aqui se envuelve para poder
+         * decir en el log cuantas veces LVGL pide leer el chip. Sin esto, la
+         * unica forma de saber si el temporizador lee de verdad era mirar si
+         * los toques hacian algo -- que es justo lo que hay que averiguar. */
+        s_read_cb_original = lv_indev_get_read_cb(s_indev);
+        if (s_read_cb_original) lv_indev_set_read_cb(s_indev, bsp_touch_read_contado);
+
+        /* MODO SONDO POR TEMPORIZADOR, y esto es lo que hace que el tactil
+         * funcione de verdad (8-oct-2026).
+         *
+         * QUE PASABA: el port de Espressif deja el dispositivo de entrada en
+         * modo EVENT (lvgl_port_add_touch -> lv_indev_set_mode(EVENT)), o sea
+         * que NO se lee por temporizador: se lee cuando el port recibe el
+         * evento LVGL_PORT_EVENT_TOUCH, y ese evento sale UNICAMENTE de la
+         * interrupcion del GT911 (IO38). Medido con el contador de lecturas:
+         * 1 lectura en el arranque y NINGUNA mas en 30 s, con el temporizador
+         * en PAUSADO -- y por eso los toques no hacian nada aunque el chip
+         * respondiera por I2C.
+         *
+         * Se pasa a modo TIMER: LVGL lee el chip cada LV_DEF_REFR_PERIOD
+         * (30 ms) pase lo que pase con la interrupcion. Cuesta una lectura I2C
+         * cada 30 ms (el driver sondea por I2C de todas formas, ver
+         * TOUCH_PIN_INT), y a cambio el tactil deja de depender de un pin que
+         * en esta familia de placas esta puesto a GND por una resistencia (ver
+         * display.h) y del que no hay que fiarse. */
+        lv_indev_set_mode(s_indev, LV_INDEV_MODE_TIMER);
         lv_timer_t *lectura = lv_indev_get_read_timer(s_indev);
         if (lectura) lv_timer_resume(lectura);
-        ESP_LOGI(TAG, "Tactil: temporizador de lectura %s",
+        ESP_LOGI(TAG, "Tactil: modo %s, temporizador de lectura %s",
+                 lv_indev_get_mode(s_indev) == LV_INDEV_MODE_TIMER ? "SONDEO (timer)"
+                                                                   : "EVENTO (int)",
                  (lectura && !lv_timer_get_paused(lectura)) ? "EN MARCHA" : "PAUSADO (mal)");
     }
 

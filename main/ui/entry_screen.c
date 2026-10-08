@@ -1,13 +1,20 @@
 /* entry_screen.c - Editor de un campo a pantalla completa. Ver entry_screen.h. */
 #include "entry_screen.h"
+#include "estilos.h"   /* la escala de fuentes, en un solo sitio */
 
-/* Reparto vertical de los 320 px (ver display.h; la pantalla va apaisada).
- * El teclado se lleva 240 -- tres cuartas partes -- porque es lo que se toca
- * con el dedo en movimiento; el valor solo hay que leerlo. */
-#define ENTRY_LABEL_Y   4
-#define ENTRY_VALUE_Y   26
-#define ENTRY_VALUE_H   52
-#define ENTRY_KB_H      240
+/* Reparto vertical de los 480 px de alto de esta pantalla (display.h).
+ * El teclado se lleva 250 -- mas de la mitad -- porque es lo que se toca con el
+ * dedo en movimiento; el valor solo hay que leerlo.
+ *
+ * Lo que cambio el 8-oct-2026: el valor se escribe con la fuente de 48 (antes
+ * 40, ver estilos.h) y su fila mide 62 px, que es lo que pide esa letra; el
+ * rotulo sube a 26 y se lleva 26 px. 8 + 26 + 62 + 150 de teclado y aire = 480.
+ * El teclado en si NO se toca: su tamano lo decide LVGL por el alto de la
+ * pantalla, y a 480 px ya sale comodo. */
+#define ENTRY_LABEL_Y   8
+#define ENTRY_VALUE_Y   34
+#define ENTRY_VALUE_H   62
+#define ENTRY_KB_H      250
 
 static lv_obj_t *s_root;
 static lv_obj_t *s_label;

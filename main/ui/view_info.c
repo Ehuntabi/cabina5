@@ -134,6 +134,10 @@ static void paleta_aplicar(void)
 void view_info_set_contraste(bool activo)
 {
     if (s_contraste == activo) return;
+    /* El GPS se pinta en refresh_cb(), que ademas decide su color por estado
+     * (gris/naranja/verde): no puede ir en la paleta generica, o el modo
+     * contraste le borraria el estado. Se repinta el solo en el siguiente
+     * tick (500 ms), asi que aqui no hay nada que hacer. */
     s_contraste = activo;
     if (lvgl_port_lock(200)) {
         paleta_aplicar();
@@ -286,18 +290,53 @@ static lv_color_t color_for_frigo(int16_t centi) {
  *    |%%%%%%%%|     <- relleno, pegado abajo, alto proporcional al SoC
  *    +--------+
  */
-#define BAT_W        118
-#define BAT_H         86
-#define BAT_BORNE_W   22
-#define BAT_BORNE_H    8
+/* Medidas del dibujo de la bateria.
+ *
+ * SUBIDAS EL 8-OCT-2026 al adaptar la pantalla a sus 800x480 reales (antes la
+ * UI dibujaba en 480x320 logicos, ver estilos.h): la tarjeta de bateria pasa de
+ * 138 a 230 px de alto y de 472 a 792 de ancho, asi que el dibujo que la
+ * preside se queda pequeno si no crece con ella. Se escala 1,6 (86 -> 138 de
+ * alto), que es lo que crece la tarjeta de alto, para que el dibujo siga
+ * mandando en la franja en vez de nadar en ella.
+ *
+ * Las letras NO se tocan: el tamano de letra ya estaba calculado para los
+ * 181 ppp de esta pantalla, y ese numero no ha cambiado. Lo que cambia es el
+ * sitio que hay alrededor. */
+#define BAT_W        190
+#define BAT_H        138
+#define BAT_BORNE_W   32
+#define BAT_BORNE_H   11
 
 /* Hueco fijo del numero de tension/corriente, con la unidad justo detras. Ver
  * el porque en view_info_create. */
-#define BAT_NUM_W     104
-#define BAT_NUM_X      12
+#define BAT_NUM_W     160
+#define BAT_NUM_X      28
 
 /* Hueco fijo de las temperaturas, con la flecha de tendencia detras. */
-#define TEMP_NUM_W    150
+#define TEMP_NUM_W    190
+
+/* Alto de las dos filas de la rejilla (ver view_info_create) y, a partir de
+ * ellos, donde cae cada cosa dentro de la tarjeta de bateria.
+ *
+ * 210 (bateria) + 4 de hueco + 246 (aguas y temperaturas) + 8 de margen = 480
+ * clavados: la rejilla no depende de que la pantalla mida lo que mide hoy. */
+#define BAT_CARD_H      210
+#define TARJETAS_CARD_H 246
+
+/* El titulo de la tarjeta ocupa 8 (relleno) + 24 (letra) + 10 de aire = 42 */
+#define BAT_TITULO_H     42
+
+/* El bloque dibujo+bornes (BAT_H + BAT_BORNE_H) centrado en el hueco que queda
+ * por debajo del titulo. */
+#define BAT_DIB_Y  (BAT_TITULO_H + (BAT_CARD_H - 2 * 8 - BAT_TITULO_H \
+                                    - (BAT_H + BAT_BORNE_H)) / 2)
+
+/* Los dos numeros de la bateria (tension y corriente) van en columna a la
+ * izquierda del dibujo, y la columna se coloca en el MISMO sitio que el dibujo:
+ * si se dejan centrados en la tarjeta entera, con los 210 px de ahora salen
+ * mas bajos que la bateria y no se leen como una fila. */
+#define BAT_NUM_Y  ((BAT_DIB_Y + BAT_BORNE_H + BAT_H / 2) - 44)
+
 
 static lv_obj_t *s_bat_relleno;
 
@@ -323,7 +362,7 @@ static lv_obj_t *make_bateria_dibujo(lv_obj_t *padre)
         lv_obj_set_style_radius(borne, 2, 0);
         lv_obj_set_style_pad_all(borne, 0, 0);
         lv_obj_clear_flag(borne, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_align(borne, LV_ALIGN_TOP_LEFT, i == 0 ? 14 : BAT_W - 14 - BAT_BORNE_W, 0);
+        lv_obj_align(borne, LV_ALIGN_TOP_LEFT, i == 0 ? 22 : BAT_W - 22 - BAT_BORNE_W, 0);
     }
 
     lv_obj_t *cuerpo = lv_obj_create(cont);
@@ -407,36 +446,32 @@ static void led_set(lv_obj_t *led, uint8_t mode)
     }
 }
 
-/* Medidas del indicador de aguas, calculadas para el hueco que hay:
+/* Medidas del indicador de aguas. La tarjeta mide ahora ~166 px de alto y ~278
+ * de ancho (antes 123 x 180): con las medidas viejas el indicador se quedaba
+ * pequeno y nadando en la tarjeta. Los segmentos crecen de 11x56 a 16x84 y su
+ * separacion de 1 a 3 px.
  *
- * La tarjeta mide ~123 px de alto; menos el relleno y el borde quedan ~103, y
- * el titulo se lleva ~25. O sea unos 78 px para los indicadores, rotulo suyo
- * incluido.
- *
- * Con 13 de segmento salian 77 de 78 y SE RECORTABA: el bloque de grises
- * aparecia cortado por la mitad, que es como se noto. Ahora: cuatro segmentos
- * de 11 y tres huecos de 3 son 53, mas 3 y el rotulo de 17 = 73. Con margen.
+ * Con 16 de segmento salian 4*16 + 3*3 = 73 px de columna, y con el titulo (25)
+ * suman 98 de los ~150 utiles: sigue sobrando alto a proposito, porque las
+ * fracciones ("1/4") en letra 18 ocupan 22 px por fila y son las que mandan.
  *
  * Los de limpia son SEGMENTOS anchos y bajos, no cuadraditos: apilados leen
- * como un deposito. El de grises es un circulo del alto de dos segmentos, para
- * que pese lo mismo que la columna sin ser un puntito. */
-#define LED_SEG_W    56
-/* 17 de alto y no 11: cada segmento lleva a su izquierda su fraccion (1/4,
- * 2/4...) en letra 14, que ocupa 18 px de alto. La fila DEBE medir eso o mas:
- * con 17 el texto no cabia y LVGL lo recortaba entero -- no se veia ninguna
- * fraccion. Cuatro de 18 con huecos de 1 son 75, y con el titulo (25) suman 100
- * de los ~103 utiles de la tarjeta. */
-#define LED_SEG_H    18
-#define LED_SEG_GAP   1
-#define LED_FRAC_W   32   /* hueco fijo de la fraccion, para que no se recorte */
+ * como un deposito. El de grises es un bloque del alto de dos segmentos y algo
+ * mas, para que pese lo mismo que la columna sin ser un puntito. */
+#define LED_SEG_W    84
+/* 22 de alto y no 16: cada segmento lleva a su izquierda su fraccion (1/4,
+ * 2/4...) en letra 18, que ocupa 22 px de alto. La fila DEBE medir eso o mas:
+ * con menos el texto no cabe y LVGL lo recorta entero -- no se ve ninguna
+ * fraccion. */
+#define LED_SEG_H    22
+#define LED_SEG_GAP   3
+#define LED_FRAC_W   38   /* hueco fijo de la fraccion, para que no se recorte */
 /* Grises: MISMA forma y ancho que los segmentos de limpia, pero de una pieza en
  * vez de cuatro. Antes era un circulo, y un redondel grande al lado de una
  * columna de rectangulos quedaba raro. Se distingue de sobra por ser un bloque
  * unico y por su rotulo; no hace falta cambiarle la forma.
- * De ancho sobra: 56 + 18 de hueco + 56 son 130 de los ~214 utiles. */
-/* Tan alto como la columna de limpia ENTERA, rotulo incluido: 53 de los cuatro
- * segmentos, un pelin menos. Su texto va DENTRO del bloque y no debajo: asi no
- * le roba alto ni obliga a encoger nada. */
+ * Tan alto como la columna de limpia ENTERA, rotulo incluido, para que el
+ * conjunto quede cuadrado. */
 #define LED_GRIS_H   (LED_SEG_H * 4 + LED_SEG_GAP * 3 - 10)
 
 static lv_obj_t *make_led(lv_obj_t *parent, bool round)
@@ -1274,13 +1309,18 @@ void view_info_create(lv_obj_t *parent)
 {
     /* La paleta pinta desde el primer objeto con el modo que toque. */
     s_contraste = (brillo_nivel() == BRILLO_ALTO);
-    /* Resolucion logica LANDSCAPE 480x320 (ver esp_bsp.c:390-396).
+    /* La pantalla REAL de esta placa: 800x480 (ver display.h). El alto es el
+     * mismo que tenia la UI del satelite de 3,5" (480), asi que lo que se
+     * reparte de nuevo es el ancho: 320 px mas que antes.
      *
      * DOS columnas y DOS filas, con la bateria ocupando la fila de arriba
-     * entera. La de arriba pesa mas (3 contra 2) porque ahi va el dibujo de la
-     * bateria con su relleno, que es lo que se mira. */
+     * entera. La fila de arriba se lleva 210 px FIJOS (no una fraccion): ahi va
+     * el dibujo de la bateria con su relleno, que es lo que se mira, y su alto
+     * no depende del ancho. Las de abajo se quedan con lo que sobra (246),
+     * tambien fijo, para que el reparto no baile si algun dia cambia el ancho.
+     * 210 + 4 + 246 + 8 de margen = 480 exactos. */
     static lv_coord_t col_dsc[] = {LV_GRID_FR(2), LV_GRID_FR(3), LV_GRID_TEMPLATE_LAST};
-    static lv_coord_t row_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
+    static lv_coord_t row_dsc[] = {BAT_CARD_H, TARJETAS_CARD_H, LV_GRID_TEMPLATE_LAST};
 
     lv_obj_t *grid = lv_obj_create(parent);
     lv_obj_set_size(grid, lv_pct(100), lv_pct(100));
@@ -1306,11 +1346,16 @@ void view_info_create(lv_obj_t *parent)
                            &lv_font_montserrat_24);
 
     /* El dibujo va CENTRADO en la tarjeta y es el protagonista: los voltios y
-     * amperios a su izquierda, la bateria del motor a su derecha. El +8 baja el
-     * conjunto lo que ocupa el titulo, para que quede centrado a la vista y no
-     * solo en la cuenta. */
+     * amperios a su izquierda, la bateria del motor a su derecha.
+     *
+     * El +8 baja el conjunto lo que ocupa el titulo, para que quede centrado a
+     * la vista y no solo en la cuenta. Con la tarjeta de 210 px ese ajuste ya
+     * no vale: el centro geometrico (105) le deja el titulo pegado al dibujo.
+     * Ahora se calcula a partir del alto de la tarjeta (BAT_CARD_H, definida
+     * junto a la rejilla en view_info_create): el bloque dibujo+bornes se
+     * centra en el hueco que queda POR DEBAJO del titulo. */
     lv_obj_t *dib = make_bateria_dibujo(s_bat_card);
-    lv_obj_align(dib, LV_ALIGN_CENTER, 0, 8);
+    lv_obj_align(dib, LV_ALIGN_TOP_MID, 0, BAT_DIB_Y);
 
     /* Numero y UNIDAD van en etiquetas separadas, y no en un solo texto, para que
      * la V y la A no se muevan: el numero se alinea a la DERECHA dentro de un
@@ -1324,14 +1369,14 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_width(s_bat_volt, BAT_NUM_W);
     lv_obj_set_style_text_align(s_bat_volt, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_clear_flag(s_bat_volt, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_volt, LV_ALIGN_LEFT_MID, BAT_NUM_X, -12);
+    lv_obj_align(s_bat_volt, LV_ALIGN_LEFT_MID, BAT_NUM_X, -BAT_NUM_Y);
 
     lv_obj_t *u_v = lv_label_create(s_bat_card);
     lv_label_set_text(u_v, "V");
     paleta_texto(u_v, 0xCCCCCC, 0xFFFFFF);
     lv_obj_set_style_text_font(u_v, &lv_font_montserrat_24, 0);
     lv_obj_clear_flag(u_v, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(u_v, LV_ALIGN_LEFT_MID, BAT_NUM_X + BAT_NUM_W + 8, -8);
+    lv_obj_align(u_v, LV_ALIGN_LEFT_MID, BAT_NUM_X + BAT_NUM_W + 10, -BAT_NUM_Y + 4);
 
     s_bat_amp = lv_label_create(s_bat_card);
     lv_label_set_text(s_bat_amp, "");    lv_obj_set_style_text_color(s_bat_amp, COL_TEXT, 0);
@@ -1340,14 +1385,14 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_width(s_bat_amp, BAT_NUM_W);
     lv_obj_set_style_text_align(s_bat_amp, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_clear_flag(s_bat_amp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_amp, LV_ALIGN_LEFT_MID, BAT_NUM_X, 30);
+    lv_obj_align(s_bat_amp, LV_ALIGN_LEFT_MID, BAT_NUM_X, BAT_NUM_Y);
 
     s_bat_amp_u = lv_label_create(s_bat_card);
     lv_label_set_text(s_bat_amp_u, "A");
     paleta_texto(s_bat_amp_u, 0xCCCCCC, 0xFFFFFF);
     lv_obj_set_style_text_font(s_bat_amp_u, &lv_font_montserrat_24, 0);
     lv_obj_clear_flag(s_bat_amp_u, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, BAT_NUM_X + BAT_NUM_W + 8, 34);
+    lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, BAT_NUM_X + BAT_NUM_W + 10, BAT_NUM_Y + 4);
 
     /* La del motor, a la derecha del todo y mas discreta: es bateria tambien,
      * pero solo se mira cuando el vehiculo no arranca. */
@@ -1401,28 +1446,34 @@ void view_info_create(lv_obj_t *parent)
                                        &lv_font_montserrat_20);
     /* El valor del frigo va en un hueco fijo y la flecha al borde: asi la
      * flecha no se mueve cuando el numero cambia de ancho ("-5.0" contra
-     * "-18.0"), igual que con la V y la A de la bateria. */
-    s_frigo_val = make_fila_dato(temp_card, "Frigo", &lv_font_montserrat_32, 26);
+     * "-18.0"), igual que con la V y la A de la bateria.
+     *
+     * Las dos filas de esta tarjeta (Frigo y Exterior) se reparten el alto
+     * nuevo: la tarjeta pasa de 146 a 246 px, y con las posiciones de antes
+     * (26 y 62) los dos datos quedaban amontonados arriba con 150 px de negro
+     * debajo. Ahora van a 64 y 132, o sea centrados en sus dos mitades, y la
+     * flecha de tendencia de cada uno sube con ellos (ver mas abajo). */
+    s_frigo_val = make_fila_dato(temp_card, "Frigo", &lv_font_montserrat_32, 64);
     lv_obj_set_width(s_frigo_val, TEMP_NUM_W);
     lv_obj_set_style_text_align(s_frigo_val, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(s_frigo_val, LV_ALIGN_TOP_RIGHT, -26, 26);
+    lv_obj_align(s_frigo_val, LV_ALIGN_TOP_RIGHT, -26, 64);
 
     s_frigo_trend = lv_label_create(temp_card);
     lv_label_set_text(s_frigo_trend, "");
     lv_obj_set_style_text_font(s_frigo_trend, &lv_font_montserrat_20, 0);
     lv_obj_clear_flag(s_frigo_trend, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_frigo_trend, LV_ALIGN_TOP_RIGHT, 0, 30);
+    lv_obj_align(s_frigo_trend, LV_ALIGN_TOP_RIGHT, 0, 86);
 
-    s_ext_val   = make_fila_dato(temp_card, "Exterior", &lv_font_montserrat_32, 62);
+    s_ext_val   = make_fila_dato(temp_card, "Exterior", &lv_font_montserrat_32, 132);
     lv_obj_set_width(s_ext_val, TEMP_NUM_W);
     lv_obj_set_style_text_align(s_ext_val, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(s_ext_val, LV_ALIGN_TOP_RIGHT, -26, 62);
+    lv_obj_align(s_ext_val, LV_ALIGN_TOP_RIGHT, -26, 132);
 
     s_ext_trend = lv_label_create(temp_card);
     lv_label_set_text(s_ext_trend, "");
     lv_obj_set_style_text_font(s_ext_trend, &lv_font_montserrat_20, 0);
     lv_obj_clear_flag(s_ext_trend, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_ext_trend, LV_ALIGN_TOP_RIGHT, 0, 66);
+    lv_obj_align(s_ext_trend, LV_ALIGN_TOP_RIGHT, 0, 154);
 
     /* Icono del altavoz de la alarma del congelador: arriba a la DERECHA, que
      * es el unico hueco libre de la tarjeta (el titulo va centrado, "Frigo" a
@@ -1449,7 +1500,7 @@ void view_info_create(lv_obj_t *parent)
      * tarjeta por su cuenta: asi quedan a la misma altura pase lo que pase
      * con el alto exacto de cada una, sin ajustar offsets a ojo. */
     s_frigo_fan_track = lv_obj_create(temp_card);
-    lv_obj_set_size(s_frigo_fan_track, 70, 10);
+    lv_obj_set_size(s_frigo_fan_track, 120, 14);
     lv_obj_set_style_bg_color(s_frigo_fan_track, lv_color_hex(0x333333), 0);
     lv_obj_set_style_bg_opa(s_frigo_fan_track, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_frigo_fan_track, 0, 0);
@@ -1516,19 +1567,20 @@ void view_info_create(lv_obj_t *parent)
      * buscando, verde posicion fijada. Un GPS recien encendido tarda un par de
      * minutos, y ver "buscando" en vez de "no hay" evita ir a mirar el cable
      * cuando lo unico que hay que hacer es esperar. */
-    s_gps = lv_label_create(parent);
-    lv_obj_add_flag(s_gps, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    /* Ahora es HIJO DE LA TARJETA y no de la pantalla (8-oct-2026). En la
+     * pantalla de 480 de ancho el icono caia en el margen de 4 px de la
+     * rejilla; con la tarjeta ocupando los 800 px, ese mismo (14, 11) lo
+     * dejaba clavado SOBRE EL BORDE de la tarjeta. Colgado de la tarjeta va
+     * donde tiene que ir sin cuentas: su esquina de dentro. */
+    s_gps = lv_label_create(s_bat_card);
     lv_label_set_text(s_gps, LV_SYMBOL_GPS);
-    /* Rejilla 4 de margen + tarjeta 2 de borde y 8 de relleno: el contenido de
-     * la tarjeta de bateria empieza en la pantalla a (14, 14). El icono va casi
-     * pegado a esa esquina porque AHI NO HAY NADA -- el punto de conexion de
-     * esta tarjeta esta arriba a la DERECHA (make_card lo alinea TOP_RIGHT) y
-     * el titulo va centrado; la tarjeta de aguas ya no lleva punto (es el unico
-     * que queda). Antes estaba en y=1 con letra 14, por encima del borde de la
-     * tarjeta. */
+    /* Dentro de la tarjeta, en su esquina de arriba a la izquierda: ahi no hay
+     * nada -- el punto de conexion va arriba a la DERECHA (make_card lo alinea
+     * TOP_RIGHT), el titulo va centrado y el icono del altavoz tambien esta a
+     * la derecha (al_icono_crear con -26). */
     lv_obj_set_style_text_font(s_gps, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(s_gps, lv_color_hex(0x666666), 0);
-    lv_obj_align(s_gps, LV_ALIGN_TOP_LEFT, 14, 11);
+    lv_obj_align(s_gps, LV_ALIGN_TOP_LEFT, 6, 2);
 
     /* Aviso de la orden de silencio ("enviado" / "sin respuesta"). Abajo al
      * centro y oculto casi siempre: la pastilla de pendientes vive en el mismo

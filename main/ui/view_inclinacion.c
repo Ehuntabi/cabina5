@@ -6,12 +6,23 @@
  * circulares con lv_obj_align + offset en pixeles. Color verde/ambar/rojo
  * segun cuanto se aleja de nivel, igual que el resto de la app.
  *
- * Layout en fila (circulo a la izda, info a la dcha): la resolucion
- * logica de la pantalla es LANDSCAPE 480x320 (ver ui_theme.h), apilar
- * todo verticalmente como en un primer intento no cabia comodo en solo
- * 320px de alto -- corregido 18-ago-2026.
+ * Layout en fila (circulo a la izda, info a la dcha): apilar todo
+ * verticalmente no cabe comodo en 480 de alto -- corregido 18-ago-2026.
+ *
+ * ESTA PANTALLA SE REHIZO EL 8-OCT-2026 para los 800x480 REALES de la placa
+ * (antes dibujaba en los 480x320 logicos de la UI heredada, ver estilos.h):
+ *
+ *   - El dial crece de 240 a 320 px de diametro (radio 120 -> 160). Es la
+ *     pantalla que se mira desde FUERA, colocando las rampas, asi que cuanto mas
+ *     grande mejor; y ahora hay sitio de sobra.
+ *   - Las dos lecturas dejan de ir en un solo rotulo de dos lineas ("Cabeceo
+ *     +2,3 / Balanceo -1,0") y pasan a DOS FILAS con su etiqueta y su cifra
+ *     grande alineada a la derecha, como las temperaturas de la pantalla de
+ *     datos: con la letra un escalon mas, el rotulo de dos lineas se comia la
+ *     columna y las cifras -- que es lo unico que se mira -- quedaban pequenas.
  */
 #include "view_inclinacion.h"
+#include "estilos.h"
 #include "../tilt.h"
 #include <stdio.h>
 #include <math.h>
@@ -21,11 +32,14 @@
  * cola segun la especificacion de Dometic (3 de lado a lado). Empezo en 15, con
  * lo que todo lo util quedaba en el primer cuarto del circulo y la bola apenas
  * se movia. */
-/* 120 de radio = 240 px de dial, el maximo que entra a lo ancho: 240 del dial
- * + 200 de la columna de lecturas + los 10 de margen a cada lado suman 460 de
- * los 480. De alto sobra (240 de 300). */
-#define LEVEL_RADIUS    120  /* px, circulo exterior */
-#define BUBBLE_RADIUS   14   /* px, burbuja */
+/* 160 de radio = 320 px de dial: 320 del dial + 456 de la columna de lecturas
+ * + los 10 de margen a cada lado suman 796 de los 800. De alto, 320 + 20 de
+ * margen = 340 de 480: sobran 140, que es el aire que hace que el dial no se
+ * pegue a los bordes. */
+#define LEVEL_RADIUS    160  /* px, circulo exterior */
+/* 18 y no 14: con el dial un 33% mas grande, la bola de 14 px se perdia dentro
+ * (y el recorrido hasta el borde es mas largo). */
+#define BUBBLE_RADIUS   18   /* px, burbuja */
 #define MAX_DEG_SHOWN   6.0f  /* a partir de esto la burbuja se pega al borde */
 
 /* Por debajo de esto se da por nivelada.
@@ -65,10 +79,17 @@
 
 static lv_obj_t *s_circle;
 static lv_obj_t *s_bubble;
-static lv_obj_t *s_label_deg;
 static lv_obj_t *s_label_status;
 static lv_obj_t *s_label_nivel;   /* "NIVELADA", aparte del estado */
 static lv_timer_t *s_timer;
+/* Las dos lecturas, cada una con su cifra. Ver el reparto en
+ * view_inclinacion_create(). */
+static lv_obj_t *s_row_pitch;     /* "CABECEO"  + cifra */
+static lv_obj_t *s_row_roll;      /* "BALANCEO" + cifra */
+static lv_obj_t *s_val_pitch;
+static lv_obj_t *s_val_roll;
+static lv_obj_t *s_sin_sensor;    /* el aviso, en su sitio */
+static lv_obj_t *s_calib_btn;
 
 /* El color mira cada eje con SU vara, igual que el ovalo que se dibuja. */
 static lv_color_t color_for_level(float pitch, float roll)
@@ -121,8 +142,10 @@ static void make_rotulo_anillo(lv_obj_t *padre, int radio, const char *txt,
     lv_obj_t *l = lv_label_create(padre);
     lv_label_set_text(l, txt);
     lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
-    lv_obj_align(l, LV_ALIGN_CENTER, radio - 12, 10);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    /* El rotulo va SOBRE EL ANILLO, un poco hacia dentro: con el dial de 160 el
+     * borde queda a 150 de la cruz, y ahi cae el numero de los 6 grados. */
+    lv_obj_align(l, LV_ALIGN_CENTER, radio - 16, 12);
 }
 
 static void calib_btn_cb(lv_event_t *e)
@@ -146,7 +169,10 @@ static void calib_btn_cb(lv_event_t *e)
 /* 5 px y no 3: con 3 quedaba bien pero el usuario, viendolo en la placa, pidio
  * apretar mas (24-ago-2026). Son 0,28 grados, todavia menos de un tercio de
  * grado y muy por debajo del circulo verde de 1. */
-#define BOLA_ZONA_MUERTA_PX  5
+/* 7 px y no 5: el dial reparte los mismos 6 grados en mas pixeles (160 de
+ * radio en vez de 120), asi que la misma centesima de grado mueve mas la bola.
+ * Se sube en la misma proporcion para que no se note mas nerviosa que antes. */
+#define BOLA_ZONA_MUERTA_PX  7
 #define TEXTO_HISTERESIS_DEG 0.08f
 
 static int   s_bola_x, s_bola_y;
@@ -161,11 +187,19 @@ static void refresh_cb(lv_timer_t *t)
         lv_obj_add_flag(s_bubble, LV_OBJ_FLAG_HIDDEN);
         s_bola_pintada  = false;   /* al volver, que se coloque sin zona muerta */
         s_texto_escrito = false;
-        lv_label_set_text(s_label_deg, "--");
         lv_label_set_text(s_label_nivel, "");
-        lv_label_set_text(s_label_status, "Sensor ADXL345 no detectado");
+        /* Sin sensor no hay cifras que enseñar: se esconden las dos filas y en
+         * su hueco va el aviso. Antes se ponia "--" en las cifras y el aviso
+         * debajo, con lo que la pantalla parecia decir que estas a nivel. */
+        lv_obj_add_flag(s_row_pitch, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_row_roll, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_sin_sensor, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(s_label_status, "");
         return;
     }
+    lv_obj_clear_flag(s_row_pitch, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(s_row_roll, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_sin_sensor, LV_OBJ_FLAG_HIDDEN);
 
     float pitch, roll;
     if (!tilt_get(&pitch, &roll)) {
@@ -225,10 +259,14 @@ static void refresh_cb(lv_timer_t *t)
         s_pitch_escrito = pitch;
         s_roll_escrito  = roll;
         s_texto_escrito = true;
-        char buf[48];
-        snprintf(buf, sizeof(buf), "Cabeceo %+.1f\xC2\xB0\nBalanceo %+.1f\xC2\xB0",
-                 pitch, roll);
-        lv_label_set_text(s_label_deg, buf);
+        char buf[16];
+        /* El grado va pegado a la cifra y en la misma etiqueta: separarlo en su
+         * propia etiqueta (como la "V" y la "A" de la bateria) obligaria a
+         * fijar tres huecos para un texto que cambia de ancho con el signo. */
+        snprintf(buf, sizeof(buf), "%+.1f\xC2\xB0", pitch);
+        lv_label_set_text(s_val_pitch, buf);
+        snprintf(buf, sizeof(buf), "%+.1f\xC2\xB0", roll);
+        lv_label_set_text(s_val_roll, buf);
     }
     lv_label_set_text(s_label_status, "");
 }
@@ -243,6 +281,43 @@ static void screen_evento_cb(lv_event_t *e)
     } else {
         lv_timer_pause(s_timer);
     }
+}
+
+/* Una fila de lectura: "CABECEO" a la izquierda y la cifra grande alineada a
+ * la DERECHA dentro de su hueco. El hueco fijo es lo que impide que la cifra
+ * baile: "+2,3" y "-12,4" ocupan anchos distintos, y con la etiqueta pegada
+ * detras el numero se moveria en cada refresco (500 ms).
+ *
+ * Mismo patron que las temperaturas de la pantalla de datos (view_info.c,
+ * make_fila_dato): es la pantalla que se mira desde fuera del vehiculo, y las
+ * dos cifras tienen que leerse de un vistazo. */
+#define FILA_ALTO     56
+#define FILA_ETIQ_W  180
+#define FILA_VAL_W   190
+
+static lv_obj_t *make_readout(lv_obj_t *padre, const char *etiqueta, uint32_t color,
+                              lv_obj_t **valor_out)
+{
+    lv_obj_t *fila = lv_obj_create(padre);
+    lv_obj_remove_style_all(fila);
+    lv_obj_set_size(fila, FILA_ETIQ_W + FILA_VAL_W, FILA_ALTO);
+    lv_obj_clear_flag(fila, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *l = lv_label_create(fila);
+    lv_label_set_text(l, etiqueta);
+    lv_obj_set_style_text_color(l, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
+
+    lv_obj_t *v = lv_label_create(fila);
+    lv_label_set_text(v, "--");
+    lv_obj_set_style_text_color(v, lv_color_hex(color), 0);
+    lv_obj_set_style_text_font(v, &lv_font_montserrat_40, 0);
+    lv_obj_set_width(v, FILA_VAL_W);
+    lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_align(v, LV_ALIGN_RIGHT_MID, 0, 0);
+    if (valor_out) *valor_out = v;
+    return fila;
 }
 
 void view_inclinacion_create(lv_obj_t *parent)
@@ -317,46 +392,63 @@ void view_inclinacion_create(lv_obj_t *parent)
     lv_obj_clear_flag(s_bubble, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_center(s_bubble);
 
-    /* Columna derecha: titulo + lecturas + boton de calibrar, apilados */
+    /* Columna derecha: titulo, las dos lecturas, "NIVELADA", el aviso y el
+     * boton de calibrar. Colocada a mano (lv_obj_align) y no con flex: asi cada
+     * cosa cae donde tiene que caer aunque una de las filas se esconda (sin
+     * sensor), que con flex seria un salto de todo lo de abajo. */
     lv_obj_t *right = lv_obj_create(parent);
-    lv_obj_set_size(right, 200, lv_pct(100));   /* 20 px cedidos al dial */
+    lv_obj_set_size(right, 436, lv_pct(100));
     lv_obj_set_style_bg_opa(right, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(right, 0, 0);
     lv_obj_set_style_pad_all(right, 0, 0);
-    lv_obj_set_flex_flow(right, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(right, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(right, 12, 0);
     lv_obj_clear_flag(right, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(right);
     lv_label_set_text(title, "INCLINACION");
     lv_obj_set_style_text_color(title, lv_color_hex(0xAB47BC), 0);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_28, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
-    s_label_deg = lv_label_create(right);
-    lv_label_set_text(s_label_deg, "--");
-    lv_obj_set_style_text_color(s_label_deg, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(s_label_deg, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_align(s_label_deg, LV_TEXT_ALIGN_CENTER, 0);
+    s_row_pitch = make_readout(right, "CABECEO", 0xFFFFFF, &s_val_pitch);
+    lv_obj_align(s_row_pitch, LV_ALIGN_TOP_MID, 0, 60);
 
+    s_row_roll = make_readout(right, "BALANCEO", 0xFFFFFF, &s_val_roll);
+    lv_obj_align(s_row_roll, LV_ALIGN_TOP_MID, 0, 120);
+
+    /* El aviso de que no hay sensor ocupa el hueco de las dos filas. */
+    s_sin_sensor = lv_label_create(right);
+    lv_label_set_text(s_sin_sensor, "Sensor ADXL345\nno detectado");
+    lv_obj_set_style_text_color(s_sin_sensor, lv_color_hex(0xFFD54F), 0);
+    lv_obj_set_style_text_font(s_sin_sensor, &lv_font_montserrat_26, 0);
+    lv_obj_set_style_text_align(s_sin_sensor, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(s_sin_sensor, 400);
+    lv_obj_align(s_sin_sensor, LV_ALIGN_TOP_MID, 0, 84);
+    lv_obj_add_flag(s_sin_sensor, LV_OBJ_FLAG_HIDDEN);
+
+    /* "NIVELADA" en verde y grande: es la respuesta que se busca al colocar las
+     * rampas, y se lee desde fuera de la autocaravana. */
     s_label_nivel = lv_label_create(right);
     lv_label_set_text(s_label_nivel, "");
     lv_obj_set_style_text_color(s_label_nivel, lv_color_hex(0x4CD964), 0);
-    lv_obj_set_style_text_font(s_label_nivel, &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_font(s_label_nivel, &lv_font_montserrat_48, 0);
+    lv_obj_align(s_label_nivel, LV_ALIGN_TOP_MID, 0, 196);
 
     s_label_status = lv_label_create(right);
     lv_label_set_text(s_label_status, "");
     lv_obj_set_style_text_color(s_label_status, lv_color_hex(0x888888), 0);
-    lv_obj_set_style_text_font(s_label_status, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_label_status, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_align(s_label_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(s_label_status, lv_pct(100));
+    lv_obj_align(s_label_status, LV_ALIGN_TOP_MID, 0, 258);
 
-    lv_obj_t *calib_btn = lv_btn_create(right);
-    lv_obj_set_size(calib_btn, 170, 42);
-    lv_obj_set_style_bg_color(calib_btn, lv_color_hex(0x333333), 0);
-    lv_obj_add_event_cb(calib_btn, calib_btn_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *calib_lbl = lv_label_create(calib_btn);
+    s_calib_btn = lv_btn_create(right);
+    lv_obj_set_size(s_calib_btn, 300, 68);
+    lv_obj_set_style_bg_color(s_calib_btn, lv_color_hex(0x333333), 0);
+    lv_obj_add_event_cb(s_calib_btn, calib_btn_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_align(s_calib_btn, LV_ALIGN_BOTTOM_MID, 0, -24);
+    lv_obj_t *calib_lbl = lv_label_create(s_calib_btn);
     lv_label_set_text(calib_lbl, "Calibrar nivel");
+    lv_obj_set_style_text_font(calib_lbl, &lv_font_montserrat_26, 0);
     lv_obj_center(calib_lbl);
 
     s_timer = lv_timer_create(refresh_cb, 200, NULL);
