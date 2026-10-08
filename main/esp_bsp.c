@@ -31,6 +31,7 @@
 #include "esp_check.h"
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
+#include "esp_cache.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_lcd_panel_ops.h"
@@ -152,13 +153,29 @@ static esp_lcd_panel_handle_t bsp_rgb_panel_new(void)
 {
     esp_lcd_panel_handle_t panel = NULL;
     const esp_lcd_rgb_panel_config_t cfg = {
-        .clk_src    = LCD_CLK_SRC_DEFAULT,
+        /* El reloj del panel, EXACTO al de la definicion oficial de la placa
+         * (LCD_CLK_SRC_PLL160M). Con el DEFAULT el PCLK sale de otra fuente y no
+         * siempre cae en la frecuencia pedida: si la frecuencia de pixeles no es
+         * la que se cree, cada linea arrastra un resto y la imagen sale CORRIDA
+         * HACIA UN LADO, que es justo el sintoma que perseguimos. */
+        .clk_src    = LCD_CLK_SRC_PLL160M,
         .data_width = 16,
         .bits_per_pixel = 16,
-        /* DOS framebuffers: es el requisito de avoid_tearing (mientras el panel
-         * lee uno, LVGL dibuja en el otro). */
-        .num_fbs    = 2,
-        .psram_trans_align = 64,  /* el DMA del RGB va mas fino alineado */
+        /* DOS framebuffers Y bounce buffer: es la receta del ejemplo oficial de
+         * Espressif (rgb_avoid_tearing) y la unica combinacion que funciona:
+         *  - los framebuffers son en los que dibuja LVGL (pantalla completa);
+         *  - el bounce buffer es un buffer INTERNO de 20 lineas del que lee el
+         *    DMA, rellenado por la ISR desde el framebuffer de PSRAM. Al no leer
+         *    nunca directo de PSRAM, el FIFO no se queda seco y no hay drift.
+         * OJO: con num_fbs = 0 NO funciona (la pantalla se queda negra): el
+         * driver solo avanza de framebuffer cuando el buffer de dibujo esta
+         * dentro de uno, y con cero framebuffers no avanza nunca. */
+        .num_fbs    = 1,
+        /* Bounce buffer de 20 lineas: Espressif pide >= 20 para que a la ISR le
+         * de tiempo a rellenarlo dentro del tiempo de linea. Con 20 lineas son
+         * 32 KB por buffer y el driver pide dos (doble buffer de bounce). */
+        .bounce_buffer_size_px = 20 * LCD_H_RES,
+        .psram_trans_align = 64,  /* = PSRAM_TRANS_ALIGN de la definicion oficial */
         /* Interfaz de datos DESHABILITADO: este panel no tiene pin de datos ni
          * comandos (no es un controlador con registros, es una pantalla RGB). */
         .disp_gpio_num = GPIO_NUM_NC,
@@ -183,6 +200,7 @@ static esp_lcd_panel_handle_t bsp_rgb_panel_new(void)
             .vsync_back_porch  = 8,
             .vsync_front_porch = 8,
             .flags = {
+                /* Las dos en FALSE, segun la definicion oficial de la placa. */
                 .hsync_idle_low  = false,
                 .vsync_idle_low  = false,
                 .de_idle_high    = false,
@@ -231,6 +249,13 @@ static esp_lcd_touch_handle_t bsp_touch_new(void)
     const esp_lcd_touch_config_t touch_cfg = {
         .x_max = LCD_H_RES,
         .y_max = LCD_V_RES,
+        /* RESET NO CONECTADO a proposito: en esta placa el unico pin de control
+         * del tactil (IO38) es la INTERRUPCION, no el reset (asi lo dice la
+         * definicion oficial de la placa: RESET_PIN = -1, INTERRUPT_PIN = 38).
+         * Sin reset, el GT911 se queda en su direccion por defecto (0x5D), que es
+         * justo la que responde en esta placa. Con rst=38 el driver hacia la
+         * secuencia de seleccion de direccion y el tactil quedaba a medias: el
+         * port se quejaba con "Error in register touch interrupt". */
         .rst_gpio_num = TOUCH_PIN_RST,
         .int_gpio_num = TOUCH_PIN_INT,
         .levels = {
@@ -244,7 +269,8 @@ static esp_lcd_touch_handle_t bsp_touch_new(void)
         },
     };
     ESP_ERROR_CHECK(esp_lcd_touch_new_i2c_gt911(io, &touch_cfg, &touch));
-    ESP_LOGI(TAG, "Tactil GT911 listo (direccion 0x%02X)", TOUCH_I2C_ADDR);
+    ESP_LOGI(TAG, "Tactil GT911 listo (direccion 0x%02X, int_gpio=%d, rst_gpio=%d)",
+             TOUCH_I2C_ADDR, (int)touch->config.int_gpio_num, (int)touch->config.rst_gpio_num);
     return touch;
 }
 
@@ -276,13 +302,35 @@ static bool IRAM_ATTR bsp_rgb_vsync_cb(esp_lcd_panel_handle_t panel,
  * pasearse por la pantalla. Si el retrazo tarda mas de lo razonable (panel
  * parado, driver raro) se copia igual: mas vale un desgarro que una pantalla
  * congelada. */
+/* ── Bounce buffer: la solucion al "screen drift" ────────────────────────────
+ *
+ * SINTOMA: la imagen entera se va corriendo hacia un lado, sola, aunque el
+ * framebuffer no se toque (comprobado con un patron escrito una sola vez y el
+ * refresco congelado) y aunque el panel barra a una frecuencia perfectamente
+ * estable (39,0 Hz medidos).
+ *
+ * CAUSA (documentada por Espressif como "screen drift"): el GDMA no llega a
+ * tiempo a servir los pixeles desde PSRAM, el FIFO del LCD se queda vacio
+ * (under-run) y el puntero del FIFO se desalinea; a partir de ahi el controlador
+ * sigue leyendo de la direccion equivocada y muestra las lineas siguientes como
+ * si fueran las primeras: la imagen se desplaza linea a linea.
+ *
+ * SOLUCION (la que dice Espressif): un BOUNCE BUFFER en RAM INTERNA de al menos
+ * 20 lineas. El DMA lee siempre de ahi (memoria rapida, nunca se queda seco) y
+ * la ISR lo va rellenando desde PSRAM. Aqui el driver lo hace solo porque
+ * El driver lo hace solo porque hay framebuffers (num_fbs = 2): copia de ellos
+ * al bounce buffer desde su ISR. Con num_fbs = 0 no funciona (pantalla negra):
+ * sin framebuffers el driver no avanza nunca de cuadro.
+ *
+ * Ademas esta abierto XIP desde PSRAM (CONFIG_SPIRAM_FETCH_INSTRUCTIONS y
+ * CONFIG_SPIRAM_RODATA), que es la otra recomendacion del mismo documento. */
+
+/* LVGL dibuja DIRECTAMENTE en los framebuffers del panel (pantalla completa),
+ * y el driver copia de ahi al bounce buffer por el que va el barrido. */
 static void bsp_lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
-    if (s_vsync_sem) xSemaphoreTake(s_vsync_sem, pdMS_TO_TICKS(20));
-
     esp_lcd_panel_draw_bitmap(s_rgb_panel, area->x1, area->y1,
                               area->x2 + 1, area->y2 + 1, px_map);
-
     lv_display_flush_ready(disp);
     s_refrescos++;
 }
@@ -295,17 +343,8 @@ static void bsp_display_fps_cb(lv_timer_t *t)
     static uint32_t t0 = 0;
     const uint32_t ahora = (uint32_t)(esp_timer_get_time() / 1000);
 
-    /* PRUEBA DE BANCO (temporal): a los 8 s se PARA el refresco de LVGL. Si la
-     * pantalla se sigue moviendo con el framebuffer quieto, el problema es del
-     * panel (timing), no de LVGL. Quitar cuando se aclare. */
-    if (PRUEBA_CONGELAR && ahora > 8000 && !s_congelado) {
-        s_congelado = true;
-        lv_timer_t *refr = lv_display_get_refr_timer(s_disp);
-        if (refr) lv_timer_pause(refr);
-        ESP_LOGW(TAG, "PRUEBA: refresco de LVGL CONGELADO (framebuffer quieto)");
-    }
     if (t0 == 0) t0 = ahora;
-    if (ahora - t0 >= 5000) {
+    if (ahora - t0 >= 2000) {
         ESP_LOGI(TAG, "refrescos LVGL: %.1f/s | barrido del panel: %.1f Hz | heap interno %u KB",
                  s_refrescos * 1000.0 / (ahora - t0),
                  s_vsyncs * 1000.0 / (ahora - t0),
@@ -349,26 +388,24 @@ lv_display_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
      * el panel empieza a leer por arriba. Asi el trozo copiado se ve en el mismo
      * cuadro y la costura queda en una linea, no en una banda que se pasea.
      */
-    s_vsync_sem = xSemaphoreCreateBinary();
-    if (!s_vsync_sem) {
-        ESP_LOGE(TAG, "sin memoria para el semaforo de retrazo");
-        return NULL;
-    }
     const esp_lcd_rgb_panel_event_callbacks_t rgb_cbs = {
         .on_vsync = bsp_rgb_vsync_cb,
     };
     ESP_ERROR_CHECK(esp_lcd_rgb_panel_register_event_callbacks(panel, &rgb_cbs, NULL));
 
-    static lv_color_t *buf1 = NULL, *buf2 = NULL;
-    /* Los buffers van a PSRAM a proposito: 2 x 64 KB en RAM interna dejan a
-     * WiFi sin memoria y esp_wifi_init() falla con ESP_ERR_NO_MEM (visto en el
-     * log: "esf_buf_setup_static: alloc eb fail" -> ESP_ERR_NO_MEM). En PSRAM el
-     * trozo parcial se dibuja algo mas lento, pero es 1/12 de la pantalla, no la
-     * pantalla entera: el problema grave era el cuadro COMPLETO en PSRAM. */
+    /* Buffers de dibujo PARCIALES en RAM INTERNA. Tres motivos medidos:
+     *  1. Dibujar el cuadro completo en PSRAM da 4 fps en esta placa (fallo de
+     *     cache por linea al escribir); en RAM interna pasa de 12.
+     *  2. Con num_fbs = 1 el driver copia cada trozo al unico framebuffer y el
+     *     bounce buffer lo va sirviendo: la imagen sale ENTERA por trozos, sin el
+     *     parpadeo que salia con dos framebuffers (que solo se actualizaba uno y
+     *     el otro ensenaba el cuadro viejo).
+     *  3. El bounce buffer (RAM interna) es lo que quita el "screen drift". */
+    lv_color_t *buf1 = NULL, *buf2 = NULL;
     buf1 = heap_caps_malloc(BSP_BUF_PX * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
     buf2 = heap_caps_malloc(BSP_BUF_PX * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
     if (!buf1 || !buf2) {
-        ESP_LOGE(TAG, "sin PSRAM para los buffers de LVGL (%u px x2)", (unsigned)BSP_BUF_PX);
+        ESP_LOGE(TAG, "sin memoria para los buffers de LVGL (%u px x2)", (unsigned)BSP_BUF_PX);
         return NULL;
     }
 
@@ -381,8 +418,8 @@ lv_display_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
     lv_display_set_buffers(s_disp, buf1, buf2, BSP_BUF_PX * sizeof(lv_color_t),
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(s_disp, bsp_lvgl_flush_cb);
-    ESP_LOGI(TAG, "LVGL: buffers parciales en PSRAM (%u px), refresco sincronizado al retrazo",
-             (unsigned)BSP_BUF_PX);
+    ESP_LOGI(TAG, "LVGL: trozos de %d lineas (RAM interna) -> framebuffer -> bounce buffer",
+             (int)(BSP_BUF_PX / LCD_H_RES));
 
     const lvgl_port_touch_cfg_t touch_cfg = {
         .disp = s_disp,

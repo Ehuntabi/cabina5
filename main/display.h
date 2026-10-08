@@ -23,33 +23,31 @@
 
 /* Orden B0..B4, G0..G5, R0..R4 (RGB565 en paralelo).
  *
- * OJO CON ESTO: los grupos B y R iban CAMBIADOS y costo una tarde de perseguir
- * un "scroll" que en realidad era la imagen corrida. En el xlsx de Guition la
- * tabla de pines pone DB1(B)..DB5(B) en IO8/IO3/IO46/IO9/IO1 y DB13(R)..DB17(R)
- * en IO45/IO48/IO47/IO21/IO14, que es como estaba aqui; pero la definición
- * oficial de la placa (JC8048W550C.json del proyecto platformio-espressif32-
- * sunton, y el repo ESP32-S3-JC8048W550-LVGL-ESPIDF-EEZ) dice exactamente lo
- * contrario:
- *     ST7262_PANEL_CONFIG_DATA_R0..R4 = 8, 3, 46, 9, 1
- *     ST7262_PANEL_CONFIG_DATA_B0..B4 = 45, 48, 47, 21, 14
- * Como los MISMOS cinco numeros aparecen en los dos sitios, el xlsx no vale
- * para decidir: manda la definición de placa, que es la que se ha probado. */
-#define LCD_PIN_DATA_B0         GPIO_NUM_45
-#define LCD_PIN_DATA_B1         GPIO_NUM_48
-#define LCD_PIN_DATA_B2         GPIO_NUM_47
-#define LCD_PIN_DATA_B3         GPIO_NUM_21
-#define LCD_PIN_DATA_B4         GPIO_NUM_14
+ * ESTA ASIGNACION ES LA BUENA, y se ha comprobado de la unica forma que vale:
+ * pidiendo azul puro (0x001F) y viendo azul en la pantalla. Con los grupos B y R
+ * cambiados, el azul puro sale ROJO y el blanco sale AMARILLO (porque al canal
+ * azul del panel le llegan los bits del rojo), que es justo lo que se vio.
+ *
+ * En el xlsx de Guition los dos grupos llevan los MISMOS numeros de pin
+ * (IO8/IO3/IO46/IO9/IO1 e IO45/IO48/IO47/IO21/IO14) y solo cambia la etiqueta
+ * DB1(B)..DB5(B) / DB13(R)..DB17(R), asi que el xlsx no sirve para decidir: la
+ * prueba en la pantalla manda. */
+#define LCD_PIN_DATA_B0         GPIO_NUM_8
+#define LCD_PIN_DATA_B1         GPIO_NUM_3
+#define LCD_PIN_DATA_B2         GPIO_NUM_46
+#define LCD_PIN_DATA_B3         GPIO_NUM_9
+#define LCD_PIN_DATA_B4         GPIO_NUM_1
 #define LCD_PIN_DATA_G0         GPIO_NUM_5
 #define LCD_PIN_DATA_G1         GPIO_NUM_6
 #define LCD_PIN_DATA_G2         GPIO_NUM_7
 #define LCD_PIN_DATA_G3         GPIO_NUM_15
 #define LCD_PIN_DATA_G4         GPIO_NUM_16
 #define LCD_PIN_DATA_G5         GPIO_NUM_4
-#define LCD_PIN_DATA_R0         GPIO_NUM_8
-#define LCD_PIN_DATA_R1         GPIO_NUM_3
-#define LCD_PIN_DATA_R2         GPIO_NUM_46
-#define LCD_PIN_DATA_R3         GPIO_NUM_9
-#define LCD_PIN_DATA_R4         GPIO_NUM_1
+#define LCD_PIN_DATA_R0         GPIO_NUM_45
+#define LCD_PIN_DATA_R1         GPIO_NUM_48
+#define LCD_PIN_DATA_R2         GPIO_NUM_47
+#define LCD_PIN_DATA_R3         GPIO_NUM_21
+#define LCD_PIN_DATA_R4         GPIO_NUM_14
 
 /* ── Retroiluminacion (PWM por LEDC) ──────────────────────────────────────── */
 #define LCD_PIN_BACKLIGHT       GPIO_NUM_2    /* [V] */
@@ -61,10 +59,12 @@
 /* ── Tactil GT911 por I2C ─────────────────────────────────────────────────── */
 #define TOUCH_PIN_SCL           GPIO_NUM_20   /* [V] */
 #define TOUCH_PIN_SDA           GPIO_NUM_19   /* [V] */
-#define TOUCH_PIN_RST           GPIO_NUM_38   /* [V] */
+/* IO38 es la INTERRUPCION del tactil, no su reset. El GT911 de esta placa no
+ * lleva reset conectado: se queda en su direccion por defecto (0x5D). */
+#define TOUCH_PIN_RST           GPIO_NUM_NC
 /* En esta familia el pin de INTERRUPCION del GT911 va ruteado a GND por una
  * resistencia (R17 en el 8048S050C): no se puede usar, y por eso el driver va
  * sondeando por I2C en vez de esperar interrupcion. */
-#define TOUCH_PIN_INT           GPIO_NUM_NC   /* [V] */
+#define TOUCH_PIN_INT           GPIO_NUM_38
 #define TOUCH_I2C_ADDR          0x5D          /* por lo mismo: la 0x14 no responde */
 #define TOUCH_I2C_SPEED_HZ      400000
