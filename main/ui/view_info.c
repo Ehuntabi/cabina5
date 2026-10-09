@@ -360,6 +360,15 @@ static lv_color_t color_for_frigo(int16_t centi) {
  * 164. La bateria baja de 210 a 184 -- su dibujo mide 138 y el titulo 33, o sea
  * 171 + 8 de relleno = 179, asi que 184 es lo justo. */
 #define GPS_CARD_H      116
+/* La T de la bateria (9-oct-2026): la barra va arriba a todo lo ancho y el palo
+ * cuelga del medio, para que aguas y temperaturas se queden a los lados y BAJEN
+ * de alto (estaban en 348 px y el usuario las veia "muy muy grandes"). */
+#define BAT_BAR_H    140
+#define BAT_BAR_Y    (4 + GPS_CARD_H + 4)
+#define BAT_STEM_Y   (BAT_BAR_Y + BAT_BAR_H)
+#define BAT_STEM_W   260
+#define BAT_STEM_X   (UI_ANCHO / 2 - BAT_STEM_W / 2)
+#define BAT_STEM_H   (UI_ALTO - 4 - BAT_STEM_Y)
 #define BAT_CARD_H      184
 /* 246 era el alto fijo de la fila de abajo. Ya no se usa: esa fila es elastica
  * (LV_GRID_FR(1)) y se lleva todo el alto que sobre, que es lo que quita los
@@ -1424,7 +1433,8 @@ void view_info_create(lv_obj_t *parent)
      * quedaba apretadisima. */
     static lv_coord_t col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1),
                                    LV_GRID_TEMPLATE_LAST};
-    static lv_coord_t row_dsc[] = {GPS_CARD_H, LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
+    static lv_coord_t row_dsc[] = {GPS_CARD_H, BAT_BAR_H, LV_GRID_FR(1),
+                                   LV_GRID_TEMPLATE_LAST};
 
     lv_obj_t *grid = lv_obj_create(parent);
     lv_obj_set_size(grid, lv_pct(100), lv_pct(100));
@@ -1444,10 +1454,54 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_add_event_cb(parent, toque_largo_cb, LV_EVENT_LONG_PRESSED, NULL);
 
     /* --- Bateria: toda la franja de arriba -------------------------------- */
-    s_bat_card = /* La de bateria manda, y su titulo tambien: 24 contra los 20 de las de
-     * abajo. */
-    make_card(grid, COL_BORDER_BAT, "BATERIA", 1, 1, 1, NULL, true,
-                           &lv_font_montserrat_24);
+    /* --- BATERIA: la T, en DOS rectangulos pegados -------------------------
+     *
+     * LVGL no sabe dibujar una T: sus objetos son rectangulos. Asi que la
+     * tarjeta son dos -- la BARRA (arriba, todo el ancho) y el PALO (abajo, en
+     * el medio) -- con el mismo fondo y el mismo borde, pegados el uno al otro
+     * y SIN LA LINEA DE LA JUNTA: a la barra se le quita el borde de abajo y al
+     * palo el de arriba, y como no hay hueco entre ellos se ven como una sola
+     * tarjeta con forma de T. El usuario lo pidio asi: "sin la ---- entre los
+     * campos de la bateria".
+     *
+     * Van FUERA de la rejilla (IGNORE_LAYOUT) y colocados a mano: la rejilla
+     * deja 4 px entre celdas y por ahi se colaria la raya que hay que evitar.
+     *
+     * El contenido: en la barra los numeros (V y A a la izquierda, MOTOR a la
+     * derecha); en el palo, el dibujo de la bateria con el % dentro. */
+    lv_obj_t *barra = lv_obj_create(grid);
+    lv_obj_add_flag(barra, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_pos(barra, 4, BAT_BAR_Y);
+    lv_obj_set_size(barra, UI_ANCHO - 8, BAT_BAR_H);
+    lv_obj_set_style_bg_color(barra, COL_CARD_BG_TOP, 0);
+    lv_obj_set_style_bg_grad_color(barra, COL_CARD_BG_BOT, 0);
+    lv_obj_set_style_bg_grad_dir(barra, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_opa(barra, LV_OPA_COVER, 0);
+    paleta_borde_auto(barra, COL_BORDER_BAT);
+    lv_obj_set_style_border_width(barra, 2, 0);
+    lv_obj_set_style_border_side(barra, LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT |
+                                        LV_BORDER_SIDE_RIGHT, 0);
+    lv_obj_set_style_radius(barra, 10, 0);
+    lv_obj_set_style_pad_all(barra, 4, 0);
+    lv_obj_clear_flag(barra, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(barra, LV_OBJ_FLAG_EVENT_BUBBLE);
+    s_bat_card = barra;
+
+    /* Y el palo, debajo y en el medio. */
+    lv_obj_t *palo = lv_obj_create(grid);
+    lv_obj_add_flag(palo, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_pos(palo, BAT_STEM_X, BAT_STEM_Y);
+    lv_obj_set_size(palo, BAT_STEM_W, BAT_STEM_H);
+    lv_obj_set_style_bg_color(palo, COL_CARD_BG_BOT, 0);
+    lv_obj_set_style_bg_opa(palo, LV_OPA_COVER, 0);
+    paleta_borde_auto(palo, COL_BORDER_BAT);
+    lv_obj_set_style_border_width(palo, 2, 0);
+    lv_obj_set_style_border_side(palo, LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_LEFT |
+                                       LV_BORDER_SIDE_RIGHT, 0);
+    lv_obj_set_style_radius(palo, 10, 0);
+    lv_obj_set_style_pad_all(palo, 4, 0);
+    lv_obj_clear_flag(palo, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(palo, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     /* --- GPS: de momento SOLO EL MARCO ------------------------------------
      *
@@ -1472,7 +1526,7 @@ void view_info_create(lv_obj_t *parent)
      * Ahora se calcula a partir del alto de la tarjeta (BAT_CARD_H, definida
      * junto a la rejilla en view_info_create): el bloque dibujo+bornes se
      * centra en el hueco que queda POR DEBAJO del titulo. */
-    lv_obj_t *dib = make_bateria_dibujo(s_bat_card);
+    lv_obj_t *dib = make_bateria_dibujo(palo);
     lv_obj_align(dib, LV_ALIGN_TOP_MID, 0, 118);
 
     /* Numero y UNIDAD van en etiquetas separadas, y no en un solo texto, para que
@@ -1548,7 +1602,7 @@ void view_info_create(lv_obj_t *parent)
      * izquierda porque ahi ya esta el punto de enlace de la tarjeta (12 px de
      * punto + su margen). A la izquierda no cabe: ese hueco lo ocupa el icono
      * del GPS de la P4, que va en la pantalla, no en la tarjeta. */
-    al_icono_crear(s_bat_card, AL_INFO_BATERIA, LV_ALIGN_TOP_RIGHT, -26, 2);
+    al_icono_crear(palo, AL_INFO_BATERIA, LV_ALIGN_TOP_RIGHT, -6, 2);
     /* La tarjeta entera silencia. Va con EVENT_BUBBLE para que el toque suba
      * desde el dibujo y los numeros, que son objetos hijos (mismo patron que
      * usan los botones de la card camper). */
@@ -1557,10 +1611,10 @@ void view_info_create(lv_obj_t *parent)
                         (void *)(intptr_t)AL_INFO_BATERIA);
 
     /* --- Abajo izquierda: aguas ------------------------------------------- */
-    make_water_cell(grid, 0, 1, 1);
+    make_water_cell(grid, 0, 1, 2);
 
     /* --- Abajo derecha: las dos temperaturas juntas ----------------------- */
-    lv_obj_t *temp_card = make_card(grid, COL_BORDER_COLD, "TEMPERATURAS", 2, 1, 1, NULL, true,
+    lv_obj_t *temp_card = make_card(grid, COL_BORDER_COLD, "TEMPERATURAS", 2, 1, 2, NULL, true,
                                        &lv_font_montserrat_20);
     /* El valor del frigo va en un hueco fijo y la flecha al borde: asi la
      * flecha no se mueve cuando el numero cambia de ancho ("-5.0" contra
