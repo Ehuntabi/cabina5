@@ -336,12 +336,100 @@ static void pernocta_diag_cb(lv_timer_t *t)
 }
 #endif
 
+#if PRUEBA_BRILLO
+/* ── PRUEBA DE LA RETROILUMINACION (9-oct-2026) ──────────────────────────────
+ *
+ * POR QUE EXISTE: el usuario dice que el cambio de brillo "es o encendido o
+ * apagado" -- al 50 % la pantalla se queda NEGRA, no tenue. Y no es la primera
+ * vez: el 8-oct, al 30 %, "la pantalla esta negra". O sea que en esta placa el
+ * PWM de la retroiluminacion no parece graduar la luz, solo encender y apagar.
+ *
+ * Hasta ahora eso se habia ido resolviendo a ojo, subiendo el nivel bajo (30 ->
+ * 60 -> 50) y esperando que sonara la flauta. Esta prueba lo MIDE: pone una
+ * pantalla negra con el valor en grande, y va bajando el duty paso a paso. El
+ * usuario solo tiene que mirar y decir en cual se apaga.
+ *
+ * Se prueban ademas TRES FRECUENCIAS, porque es la sospecha principal: si el
+ * driver de la retroiluminacion es un elevador con arranque lento, a 4 kHz no le
+ * da tiempo a arrancar en cada ciclo y solo se queda encendido con el duty al
+ * 100 %; a 200 Hz cada ciclo dura 5 ms y si que le daria tiempo. Si a 200 Hz el
+ * 60 % se ve, la solucion es bajar la frecuencia (display.h), no subir el duty.
+ *
+ * Se lanza desde un temporizador porque esta funcion se llama con el cerrojo de
+ * LVGL tomado (ver el resto del fichero). */
+#include "esp_bsp.h"      /* bsp_display_brightness_set() */
+#include "display.h"      /* LCD_BL_LEDC_TIMER / _FREQ_HZ */
+#include "brillo.h"       /* BRILLO_ALTO */
+#include "driver/ledc.h"  /* ledc_set_freq(): la prueba de frecuencias */
+
+typedef struct { uint32_t hz; int pct; } pb_paso_t;
+
+static const pb_paso_t s_pb[] = {
+    {4000, 100}, {4000, 95}, {4000, 90}, {4000, 85}, {4000, 80},
+    {4000,  70}, {4000, 60}, {4000, 50},
+    {1000, 100}, {1000, 80}, {1000, 60}, {1000, 40},
+    { 200, 100}, { 200, 80}, { 200, 60}, { 200, 40},
+};
+static int       s_pb_i;
+static lv_obj_t *s_pb_lbl;
+
+static void pb_tick_cb(lv_timer_t *t)
+{
+    const int n = (int)(sizeof(s_pb) / sizeof(s_pb[0]));
+    if (s_pb_i >= n) {
+        /* Se acaba: se deja todo como estaba. */
+        ledc_set_freq(LEDC_LOW_SPEED_MODE, LCD_BL_LEDC_TIMER, LCD_BL_LEDC_FREQ_HZ);
+        bsp_display_brightness_set(BRILLO_ALTO);
+        if (s_pb_lbl) { lv_obj_del(lv_obj_get_parent(s_pb_lbl)); s_pb_lbl = NULL; }
+        lv_timer_del(t);
+        ESP_LOGW(TAG, "PRUEBA-BRILLO: fin, de vuelta al %d%% a %d Hz",
+                 BRILLO_ALTO, LCD_BL_LEDC_FREQ_HZ);
+        return;
+    }
+    const pb_paso_t *p = &s_pb[s_pb_i++];
+    ledc_set_freq(LEDC_LOW_SPEED_MODE, LCD_BL_LEDC_TIMER, p->hz);
+    bsp_display_brightness_set(p->pct);
+    if (s_pb_lbl) {
+        lv_label_set_text_fmt(s_pb_lbl, "%u Hz\n%d %%", (unsigned)p->hz, p->pct);
+    }
+    ESP_LOGW(TAG, "PRUEBA-BRILLO %d/%d: %u Hz  %d%%", s_pb_i, n,
+             (unsigned)p->hz, p->pct);
+}
+
+static void pb_arranque_cb(lv_timer_t *t)
+{
+    (void)t;
+    lv_obj_t *bg = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(bg, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_color(bg, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(bg, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(bg, 0, 0);
+    lv_obj_set_style_radius(bg, 0, 0);
+    lv_obj_clear_flag(bg, LV_OBJ_FLAG_SCROLLABLE);
+    s_pb_lbl = lv_label_create(bg);
+    lv_obj_set_style_text_color(s_pb_lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(s_pb_lbl, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_align(s_pb_lbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(s_pb_lbl, "empieza");
+    lv_obj_center(s_pb_lbl);
+    lv_timer_create(pb_tick_cb, 2500, NULL);
+    ESP_LOGW(TAG, "PRUEBA-BRILLO: arranca (%d pasos de 2,5 s)",
+             (int)(sizeof(s_pb) / sizeof(s_pb[0])));
+}
+#endif
+
 void capture_carousel_start(void)
 {
 #ifdef DIAG_MEDIR_TODO
     /* (recorrido de medir, apagado) */
 #endif
-#if CAPTURE_PEAJE_DIAG
+#if PRUEBA_BRILLO
+    /* La prueba del brillo manda sobre todo lo demas: si esta encendida, es lo
+     * unico que se hace. */
+    lv_timer_t *tp = lv_timer_create(pb_arranque_cb, 2500, NULL);
+    lv_timer_set_repeat_count(tp, 1);
+    return;
+#elif CAPTURE_PEAJE_DIAG
     /* PASEO DE MEDIDA (9-oct-2026): recorre los nueve menus y los nueve
      * formularios uno a uno y vuelca el arbol de cada uno al log. Es lo que
      * permite comprobar la geometria de TODAS las pantallas en una sola pasada,

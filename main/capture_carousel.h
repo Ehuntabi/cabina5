@@ -36,6 +36,12 @@
  * pantallas. Diagnostico ya cumplido (sirvio para todo el repaso de
  * submenus); se vuelve a 1 solo si hace falta cazar algo nuevo a mano. */
 #define CAPTURE_PEAJE_DIAG 0
+/* PRUEBA DEL BRILLO (9-oct-2026): ver el comentario largo en capture_carousel.c.
+ * Pone una pantalla negra con el valor en grande y va bajando el duty (y la
+ * frecuencia del PWM) paso a paso para averiguar donde se apaga de verdad la
+ * retroiluminacion. 1 = se hace la prueba al arrancar y manda sobre todo lo
+ * demas; 0 = no se compila nada de eso. */
+#define PRUEBA_BRILLO 0
 
 #ifdef __cplusplus
 extern "C" {
