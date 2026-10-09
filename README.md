@@ -186,11 +186,16 @@ Y de propina, dos avisos sobre los **colores** y los **pines**:
 Con el tema oscuro de esta interfaz, un nivel bajo de retroiluminación se ve
 como una pantalla apagada. Pasó el 8-oct-2026 (nivel bajo a 30 %) y otra vez el
 9-oct-2026, esta vez por un cambio mío: al probar cinco pasos de brillo, el
-arranque quedó en el 60 % y la pantalla se reportó como "está en negro". Aquel
-día se cortó por lo sano: **dos niveles, 100 % y 30 %** (petición literal del
-usuario), y se quitó el recordatorio del nivel al arrancar.
+arranque quedó en el 60 % y la pantalla se reportó como "está en negro".
 
-Antes de tocar nada, dos comprobaciones que ahora están en el log de arranque:
+Aquel día se midió de una vez para siempre, con la prueba de barrido de
+`capture_carousel.c` (`PRUEBA_BRILLO`): pantalla negra, el valor en grande, y a
+bajar el duty paso a paso. Respuesta del usuario: **"4000 por debajo de 80 ya muy
+oscuro"**. O sea que el **rango útil de esta retroiluminación es 80–100 % y no hay
+más**: el 50 se ve negro, el 30 negro del todo. Los dos niveles definitivos son
+**100 % y 85 %**.
+
+Antes de tocar nada, dos comprobaciones que están en el log de arranque:
 
 1. `brillo: Brillo inicial N%` — si es bajo y la pantalla parece muerta, es esto.
 2. `bsp: framebuffer: N de M muestras negras (X%)` — si el framebuffer **no**
@@ -200,13 +205,17 @@ Antes de tocar nada, dos comprobaciones que ahora están en el log de arranque:
    prueba: el 9-oct decía "32 % de muestras negras, brillo medio 29,7" mientras
    el usuario veía negro → era luz, no UI.
 
-El brillo se cambia con el botón **"Brillo y contraste"** de la pantalla de
-Ajustes (o con el doble toque/long press en la de datos). El nivel bajo es el
-30 % de verdad: con el tema oscuro se ve poco, pero es lo que se ha pedido para
-no deslumbrar de noche. **Al encender siempre arranca al 100 %**, aunque lo
-último usado fuera el 30 %: así una pantalla a oscuras nunca se queda grabada y
-siempre se sale desenchufando. El cambio de nivel se aplica con una rampa de
-8 tramos de 15 ms (antes saltaba de golpe, y eso era el "no funciona bien").
+El brillo se cambia con el botón **"Brillo: N%"** de la pantalla de Ajustes (o
+con el doble toque/long press en la de datos). **Cambia solo la luz**: el modo
+contraste (blanco y negro) iba pegado a él y se quitó el 9-oct, porque hacía que
+los dos niveles pareciesen dos pantallas distintas en vez del mismo cuadro más
+claro o más oscuro. La pantalla de datos es **siempre en color**. El modo
+contraste sigue en `view_info.c` por si algún día se quiere un "modo sol" con su
+propio botón.
+**Al encender siempre arranca al 100 %**, aunque lo último usado fuera el 85 %:
+así una pantalla a oscuras nunca se queda grabada y siempre se sale
+desenchufando. El cambio de nivel se aplica con una rampa de 8 tramos de 15 ms
+(antes saltaba de golpe, y eso era el "no funciona bien").
 
 ## Cómo se prueba en la placa
 
