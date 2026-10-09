@@ -183,9 +183,12 @@ Y de propina, dos avisos sobre los **colores** y los **pines**:
 
 ### 6. "La pantalla está negra" → mirar el brillo antes que nada
 
-Con el tema oscuro de esta interfaz, el nivel bajo de retroiluminación se ve
-como una pantalla apagada. Pasó el 8-oct-2026: la placa arrancó con el brillo
-guardado y el usuario lo describió como "la pantalla está negra".
+Con el tema oscuro de esta interfaz, un nivel bajo de retroiluminación se ve
+como una pantalla apagada. Pasó el 8-oct-2026 (nivel bajo a 30 %) y otra vez el
+9-oct-2026, esta vez por un cambio mío: al probar cinco pasos de brillo, el
+arranque quedó en el 60 % y la pantalla se reportó como "está en negro". Aquel
+día se cortó por lo sano: **dos niveles, 100 % y 30 %** (petición literal del
+usuario), y se quitó el recordatorio del nivel al arrancar.
 
 Antes de tocar nada, dos comprobaciones que ahora están en el log de arranque:
 
@@ -193,10 +196,17 @@ Antes de tocar nada, dos comprobaciones que ahora están en el log de arranque:
 2. `bsp: framebuffer: N de M muestras negras (X%)` — si el framebuffer **no**
    está negro, se está pintando y el problema es de luz (o del panel), no de la
    UI. Si está negro de verdad, entonces sí: ni LVGL ni la app están dibujando.
+   Esta lectura sale del framebuffer **del propio panel**, así que vale como
+   prueba: el 9-oct decía "32 % de muestras negras, brillo medio 29,7" mientras
+   el usuario veía negro → era luz, no UI.
 
 El brillo se cambia con el botón **"Brillo y contraste"** de la pantalla de
-Ajustes (o con el doble toque/long press en la de datos), y se recuerda al
-reiniciar. El nivel bajo es 60 %: menos que eso no se ve con este tema.
+Ajustes (o con el doble toque/long press en la de datos). El nivel bajo es el
+30 % de verdad: con el tema oscuro se ve poco, pero es lo que se ha pedido para
+no deslumbrar de noche. **Al encender siempre arranca al 100 %**, aunque lo
+último usado fuera el 30 %: así una pantalla a oscuras nunca se queda grabada y
+siempre se sale desenchufando. El cambio de nivel se aplica con una rampa de
+8 tramos de 15 ms (antes saltaba de golpe, y eso era el "no funciona bien").
 
 ## Cómo se prueba en la placa
 

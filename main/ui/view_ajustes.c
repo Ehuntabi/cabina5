@@ -148,14 +148,18 @@ static void enlace_timer_cb(lv_timer_t *t)
     }
 }
 
-/* Cambia brillo y contraste, y actualiza el texto del boton. */
+/* Cambia SOLO el brillo, y actualiza el texto del boton.
+ *
+ * Ya no toca el contraste (9-oct-2026): iban juntos -- 100 % ponia la pantalla
+ * de datos en blanco y negro y el nivel bajo la dejaba en color -- y el usuario
+ * lo vivio como que el brillo "es o encendido o apagado" en vez de dos niveles
+ * del mismo cuadro. El color es siempre el mismo; ver view_info.c. */
 static void brillo_btn_cb(lv_event_t *e)
 {
     (void)e;
     uint8_t nivel = brillo_alternar();
-    view_info_set_contraste(nivel == BRILLO_ALTO);
     if (s_brillo_lbl) {
-        lv_label_set_text_fmt(s_brillo_lbl, LV_SYMBOL_EYE_OPEN "   Brillo y contraste: %u%%",
+        lv_label_set_text_fmt(s_brillo_lbl, LV_SYMBOL_EYE_OPEN "   Brillo: %u%%",
                               (unsigned)nivel);
     }
 }
@@ -340,16 +344,16 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(wlbl, &lv_font_montserrat_30, 0);
     lv_obj_center(wlbl);
 
-    /* Brillo y contraste. Existe porque el doble toque de la pantalla de datos
-     * no sale a la primera: aqui hay un boton y se acabaron las peripecias.
-     * Cambia las dos cosas a la vez, igual que el gesto. 30-sep-2026. */
+    /* Brillo. Existe porque el doble toque de la pantalla de datos no sale a la
+     * primera: aqui hay un boton y se acabaron las peripecias. Cambia SOLO la
+     * luz (ya no el contraste, ver brillo_btn_cb). 30-sep-2026. */
     lv_obj_t *bbtn = lv_btn_create(s_menu);
     lv_obj_set_size(bbtn, lv_pct(100), 110);
     lv_obj_set_flex_grow(bbtn, 1);
     lv_obj_set_style_bg_color(bbtn, lv_color_hex(0x37474F), 0);
     lv_obj_add_event_cb(bbtn, brillo_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *blbl = lv_label_create(bbtn);
-    lv_label_set_text_fmt(blbl, LV_SYMBOL_EYE_OPEN "   Brillo y contraste: %u%%",
+    lv_label_set_text_fmt(blbl, LV_SYMBOL_EYE_OPEN "   Brillo: %u%%",
                           (unsigned)brillo_nivel());
     lv_obj_set_style_text_font(blbl, &lv_font_montserrat_28, 0);
     lv_obj_center(blbl);

@@ -131,7 +131,28 @@ static void paleta_aplicar(void)
     }
 }
 
-/* Modo contraste: se llama desde el doble toque (con el brillo) y al arrancar. */
+/* Modo contraste: la maquinaria sigue aqui, pero YA NO LO ENCIENDE NADIE.
+ *
+ * ── POR QUE (9-oct-2026) ───────────────────────────────────────────────────
+ *
+ * Estaba atado al brillo: al 100 % se ponia el contraste alto y al nivel bajo se
+ * quedaba el color. Eso tiene sentido para el sol, pero en la placa de 5" ha
+ * dado dos problemas seguidos, los dos contados por el usuario:
+ *
+ *   1. "es blanco y negro en la pantalla de datos (bateria etc)". Y era verdad:
+ *      al pasar el arranque al 100 % (ver brillo.c), la pantalla de datos se
+ *      quedaba SIEMPRE en contraste alto, o sea gris/blanca, en vez de con los
+ *      colores de la referencia de la 3,5" (naranja de bateria, azul de aguas,
+ *      azul de temperaturas). La captura de como tiene que verse es
+ *      .scratch/cabina/screenshot/info.png.
+ *   2. "es o encendido o apagado, no 100% 50%": al tocar el brillo cambiaba
+ *      TAMBIEN toda la paleta, asi que los dos estados no se veian como el mismo
+ *      cuadro mas claro o mas oscuro, sino como dos pantallas distintas.
+ *
+ * AHORA: el color es siempre el mismo y el boton cambia SOLO la luz. El modo
+ * contraste no se borra (la paleta, el registro y esta funcion siguen enteros)
+ * por si algun dia se quiere un "modo sol" con su propio boton; lo que se quita
+ * es que vaya pegado al brillo. */
 void view_info_set_contraste(bool activo)
 {
     if (s_contraste == activo) return;
@@ -144,8 +165,8 @@ void view_info_set_contraste(bool activo)
         paleta_aplicar();
         lvgl_port_unlock();
     }
-    ESP_LOGI("view_info", "Contraste %s (brillo %s)",
-             activo ? "ALTO" : "normal", activo ? "100%" : "30%");
+    ESP_LOGI("view_info", "Contraste %s (a mano; ya no sigue al brillo)",
+             activo ? "ALTO" : "normal");
 }
 
 #define COL_TEXT_DIM     col2(0x888888, 0xE0E0E0)
@@ -1214,7 +1235,10 @@ static void toque_largo_cb(lv_event_t *e)
 {
     (void)e;
     s_toque_previo = 0;   /* que no encadene con un doble toque a medias */
-    view_info_set_contraste(brillo_alternar() == BRILLO_ALTO);
+    /* SOLO la luz. El contraste ya no va pegado al brillo: ver el comentario de
+     * view_info_set_contraste() -- cambiar los dos a la vez hacia que el toque
+     * pareciese encender y apagar, no subir o bajar la luz. */
+    brillo_alternar();
 }
 
 static void doble_toque_cb(lv_event_t *e)
@@ -1222,9 +1246,8 @@ static void doble_toque_cb(lv_event_t *e)
     (void)e;
     if (s_toque_previo && lv_tick_elaps(s_toque_previo) <= DOBLE_TOQUE_MS) {
         s_toque_previo = 0;   /* un tercer toque empieza cuenta nueva, no encadena */
-        /* Un solo gesto: el 30% se queda como estaba y el 100% sube el
-         * contraste, que es lo que hace falta al sol. */
-        view_info_set_contraste(brillo_alternar() == BRILLO_ALTO);
+        /* Solo la luz, igual que el toque largo. */
+        brillo_alternar();
     } else {
         uint32_t t = lv_tick_get();
         s_toque_previo = t ? t : 1;   /* el 0 esta reservado para "ninguno" */
@@ -1328,8 +1351,11 @@ void view_info_diag_arbol(void)
 
 void view_info_create(lv_obj_t *parent)
 {
-    /* La paleta pinta desde el primer objeto con el modo que toque. */
-    s_contraste = (brillo_nivel() == BRILLO_ALTO);
+    /* SIEMPRE EN COLOR (9-oct-2026): ver el comentario de view_info_set_contraste.
+     * Antes esto era `brillo_nivel() == BRILLO_ALTO`, que con el arranque al
+     * 100 % dejaba la pantalla de datos en blanco y negro. La referencia de como
+     * tiene que verse es .scratch/cabina/screenshot/info.png (la de la 3,5"). */
+    s_contraste = false;
     /* La pantalla REAL de esta placa: 800x480 (ver display.h). El alto es el
      * mismo que tenia la UI del satelite de 3,5" (480), asi que lo que se
      * reparte de nuevo es el ancho: 320 px mas que antes.

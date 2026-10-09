@@ -1,22 +1,25 @@
-/* brillo.c - Brillo de la retroiluminacion EN PASOS, con rampa y guardado en NVS.
+/* brillo.c - Brillo de la retroiluminacion en DOS niveles, con rampa y guardado.
  *
  * La persistencia NO se hace aqui a mano: se usa config_storage, que es donde
  * guarda sus cosas todo el resto del proyecto (salida, inclinacion, wifi, viaje,
  * parada).
  *
- * QUE CAMBIO EL 9-oct-2026, y por que: antes eran DOS niveles (60 % y 100 %) y
- * al pulsar el boton el cambio era de golpe. El usuario lo describio asi: "el
- * cambio de iluminacion no funciona bien". Dos problemas:
+ * ── HISTORIA, para no volver a dar las mismas vueltas (9-oct-2026) ──────────
  *
- *   1. Solo dos valores: de noche el 60 seguia siendo mucho y al sol no habia
- *      nada por encima.
- *   2. El salto era seco. Un cambio de 60 a 100 de golpe se ve como un
- *      parpadeo, no como subir la luz.
+ * El usuario describio el brillo original (dos niveles, 60 y 100, y cambio de
+ * golpe) como "el cambio de iluminacion no funciona bien". Se probaron CINCO
+ * pasos (20/40/60/80/100) y el resultado fue una pantalla negra: el 6o paso
+ * (60 %) NO se ve con el tema oscuro de esta interfaz. Leccion: cinco pasos solo
+ * valen si los de abajo se ven, y aqui no se ven.
  *
- * Ahora son CINCO pasos (20/40/60/80/100) y el cambio se aplica con una RAMPA de
- * 8 tramos de 15 ms. La rampa va con esp_timer y no con una animacion de LVGL a
- * proposito: asi sigue funcionando aunque la tarea de LVGL este ocupada pintando
- * (que es justo cuando se pulsa el boton).
+ * El usuario corto por lo sano: "el cambio de iluminacion que sea o 100% o 30%".
+ * Asi que son DOS (ver BRILLO_NIVELES en brillo.h) y lo unico que se queda de
+ * todo aquello es LA RAMPA, que es lo que de verdad estaba roto: un salto de 100
+ * a 30 de golpe se ve como un parpadeo, no como bajar la luz.
+ *
+ * La rampa va con esp_timer y no con una animacion de LVGL a proposito: asi
+ * sigue funcionando aunque la tarea de LVGL este ocupada pintando (que es justo
+ * cuando se pulsa el boton).
  */
 #include "brillo.h"
 
@@ -29,10 +32,9 @@
 static const char *TAG = "brillo";
 
 /* Los pasos, y en cual estamos. Lo que se guarda es el PORCENTAJE, asi que la
- * lista se puede cambiar sin invalidar lo que ya hay en NVS: si el valor
- * guardado no coincide con ningun paso, se coge el mas parecido. */
+ * lista se puede cambiar sin invalidar lo que ya hay en NVS. */
 static const uint8_t s_pasos[BRILLO_NIVELES_N] = BRILLO_NIVELES;
-static int s_paso = BRILLO_NIVELES_N / 2;
+static int s_paso = BRILLO_NIVELES_N - 1;      /* el maximo */
 
 /* ── La rampa ─────────────────────────────────────────────────────────────── */
 #define RAMPA_PASOS   8
@@ -78,7 +80,7 @@ static void aplicar_con_rampa(int pct)
 /* ARRANCA SIEMPRE AL MAXIMO, y el valor guardado NO se aplica al encender.
  *
  * POR QUE (9-oct-2026, con la placa delante y el usuario diciendo "la pantalla
- * esta en negro"): al pasar de dos niveles a cinco, el arranque se puso "el paso
+ * esta en negro"): en la prueba de los cinco pasos el arranque se puso "el paso
  * de en medio" (60 %) y con el tema oscuro de esta interfaz eso se ve como una
  * pantalla apagada -- es el mismo fallo que ya paso el 8-oct con el 30 %, que
  * esta escrito en el README ("La pantalla esta negra -> mirar el brillo antes
@@ -86,10 +88,10 @@ static void aplicar_con_rampa(int pct)
  * grabado y volvia a pasar en el siguiente encendido: la pantalla se apagaba
  * sola y no habia forma de salir sin saber donde tocar.
  *
- * LA REGLA AHORA: la luz NUNCA puede depender de lo que quedo guardado. Al
- * encender, 100 %. Si te pasas bajando, se desenchufa y vuelve -- siempre hay
- * una salida. Lo que se guarda sigue sirviendo para recordar por donde ibas
- * dentro de la sesion (y para el contraste de view_info.c). */
+ * LA REGLA: la luz NUNCA puede depender de lo que quedo guardado. Al encender,
+ * 100 %. Si te pasas bajando al 30 % y no ves nada, se desenchufa y vuelve --
+ * siempre hay una salida. Lo que se guarda sigue sirviendo para el contraste de
+ * view_info.c y para dejar constancia en el log de por donde ibas. */
 void brillo_init(void)
 {
     /* Se sigue leyendo para dejar constancia en el log de lo que habia
@@ -109,9 +111,10 @@ uint8_t brillo_nivel(void) { return s_pasos[s_paso]; }
 
 uint8_t brillo_alternar(void)
 {
-    /* HACIA ABAJO y dando la vuelta: 100 -> 80 -> 60 -> 40 -> 20 -> 100. Al
-     * reves que antes (que subia), porque ahora se arranca arriba: lo primero
-     * que se quiere al tocar es bajar el deslumbramiento, no subirlo. */
+    /* Al OTRO nivel: 100 -> 30 -> 100. Con dos pasos, "+1 y modulo" y "hacia
+     * abajo" son lo mismo, pero se deja escrito el porque del signo: se arranca
+     * arriba, asi que el primer toque baja (quitar deslumbramiento) y el
+     * siguiente vuelve a subir. */
     s_paso = (s_paso + BRILLO_NIVELES_N - 1) % BRILLO_NIVELES_N;
     aplicar_con_rampa(s_pasos[s_paso]);
 
