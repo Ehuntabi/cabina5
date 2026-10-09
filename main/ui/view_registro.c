@@ -578,6 +578,20 @@ static lv_obj_t *make_field_row(lv_obj_t *parent)
     lv_obj_t *cont = lv_obj_create(parent);
     lv_obj_set_width(cont, lv_pct(100));
     lv_obj_set_height(cont, LV_SIZE_CONTENT);
+    /* MINIMO = EL ALTO DE SU CONTENIDO (rotulo 26 + campo 50 + aire).
+     *
+     * POR QUE HACE FALTA, medido: aunque el alto sea SIZE_CONTENT, la fila es
+     * hija de una COLUMNA FLEX y el reparto la ENCOGE por debajo de su
+     * contenido cuando el formulario se pasa de alto. Resultado: la fila medía
+     * 50 px llevando dentro 85, y el rotulo se salia por arriba (medido en ITV,
+     * Repostaje y Aguas: rotulos en y=-22, -19 y -28, encima de la fila
+     * anterior). No era cosa de un formulario: era de TODOS.
+     *
+     * 96 = rotulo (33) + campo (50) + relleno y aire (13). Con 84 los rotulos
+     * seguian saliendo 2-6 px por arriba (medido). Las filas en HORIZONTAL
+     * llevan dos campos con su rotulo y usan el mismo minimo: su contenido
+     * mide ~83. */
+    lv_obj_set_style_min_height(cont, 96, 0);
     /* SIN min_height A PROPOSITO (quitado el 8-oct-2026): esta fila tiene dos
      * formatos -- etiqueta encima del campo (columna) y etiqueta al lado
      * (fila, el caso de "Litros + Kilometros") -- y el min_height que se puso
@@ -663,7 +677,11 @@ static lv_obj_t *make_half_number(lv_obj_t *row, const char *label_text,
                                   bool horizontal)
 {
     lv_obj_t *col = lv_obj_create(row);
-    lv_obj_set_size(col, lv_pct(48), horizontal ? FIELD_TA_H : lv_pct(100));
+    /* EN COLUMNA (rotulo encima del campo), el alto es AUTOMATICO: es lo que
+     * mide su contenido (rotulo 29 + campo 72 + aire). Estaba clavado en 47
+     * (FIELD_TA_H) llevando 101 dentro, y el rotulo salia 5 px por arriba de su
+     * fila (medido: "Litros" y "Kilometros" en y=-5). */
+    lv_obj_set_size(col, lv_pct(48), horizontal ? FIELD_TA_H : LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(col, 0, 0);
     lv_obj_set_style_pad_all(col, 0, 0);
@@ -717,7 +735,16 @@ static void make_dual_number_row(lv_obj_t *parent,
                                   bool horizontal)
 {
     lv_obj_t *cont = make_field_row(parent);
-    if (horizontal) lv_obj_set_flex_grow(cont, 0);
+    if (horizontal) {
+        lv_obj_set_flex_grow(cont, 0);
+        /* Aqui la fila lleva DOS columnas, cada una con rotulo + campo: 33+66
+         * + aire = ~115. Con 96 los rotulos salian 5 px por arriba (medido). */
+        lv_obj_set_style_min_height(cont, 118, 0);
+        /* Las dos columnas, centradas en el alto de la fila (cada una mide su
+         * contenido: rotulo + campo). */
+        lv_obj_set_flex_align(cont, LV_FLEX_ALIGN_SPACE_BETWEEN,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    }
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(cont, LV_FLEX_ALIGN_SPACE_BETWEEN,
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -3018,7 +3045,10 @@ static void build_pernocta(lv_obj_t *form)
  * La moneda no esta aqui: es la misma de la pernocta, que es la misma parada.
  * Por eso su selector se queda a la vista aunque el sitio sea gratis (ver
  * pern_refresh_precio). */
-#define SERV_ROW_H  34
+/* 64 Y NO 34: cada fila lleva su rotulo (29 de alto con la letra nueva) y el
+ * importe al lado. Con 34 el rotulo se salia 8 px por arriba de la fila
+ * (medido: "Buena", "Aceptable" y "Mala" en y=-8). */
+#define SERV_ROW_H  64
 
 static void build_servicios(lv_obj_t *form)
 {

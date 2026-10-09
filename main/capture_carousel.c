@@ -271,40 +271,40 @@ void capture_carousel_start(void)
 
 
 #if CAPTURE_PEAJE_DIAG
-/* DIAGNOSTICO: abre la pernocta a los 6 s y vuelca su arbol de objetos al log.
- * Va AQUI, en la rama que se compila con el modo captura APAGADO: la primera
- * version quedo dentro del bloque de capturas y no se compilaba nunca (por eso
- * el log no traia el volcado). */
+/* DIAGNOSTICO: recorre TODOS los formularios, uno cada 3 s, y vuelca el arbol de
+ * cada uno al log. Con esto se mide la geometria de todas las pantallas de una
+ * pasada, sin tocar la pantalla y sin adivinar.
+ *
+ * El volcado va DENTRO del mismo tic del temporizador, 800 ms DESPUES de mostrar
+ * el formulario: antes de eso LVGL no ha calculado el layout y las medidas
+ * salen falsas (dio varias tandas de numeros enganosos). */
 #include "lvgl.h"
 #include "ui/nav.h"
 #include "ui/view_registro.h"
-/* El volcado NO puede ir justo despues de mostrar el formulario: en ese momento
- * LVGL todavia no ha calculado la geometria (el layout se hace al refrescar), y
- * las medidas que salen son de antes -- 6 px de alto, anchos viejos, solapes que
- * no existen. Medido: asi salieron varias tandas de numeros enganosos. Se deja
- * medio segundo para que el layout este hecho. */
-static void pernocta_medir_cb(lv_timer_t *t)
-{
-    (void)t;
-    view_registro_diag_arbol(8);
-}
+static int s_diag_form = 0;
 
 static void pernocta_diag_cb(lv_timer_t *t)
 {
     (void)t;
-    ESP_LOGW("diag", "abro la pernocta para medirla");
-    nav_ir_a_registros();
-    view_registro_mostrar_formulario(8);
-    lv_timer_t *m = lv_timer_create(pernocta_medir_cb, 800, NULL);
-    lv_timer_set_repeat_count(m, 1);
+    /* Primero se MIDE el formulario que quedo abierto en el tic anterior (su
+     * layout ya esta calculado), y despues se abre el siguiente. */
+    if (s_diag_form > 0 && s_diag_form <= view_registro_num_formularios()) {
+        view_registro_diag_arbol(s_diag_form - 1);
+    }
+    if (s_diag_form == 0) nav_ir_a_registros();
+    if (s_diag_form < view_registro_num_formularios()) {
+        view_registro_mostrar_formulario(s_diag_form);
+        s_diag_form++;
+    }
 }
 #endif
 
 void capture_carousel_start(void)
 {
 #if CAPTURE_PEAJE_DIAG
-    lv_timer_t *t = lv_timer_create(pernocta_diag_cb, 6000, NULL);
-    lv_timer_set_repeat_count(t, 1);
+    /* Cada 3 s: tiempo de sobra para que el layout este hecho y para leer el
+     * volcado por el puerto sin mezclarlo con el siguiente. */
+    lv_timer_create(pernocta_diag_cb, 3000, NULL);
     return;
 #elif CAPTURE_CAROUSEL_SOLO_DATOS
     inject_sim_data();
