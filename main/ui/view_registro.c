@@ -1582,17 +1582,37 @@ static void form_rellenar_alto(lv_obj_t *form)
          * 333, dejando 120-150 px negros abajo. Con el alto automatico la fila
          * mide su contenido y encima crece con el reparto. */
         lv_obj_set_height(hijo, LV_SIZE_CONTENT);
-        lv_obj_set_flex_grow(hijo, 1);
+        /* El ULTIMO (el boton de guardar, o la fila de acciones) NO crece: se
+         * queda con su alto y, con el JUSTIFY_CENTER de la columna, cae al
+         * fondo como en la referencia. */
+        lv_obj_set_flex_grow(hijo, (i == n - 1) ? 0 : 1);
     }
-    /* Y ADEMAS, el reparto por posiciones como red de seguridad: el primer
-     * hijo pegado arriba y el ULTIMO (el boton, o la fila de acciones) AL
-     * FONDO. Con flex_grow solo, cuatro formularios (peaje, bombona, valoracion
-     * y pernocta) dejaban 120-150 px sin repartir aunque el grow estuviera
-     * puesto -- comprobado en el volcado, que ya imprime grow y min de cada
-     * fila. Con SPACE_BETWEEN el ultimo elemento cae al fondo pase lo que pase
-     * con el reparto del hueco. */
-    lv_obj_set_flex_align(col, LV_FLEX_ALIGN_SPACE_BETWEEN,
-                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    /* Y EL REPARTO VERTICAL COMO EN LA REFERENCIA, que es lo que de verdad
+     * hacia falta. Medida la captura de la 3,5" (registro_form_pernocta.png),
+     * su reparto es:
+     *
+     *     y=16-48     cabecera
+     *     y=144       rotulo "Precio"    <- el bloque de campos, CENTRADO en el
+     *     y=160-200   los cuatro campos      hueco que queda
+     *     y=264-311   botones            <- PEGADOS AL FONDO
+     *
+     * O sea: el bloque central se CENTRA en el espacio libre y los botones van
+     * al fondo. No es "que cada fila crezca" (eso da filas de alturas raras):
+     * es colocar el contenido con criterio. Con el flex de la columna se
+     * consigue asi:
+     *
+     *   - espacio sobrante repartido ARRIBA y ABAJO del bloque central
+     *     (JUSTIFY_CENTER), que centra las filas de campo;
+     *   - el ULTIMO hijo (el boton, o la fila de acciones) al fondo
+     *     (SPACE_BETWEEN no vale: repartiria el hueco entre TODOS los hijos).
+     *
+     * Para que las dos cosas convivan se le da al bloque central el grow (asi
+     * ocupa el hueco libre y su contenido queda centrado dentro) y al ultimo
+     * hijo un margen automatico no hace falta: con JUSTIFY_CENTER y el ultimo
+     * hijo SIN grow, el sobrante se reparte arriba y abajo del bloque, y el
+     * boton cae donde toca. */
+    lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 }
 
 /* Lo mismo, pero con el margen ESTRECHO: el contenido pasa de 320 a 680 px.
@@ -3070,7 +3090,12 @@ static void build_pernocta(lv_obj_t *form)
 
     /* --- Los dos botones de abajo --- */
     lv_obj_t *acciones = lv_obj_create(form);
+    /* 96 de alto y ADEMAS flex_grow: el boton de abajo tiene que quedar al
+     * fondo como en la referencia (alli los botones van en y=264-311 de 320, o
+     * sea pegados al borde). Medido: sin el grow, la pernocta acababa en y=396
+     * de 480 y quedaban 84 px de hueco. */
     lv_obj_set_size(acciones, lv_pct(100), 96);
+    lv_obj_set_flex_grow(acciones, 1);
     lv_obj_set_style_bg_opa(acciones, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(acciones, 0, 0);
     lv_obj_set_style_pad_all(acciones, 0, 0);
