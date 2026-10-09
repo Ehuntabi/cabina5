@@ -1479,16 +1479,36 @@ static lv_obj_t *make_form_container(lv_obj_t *parent)
      * alto no puede ser UI_ALTO - HEADER_H: medido, con 416 se salia 11 px por
      * debajo de la pantalla y el contenido acababa en y=296 dejando ~115 px
      * vacios mas abajo. */
-    lv_obj_set_height(col, UI_ALTO - HEADER_H - 11);
-    /* Sin flex_grow: con grow se repartia el alto con la cabecera y la dejaba
-     * en 6 px. Se coloca a mano debajo de ella. */
-    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, HEADER_H + 11);
+    /* LA COLUMNA ES LA CAPA DE CONTENIDO, del tamano de la pantalla, y FUERA
+     * del flex del contenedor.
+     *
+     * POR QUE (medido): la cabecera va DENTRO de la columna y es su primer hijo,
+     * asi que la columna tiene que ocupar la pantalla ENTERA (de y=0 a 480). Si
+     * se deja al flex del contenedor, la coloca en y=75 (los 64 de la cabecera
+     * MAS 11 que se inventa el reparto) y todo el contenido baja esos 75 px:
+     * eso era el "hueco ARRIBA negro y vacio" que veia el usuario en aguas,
+     * peaje, ITV, pernocta...
+     *
+     * Con IGNORE_LAYOUT y la posicion a mano, la columna empieza en el borde de
+     * la pantalla y su primer hijo (la cabecera) tambien. */
+    lv_obj_add_flag(col, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_height(col, UI_ALTO);
+    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(col, 0, 0);
-    lv_obj_set_style_pad_all(col, UI_MARGEN_ANCHO, 0);
-    /* SIN relleno abajo (era 12): ese hueco se lo quedaba la columna antes de
-     * que el flex repartiera, y las filas no llegaban al fondo (medido: peaje
-     * acababa en y=333 de 480). El margen de abajo lo pone el propio reparto. */
+    /* SIN RELLENO ARRIBA, y esto es lo que dejaba el hueco negro del que se
+     * quejo el usuario: "las paginas aguas, peaje, ITV, pernocta no empiezan
+     * arriba a la izquierda, todas tienen un hueco ARRIBA negro y vacio".
+     *
+     * La causa: la cabecera (Volver + titulo) va DENTRO de esta columna, pero la
+     * columna llevaba 60 px de relleno arriba, asi que la cabecera empezaba en
+     * y=60 y todo el contenido detras. Medido en la pernocta: rotulo "Precio" en
+     * y=74 dentro de la columna, o sea 74 px de negro por encima.
+     *
+     * Ahora la columna no lleva relleno arriba (la cabecera empieza en y=0) y el
+     * margen lateral se queda: 60 a los lados, 0 arriba, 0 abajo. */
+    lv_obj_set_style_pad_hor(col, UI_MARGEN_ANCHO, 0);
+    lv_obj_set_style_pad_top(col, 0, 0);
     lv_obj_set_style_pad_bottom(col, 0, 0);
     lv_obj_set_style_pad_row(col, 10, 0);
     lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
