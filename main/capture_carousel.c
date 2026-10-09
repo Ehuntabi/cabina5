@@ -418,12 +418,46 @@ static void pb_arranque_cb(lv_timer_t *t)
 }
 #endif
 
+#if CAPTURA_PANTALLA
+/* ── FOTO DE LA PANTALLA (9-oct-2026) ────────────────────────────────────────
+ *
+ * POR QUE EXISTE: el usuario lleva tres avisos seguidos de cosas que se VEN
+ * ("el contenido desaprovecha espacio por debajo", "en aguas el 2/4, 3/4 y 4/4
+ * se recortan", "hay que reordenarla") y yo no he visto esa pantalla nunca. Con
+ * el arbol de widgets se mide la geometria, pero no se ve el resultado; y
+ * yendo a ciegas se tarda el doble en cada arreglo.
+ *
+ * El volcado lo hace bsp_volcar_framebuffer() (ver esp_bsp.c): lee el
+ * framebuffer DEL PANEL, que es exactamente lo que se ve, y lo manda en crudo.
+ * En el PC se convierte a PNG con tools/decodifica_capturas.py.
+ *
+ * POR QUE CADA 20 s Y NO EN BUCLE: durante el volcado (~17 s) la tarea de LVGL
+ * esta ocupada y la pantalla no responde. Entre volcado y volcado da tiempo a
+ * navegar a otra pantalla, asi que una sola grabacion sirve para varias. La
+ * primera sale a los 8 s, ya sin splash. */
+#include "esp_bsp.h"     /* bsp_volcar_framebuffer() */
+#include "esp_log.h"
+
+static void captura_volcar_cb(lv_timer_t *t)
+{
+    (void)t;
+    bsp_volcar_framebuffer("pantalla", 2);
+}
+#endif
+
 void capture_carousel_start(void)
 {
 #ifdef DIAG_MEDIR_TODO
     /* (recorrido de medir, apagado) */
 #endif
-#if PRUEBA_BRILLO
+#if CAPTURA_PANTALLA
+    /* Fotos de la pantalla: la primera a los 8 s (ya sin splash) y luego cada
+     * 20 s, que es lo que tarda el volcado mas un respiro para navegar. */
+    lv_timer_t *tcap = lv_timer_create(captura_volcar_cb, 8000, NULL);
+    lv_timer_set_repeat_count(tcap, 1);
+    lv_timer_create(captura_volcar_cb, 20000, NULL);
+    return;
+#elif PRUEBA_BRILLO
     /* La prueba del brillo manda sobre todo lo demas: si esta encendida, es lo
      * unico que se hace. */
     lv_timer_t *tp = lv_timer_create(pb_arranque_cb, 2500, NULL);

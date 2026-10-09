@@ -28,6 +28,7 @@
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/ledc.h"
+#include "esp_task_wdt.h"   /* esp_task_wdt_reset() del volcado de pantalla */
 #include "esp_check.h"
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
@@ -363,6 +364,66 @@ void bsp_mirar_framebuffer(const char *etiqueta)
              100.0 * negros / (muestras ? muestras : 1),
              (double)suma / (muestras ? muestras : 1),
              (unsigned)(no_negro_ini == total ? 0 : no_negro_ini));
+}
+
+/* Vuelca a la consola el framebuffer DEL PANEL en crudo, para poder verlo en el
+ * PC. DIAGNOSTICO (ver bsp_mirar_framebuffer, que es la version de una linea).
+ *
+ *     ===BIN:<etiqueta>:<ancho>x<alto>:<bytes>===\n
+ *     <bytes RGB565 little endian>\n
+ *     ===FIN===\n
+ *
+ * El formato de cabecera es el que ya entiende tools/decodifica_capturas.py, que
+ * saca el PNG.
+ *
+ * SE LEE DEL PANEL Y NO DE UNA INSTANTANEA DE LVGL, y no es un capricho: en esta
+ * version de LVGL, lv_snapshot_take() devuelve el buffer en RGB888 (3 bytes por
+ * pixel) aunque se le pida RGB565, asi que el volcado salia como ruido -- costo
+ * un rato verlo, porque el fallo parece de la linea serie y no lo es. El
+ * framebuffer del panel es exactamente lo que se ve, en RGB565, y ya esta ahi.
+ *
+ * 'div' manda 1 de cada div pixeles. A 800x480 y 115200 baudios el frame entero
+ * tarda ~67 s; con div=2, unos 17. */
+void bsp_volcar_framebuffer(const char *etiqueta, int div)
+{
+    if (!s_rgb_panel || div < 1) return;
+    void *fb = NULL;
+    if (esp_lcd_rgb_panel_get_frame_buffer(s_rgb_panel, 1, &fb) != ESP_OK || !fb) {
+        ESP_LOGW(TAG, "no puedo leer el framebuffer del panel");
+        return;
+    }
+    const uint16_t *px = (const uint16_t *)fb;
+    const int dw = LCD_H_RES / div;
+    const int dh = LCD_V_RES / div;
+    const size_t nbytes = (size_t)dw * dh * 2;
+
+    ESP_LOGI(TAG, "volcando '%s' (%dx%d -> %dx%d, %u bytes)", etiqueta,
+             LCD_H_RES, LCD_V_RES, dw, dh, (unsigned)nbytes);
+    /* TODO a NONE, no a ERROR: cualquier traza de otra tarea que caiga en medio
+     * desplaza el flujo de bytes y la imagen sale como ruido (paso: se bajo solo
+     * a ERROR y el auto-test de la P4 seguia escupiendo errores cada pocos
+     * segundos, justo durante el volcado). */
+    esp_log_level_set("*", ESP_LOG_NONE);
+
+    printf("===BIN:%s:%dx%d:%u===\n", etiqueta, dw, dh, (unsigned)nbytes);
+    fflush(stdout);
+
+    uint8_t *fila = malloc((size_t)dw * 2);
+    for (int y = 0; fila && y < dh; y++) {
+        for (int x = 0; x < dw; x++) {
+            const uint16_t v = px[(size_t)(y * div) * LCD_H_RES + (x * div)];
+            fila[x * 2]     = (uint8_t)(v & 0xFF);
+            fila[x * 2 + 1] = (uint8_t)(v >> 8);
+        }
+        fwrite(fila, 1, (size_t)dw * 2, stdout);
+        fflush(stdout);
+        esp_task_wdt_reset();
+        vTaskDelay(1);   /* cede la CPU: que el watchdog y lo demas respiren */
+    }
+    free(fila);
+    printf("\n===FIN===\n");
+    fflush(stdout);
+    esp_log_level_set("*", ESP_LOG_INFO);
 }
 
 static bool IRAM_ATTR bsp_rgb_vsync_cb(esp_lcd_panel_handle_t panel,

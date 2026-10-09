@@ -42,6 +42,11 @@
  * retroiluminacion. 1 = se hace la prueba al arrancar y manda sobre todo lo
  * demas; 0 = no se compila nada de eso. */
 #define PRUEBA_BRILLO 0
+/* FOTO DE LA PANTALLA (9-oct-2026): vuelca la pantalla activa por el puerto
+ * serie (1 de cada 2 pixeles) para poder VERLA en el PC con
+ * tools/decodifica_capturas.py. Se pone a 1 para revisar pantallas a ojo y se
+ * vuelve a 0: mientras esta encendida la pantalla se congela ~17 s por foto. */
+#define CAPTURA_PANTALLA 1
 
 #ifdef __cplusplus
 extern "C" {

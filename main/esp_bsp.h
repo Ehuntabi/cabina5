@@ -26,6 +26,11 @@ extern "C" {
  * de "no se ve" (brillo, panel). Ver esp_bsp.c. */
 void bsp_mirar_framebuffer(const char *etiqueta);
 
+/* Vuelca el framebuffer del panel a la consola en crudo (RGB565, 1 de cada
+ * "div" pixeles) para poder verlo en el PC con tools/decodifica_capturas.py.
+ * DIAGNOSTICO: bloquea la tarea que lo llame mientras dura (17 s con div=2). */
+void bsp_volcar_framebuffer(const char *etiqueta, int div);
+
 typedef struct {
     lvgl_port_cfg_t lvgl_port_cfg;  /*!< Configuracion del port de LVGL (tarea y tic) */
 } bsp_display_cfg_t;
