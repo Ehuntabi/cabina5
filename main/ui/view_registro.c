@@ -1486,7 +1486,10 @@ static lv_obj_t *make_form_container(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(col, 0, 0);
     lv_obj_set_style_pad_all(col, UI_MARGEN_ANCHO, 0);
-    lv_obj_set_style_pad_bottom(col, 12, 0);
+    /* SIN relleno abajo (era 12): ese hueco se lo quedaba la columna antes de
+     * que el flex repartiera, y las filas no llegaban al fondo (medido: peaje
+     * acababa en y=333 de 480). El margen de abajo lo pone el propio reparto. */
+    lv_obj_set_style_pad_bottom(col, 0, 0);
     lv_obj_set_style_pad_row(col, 10, 0);
     lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
     /* Solo se desliza en vertical; en horizontal el gesto es del carrusel. */
@@ -1530,9 +1533,11 @@ static void form_volcar(lv_obj_t *o, int nivel)
         else if (lv_obj_check_type(c, &lv_button_class))    tipo = "boton";
         else if (lv_obj_check_type(c, &lv_dropdown_class))  tipo = "despleg";
         else if (lv_obj_check_type(c, &lv_buttonmatrix_class)) tipo = "matriz";
-        ESP_LOGW(TAG, "%*s[%d] %-8s x=%d y=%d %dx%d%s%s%s", nivel * 2, "", i, tipo,
+        ESP_LOGW(TAG, "%*s[%d] %-8s x=%d y=%d %dx%d grow=%d min=%d%s%s%s", nivel * 2, "", i, tipo,
                  (int)lv_obj_get_x(c), (int)lv_obj_get_y(c),
                  (int)lv_obj_get_width(c), (int)lv_obj_get_height(c),
+                 (int)lv_obj_get_style_flex_grow(c, 0),
+                 (int)lv_obj_get_style_min_height(c, 0),
                  lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN) ? " OCULTO" : "",
                  lv_obj_has_flag(c, LV_OBJ_FLAG_FLOATING) ? " FLOTANTE" : "",
                  lv_obj_check_type(c, &lv_label_class) ? lv_label_get_text(c) : "");
@@ -1566,10 +1571,17 @@ static void form_rellenar_alto(lv_obj_t *form)
     const int n = lv_obj_get_child_count(col);
     for (int i = 0; i < n; i++) {
         lv_obj_t *hijo = lv_obj_get_child(col, i);
-        /* El ultimo (el boton de guardar) y los botones no se estiran: los que
-         * se reparten el hueco son las filas de campo. */
+        /* Los botones y los rotulos no se estiran: el hueco lo reparten las
+         * filas de campo. */
         if (lv_obj_check_type(hijo, &lv_button_class)) continue;
         if (lv_obj_check_type(hijo, &lv_label_class)) continue;
+        /* ALTO AUTOMATICO ADEMAS DE flex_grow, y las dos cosas hacen falta: el
+         * flex solo reparte el hueco EXTRA, asi que una fila con el alto fijo
+         * no se estira por mucho grow que se le ponga. Medido: con solo
+         * flex_grow, peaje acababa en y=333, bombona en 358 y la valoracion en
+         * 333, dejando 120-150 px negros abajo. Con el alto automatico la fila
+         * mide su contenido y encima crece con el reparto. */
+        lv_obj_set_height(hijo, LV_SIZE_CONTENT);
         lv_obj_set_flex_grow(hijo, 1);
     }
 }
