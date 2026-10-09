@@ -1548,7 +1548,7 @@ void view_info_create(lv_obj_t *parent)
     paleta_texto(u_v, 0xCCCCCC, 0xFFFFFF);
     lv_obj_set_style_text_font(u_v, &lv_font_montserrat_24, 0);
     lv_obj_clear_flag(u_v, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(u_v, LV_ALIGN_LEFT_MID, BAT_NUM_X + BAT_NUM_W + 10, -BAT_NUM_Y + 4);
+    lv_obj_align(u_v, LV_ALIGN_LEFT_MID, 30 + BAT_NUM_W + 10, -30 + 4);
 
     s_bat_amp = lv_label_create(s_bat_card);
     lv_label_set_text(s_bat_amp, "");    lv_obj_set_style_text_color(s_bat_amp, COL_TEXT, 0);
@@ -1564,7 +1564,7 @@ void view_info_create(lv_obj_t *parent)
     paleta_texto(s_bat_amp_u, 0xCCCCCC, 0xFFFFFF);
     lv_obj_set_style_text_font(s_bat_amp_u, &lv_font_montserrat_24, 0);
     lv_obj_clear_flag(s_bat_amp_u, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, BAT_NUM_X + BAT_NUM_W + 10, BAT_NUM_Y + 4);
+    lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, 30 + BAT_NUM_W + 10, 30 + 4);
 
     /* La del motor, a la derecha del todo y mas discreta: es bateria tambien,
      * pero solo se mira cuando el vehiculo no arranca. */
