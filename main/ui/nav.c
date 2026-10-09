@@ -6,6 +6,8 @@
 #include "view_inclinacion.h"
 #include "view_ajustes.h"
 #include "lvgl.h"
+#include <stdio.h>
+#include <stdbool.h>
 
 #define NAV_COUNT       3
 #define NAV_INCLINACION 0   /* izquierda */
@@ -17,6 +19,11 @@
 static lv_obj_t *s_screens[NAV_COUNT];
 static lv_obj_t *s_ajustes_screen;
 static uint8_t   s_current = NAV_INFO;
+
+/* Estado del carrusel de subpantallas (ver nav.h). Va aqui arriba porque
+ * gesture_cb() lo consulta. */
+static bool s_subpantallas = false;
+static int  s_sub_idx = 0;
 
 static void gesture_cb(lv_event_t *e)
 {
@@ -42,6 +49,13 @@ static void gesture_cb(lv_event_t *e)
      * estando ya en el ultimo cromo), que si no abriria un formulario por
      * sorpresa. */
     lv_indev_wait_release(indev);
+
+    /* En el carrusel de SUBPANTALLAS el deslizamiento pasa de formulario, no de
+     * pantalla del carrusel (ver nav.h). */
+    if (s_subpantallas) {
+        nav_subpantallas_paso(dir == LV_DIR_LEFT ? 1 : -1);
+        return;
+    }
 
     int next = s_current;
     lv_scr_load_anim_t anim;
@@ -159,4 +173,60 @@ void nav_close_ajustes(void)
 {
     s_current = NAV_INFO;
     lv_scr_load_anim(s_screens[NAV_INFO], LV_SCR_LOAD_ANIM_MOVE_BOTTOM, NAV_ANIM_MS, 0, false);
+}
+
+/* ── Carrusel de subpantallas (ver nav.h) ───────────────────────────────────
+ *
+ * LAS SEIS QUE SE REPASAN, en el orden que pidio el usuario (9-oct-2026):
+ * repostaje, peaje, bombona, servicios, ITV, pernocta. Deja fuera las otras tres
+ * (mantenimiento, valoracion y aguas) a proposito: son las que ya estaban bien.
+ *
+ * Los indices son los del enum de categorias de view_registro.c (CAT_REPOSTAJE
+ * = 0, CAT_PEAJE = 1, CAT_BOMBONA = 2, CAT_SERVICIOS = 4, CAT_ITV = 7,
+ * CAT_PERNOCTA = 8). El orden del enum no se puede tocar porque es el de las
+ * columnas del CSV de la P4. */
+static const int SUBPANTALLAS[] = { 0, 1, 2, 4, 7, 8 };
+#define SUBPANTALLAS_N (int)(sizeof(SUBPANTALLAS) / sizeof(SUBPANTALLAS[0]))
+
+bool nav_subpantallas_activo(void) { return s_subpantallas; }
+int  nav_subpantallas_indice(void) { return s_sub_idx; }
+int  nav_subpantallas_total(void)  { return SUBPANTALLAS_N; }
+
+/* La CATEGORIA (indice de view_registro) de la subpantalla que se esta viendo. */
+int  nav_subpantallas_categoria(void)
+{
+    if (!s_subpantallas) return -1;
+    return SUBPANTALLAS[s_sub_idx];
+}
+
+void nav_subpantallas_arrancar(void)
+{
+    s_subpantallas = true;
+    s_sub_idx = 0;
+    /* Se entra por el carrusel de registro y se abre el primero (repostaje). */
+    nav_ir_a_registros();
+    view_registro_mostrar_formulario(SUBPANTALLAS[s_sub_idx]);
+    view_registro_rotulo_subpantallas(nav_subpantallas_rotulo());
+}
+
+/* Rotulo con el nombre del formulario y en que numero va, para saber cual se
+ * esta mirando (y poder pedir el cambio por su nombre). Lo pinta el carrusel
+ * como una banda en la parte de abajo. */
+const char *nav_subpantallas_rotulo(void)
+{
+    static char buf[64];
+    if (!s_subpantallas) return NULL;
+    snprintf(buf, sizeof(buf), "%d/%d  %s",
+             s_sub_idx + 1, SUBPANTALLAS_N,
+             view_registro_nombre_formulario(SUBPANTALLAS[s_sub_idx]));
+    return buf;
+}
+
+void nav_subpantallas_paso(int delta)
+{
+    if (!s_subpantallas) return;
+    s_sub_idx += delta;
+    if (s_sub_idx < 0) s_sub_idx = SUBPANTALLAS_N - 1;   /* da la vuelta */
+    if (s_sub_idx >= SUBPANTALLAS_N) s_sub_idx = 0;
+    view_registro_mostrar_formulario(SUBPANTALLAS[s_sub_idx]);
 }

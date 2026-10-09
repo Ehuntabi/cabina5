@@ -67,6 +67,9 @@ void view_registro_paseo_mostrar(void);
 void view_registro_diag_arbol(int idx);
 void view_registro_diag_pantalla(int p);
 
+/* Rotulo del carrusel de subpantallas (ver nav.h). DIAGNOSTICO. */
+void view_registro_rotulo_subpantallas(const char *txt);
+
 /* DIAGNOSTICO temporal: vuelca al log el arbol de objetos de un formulario con
  * posiciones y tamanos reales (ver view_registro.c). */
 bool view_registro_paseo_activo(void);

@@ -573,10 +573,40 @@ static void ta_click_cb(lv_event_t *e)
  * aire entre los dos y no se toquen cuando el titulo es largo. */
 #define HEADER_TITLE_MAX_W  300
 
+/* Rotulo de campo ("Importe", "Litros"...), con SU alto y no el que le quiera
+ * dar el contenedor.
+ *
+ * POR QUE (medido en la placa, 9-oct-2026): un rotulo de texto mide 29 px de
+ * alto, pero en el volcado salia de 123x142 -- el contenedor lo estiraba. Como
+ * LVGL centra el texto en su caja, con 142 de alto el texto se sale por ARRIBA
+ * y se corta: era justo lo que se veia en la foto de repostaje ("no se ve
+ * completa la parte superior de los blancos"). Poniendo el alto a la linea de
+ * su fuente (fija, no automatica) no hay contenedor que lo estire. */
+static lv_obj_t *make_field_label(lv_obj_t *parent, const char *txt,
+                                  const lv_font_t *fuente)
+{
+    lv_obj_t *l = lv_label_create(parent);
+    lv_label_set_text(l, txt);
+    lv_obj_set_style_text_color(l, lv_color_hex(COL_LABEL), 0);
+    lv_obj_set_style_text_font(l, fuente, 0);
+    lv_obj_set_height(l, lv_font_get_line_height(fuente));
+    lv_obj_set_width(l, LV_SIZE_CONTENT);
+    /* TRAZA UNICA (se quita al cerrar el diagnostico): confirma que el rotulo
+     * pasa por aqui y con que alto queda. */
+    ESP_LOGW(TAG, "ROTULO '%s': alto forzado a %d", txt,
+             (int)lv_font_get_line_height(fuente));
+    lv_obj_clear_flag(l, LV_OBJ_FLAG_CLICKABLE);
+    return l;
+}
+
 static lv_obj_t *make_field_row(lv_obj_t *parent)
 {
     lv_obj_t *cont = lv_obj_create(parent);
     lv_obj_set_width(cont, lv_pct(100));
+    /* Alto = el de su texto: sin esto el contenedor lo estira (medido:
+     * 142 px de alto para un rotulo de 29) y al no caber en su fila se
+     * sale por arriba, cortando lo que hay encima. */
+    lv_obj_set_height(cont, LV_SIZE_CONTENT);
     lv_obj_set_height(cont, LV_SIZE_CONTENT);
     /* MINIMO = EL ALTO DE SU CONTENIDO (rotulo 26 + campo 50 + aire).
      *
@@ -607,8 +637,14 @@ static lv_obj_t *make_field_row(lv_obj_t *parent)
     lv_obj_set_style_pad_row(cont, 2, 0);
     lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(cont, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER);
+    /* CROSS-ALIGN EN START, no en CENTER: esta fila lleva el rotulo arriba y el
+     * campo debajo, y con CENTER el contenedor (que se estira con el reparto del
+     * alto) estiraba tambien al ROTULO -- medido: 123x142 para un texto de 29 px,
+     * y como LVGL centra el texto en su caja, el texto se salia por arriba y se
+     * cortaba. Era el "no se ve completa la parte superior de los blancos" de la
+     * foto de repostaje. Con START cada hijo se queda con su alto. */
+    lv_obj_set_flex_align(cont, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START);
     return cont;
 }
 
@@ -634,10 +670,7 @@ static lv_obj_t *make_money_field_stacked(lv_obj_t *parent, const char *label_te
 {
     lv_obj_t *cont = make_field_row(parent);
 
-    lv_obj_t *lbl = lv_label_create(cont);
-    lv_label_set_text(lbl, label_text);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(COL_LABEL), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+    lv_obj_t *lbl = make_field_label(cont, label_text, &lv_font_montserrat_20);
 
     lv_obj_t *ta = lv_textarea_create(cont);
     lv_textarea_set_one_line(ta, true);
@@ -768,10 +801,7 @@ static lv_obj_t *make_money_field(lv_obj_t *parent, const char *label_text,
 {
     lv_obj_t *cont = make_field_row(parent);
 
-    lv_obj_t *lbl = lv_label_create(cont);
-    lv_label_set_text(lbl, label_text);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(COL_LABEL), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
+    lv_obj_t *lbl = make_field_label(cont, label_text, &lv_font_montserrat_16);
 
     /* Sub-fila para poner numero y moneda uno al lado del otro dentro de la
      * columna centrada de make_field_row(). Las dos variantes usan el MISMO
@@ -828,10 +858,7 @@ static lv_obj_t *make_choice_row(lv_obj_t *parent, const char *label_text,
 {
     lv_obj_t *cont = make_field_row(parent);
 
-    lv_obj_t *lbl = lv_label_create(cont);
-    lv_label_set_text(lbl, label_text);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(COL_LABEL), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
+    lv_obj_t *lbl = make_field_label(cont, label_text, &lv_font_montserrat_16);
 
     lv_obj_t *bm = lv_btnmatrix_create(cont);
     lv_btnmatrix_set_map(bm, map);
@@ -1026,10 +1053,7 @@ static lv_obj_t *make_number_field(lv_obj_t *parent, const char *label_text)
 {
     lv_obj_t *cont = make_field_row(parent);
 
-    lv_obj_t *lbl = lv_label_create(cont);
-    lv_label_set_text(lbl, label_text);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(COL_LABEL), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
+    lv_obj_t *lbl = make_field_label(cont, label_text, &lv_font_montserrat_16);
 
     lv_obj_t *ta = lv_textarea_create(cont);
     lv_textarea_set_one_line(ta, true);
@@ -1391,10 +1415,7 @@ static lv_obj_t *make_readonly_row(lv_obj_t *parent, const char *label_text)
     lv_obj_set_style_pad_all(cont, 2, 0);
     lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *lbl = lv_label_create(cont);
-    lv_label_set_text(lbl, label_text);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(COL_LABEL), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
+    lv_obj_t *lbl = make_field_label(cont, label_text, &lv_font_montserrat_16);
     lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
     lv_obj_t *val = lv_label_create(cont);
@@ -3059,11 +3080,19 @@ static void build_pernocta(lv_obj_t *form)
     lv_obj_set_style_text_font(s_pern_info_lbl, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_align(s_pern_info_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(s_pern_info_lbl, lv_pct(100));
+    /* Alto = el de su texto: sin esto el contenedor lo estira (medido:
+     * 142 px de alto para un rotulo de 29) y al no caber en su fila se
+     * sale por arriba, cortando lo que hay encima. */
+    lv_obj_set_height(s_pern_info_lbl, LV_SIZE_CONTENT);
     lv_obj_set_style_min_height(s_pern_info_lbl, 30, 0);
 
     /* --- Fila del precio: rotulo + los cuatro controles, alineados --- */
     lv_obj_t *fila_precio = lv_obj_create(form);
     lv_obj_set_width(fila_precio, lv_pct(100));
+    /* Alto = el de su texto: sin esto el contenedor lo estira (medido:
+     * 142 px de alto para un rotulo de 29) y al no caber en su fila se
+     * sale por arriba, cortando lo que hay encima. */
+    lv_obj_set_height(fila_precio, LV_SIZE_CONTENT);
     lv_obj_set_height(fila_precio, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(fila_precio, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(fila_precio, 0, 0);
@@ -3140,12 +3169,16 @@ static void build_pernocta(lv_obj_t *form)
 
     /* --- Los dos botones de abajo --- */
     lv_obj_t *acciones = lv_obj_create(form);
-    /* 96 de alto y ADEMAS flex_grow: el boton de abajo tiene que quedar al
-     * fondo como en la referencia (alli los botones van en y=264-311 de 320, o
-     * sea pegados al borde). Medido: sin el grow, la pernocta acababa en y=396
-     * de 480 y quedaban 84 px de hueco. */
-    lv_obj_set_size(acciones, lv_pct(100), 96);
-    lv_obj_set_flex_grow(acciones, 1);
+    /* ALTO FIJO Y SIN grow EN LOS BOTONES.
+     *
+     * Lo que se vio en la placa: con flex_grow en esta fila, el reparto se lo
+     * comia todo y el boton "Servicios" salia de 204x255 -- un boton GIGANTE
+     * ocupando media pantalla (medido en el volcado). El hueco de la pantalla no
+     * lo tiene que llenar un boton: lo reparte la fila del PRECIO, que puede
+     * crecer sin romperse porque sus controles van centrados dentro.
+     *
+     * 130 de alto: lo que pide el boton (96) mas aire. */
+    lv_obj_set_size(acciones, lv_pct(100), 130);
     lv_obj_set_style_bg_opa(acciones, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(acciones, 0, 0);
     lv_obj_set_style_pad_all(acciones, 0, 0);
@@ -3156,7 +3189,8 @@ static void build_pernocta(lv_obj_t *form)
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     lv_obj_t *serv_btn = lv_btn_create(acciones);
-    lv_obj_set_size(serv_btn, lv_pct(30), lv_pct(100));
+    /* 96 de alto (el natural) y no el 100% de la fila: asi no se estira. */
+    lv_obj_set_size(serv_btn, lv_pct(30), 96);
     lv_obj_set_style_bg_color(serv_btn, lv_color_hex(COL_VIAJE), 0);
     lv_obj_set_style_bg_color(serv_btn,
                               lv_color_darken(lv_color_hex(COL_VIAJE), LV_OPA_30),
@@ -3203,6 +3237,10 @@ static void build_servicios(lv_obj_t *form)
      * Volver de la cabecera devuelve a ella con todo puesto. */
     lv_obj_t *bloque = lv_obj_create(form);
     lv_obj_set_width(bloque, lv_pct(100));
+    /* Alto = el de su texto: sin esto el contenedor lo estira (medido:
+     * 142 px de alto para un rotulo de 29) y al no caber en su fila se
+     * sale por arriba, cortando lo que hay encima. */
+    lv_obj_set_height(bloque, LV_SIZE_CONTENT);
     lv_obj_set_height(bloque, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(bloque, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(bloque, 0, 0);
@@ -3438,6 +3476,10 @@ static lv_obj_t *pantalla_crear(lv_obj_t *parent, pantalla_t id,
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_remove_style_all(body);
     lv_obj_set_width(body, lv_pct(100));
+    /* Alto = el de su texto: sin esto el contenedor lo estira (medido:
+     * 142 px de alto para un rotulo de 29) y al no caber en su fila se
+     * sale por arriba, cortando lo que hay encima. */
+    lv_obj_set_height(body, LV_SIZE_CONTENT);
     lv_obj_set_flex_grow(body, 1);
     lv_obj_set_style_pad_all(body, PAN_PAD, 0);
     /* SE DESLIZA EN VERTICAL (8-oct-2026). Antes no hacia falta -- todo cabia
@@ -3496,6 +3538,10 @@ static lv_obj_t *boton_grande(lv_obj_t *padre, const char *icono,
 {
     lv_obj_t *b = lv_btn_create(padre);
     lv_obj_set_width(b, lv_pct(100));
+    /* Alto = el de su texto: sin esto el contenedor lo estira (medido:
+     * 142 px de alto para un rotulo de 29) y al no caber en su fila se
+     * sale por arriba, cortando lo que hay encima. */
+    lv_obj_set_height(b, LV_SIZE_CONTENT);
     lv_obj_set_flex_grow(b, 1);
     lv_obj_set_style_bg_color(b, lv_color_hex(color), 0);
     lv_obj_set_style_bg_color(b, lv_color_darken(lv_color_hex(color), LV_OPA_30),
@@ -3605,6 +3651,10 @@ static lv_obj_t *casilla(lv_obj_t *padre, const char *icono, const char *texto,
     lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(l, lv_pct(100));
+    /* Alto = el de su texto: sin esto el contenedor lo estira (medido:
+     * 142 px de alto para un rotulo de 29) y al no caber en su fila se
+     * sale por arriba, cortando lo que hay encima. */
+    lv_obj_set_height(l, LV_SIZE_CONTENT);
 
     if (apoyo) {
         lv_obj_t *s = lv_label_create(b);
@@ -3682,6 +3732,10 @@ static lv_obj_t *fila(lv_obj_t *padre)
     lv_obj_t *f = lv_obj_create(padre);
     lv_obj_remove_style_all(f);
     lv_obj_set_width(f, lv_pct(100));
+    /* Alto = el de su texto: sin esto el contenedor lo estira (medido:
+     * 142 px de alto para un rotulo de 29) y al no caber en su fila se
+     * sale por arriba, cortando lo que hay encima. */
+    lv_obj_set_height(f, LV_SIZE_CONTENT);
     lv_obj_set_flex_grow(f, 1);
     lv_obj_clear_flag(f, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(f, LV_FLEX_FLOW_ROW);
@@ -4863,6 +4917,10 @@ static lv_obj_t *tira_crear(lv_obj_t *body, int idx)
     lv_obj_t *fila_t = lv_obj_create(body);
     lv_obj_remove_style_all(fila_t);
     lv_obj_set_width(fila_t, lv_pct(100));
+    /* Alto = el de su texto: sin esto el contenedor lo estira (medido:
+     * 142 px de alto para un rotulo de 29) y al no caber en su fila se
+     * sale por arriba, cortando lo que hay encima. */
+    lv_obj_set_height(fila_t, LV_SIZE_CONTENT);
     lv_obj_set_height(fila_t, LV_SIZE_CONTENT);
     lv_obj_clear_flag(fila_t, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(fila_t, LV_FLEX_FLOW_ROW);
@@ -4911,6 +4969,10 @@ static void abiertos_fila_crear(lv_obj_t *body, int idx)
     lv_obj_t *f = lv_obj_create(body);
     lv_obj_remove_style_all(f);
     lv_obj_set_width(f, lv_pct(100));
+    /* Alto = el de su texto: sin esto el contenedor lo estira (medido:
+     * 142 px de alto para un rotulo de 29) y al no caber en su fila se
+     * sale por arriba, cortando lo que hay encima. */
+    lv_obj_set_height(f, LV_SIZE_CONTENT);
     lv_obj_set_height(f, ESC(58));
     lv_obj_clear_flag(f, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(f, LV_FLEX_FLOW_ROW);
@@ -5223,6 +5285,19 @@ void view_registro_diag_arbol(int idx)
 {
     if (idx < 0 || idx >= CAT_COUNT) return;
     lv_obj_t *f = s_forms[idx];
+    /* MEDIDA DIRECTA del rotulo "Importe" de repostaje, buscandolo por su texto:
+     * asi se sabe si el problema es del objeto o de lo que yo leo en el volcado. */
+    {
+        lv_obj_t *col = form_col(f);
+        lv_obj_t *fila = col ? lv_obj_get_child(col, 1) : NULL;
+        lv_obj_t *lbl = fila ? lv_obj_get_child(fila, 0) : NULL;
+        if (lbl) {
+            ESP_LOGW(TAG, "MEDIDA-DIRECTA rotulo: %dx%d  (fuente linea %d)  texto '%s'",
+                     (int)lv_obj_get_width(lbl), (int)lv_obj_get_height(lbl),
+                     (int)lv_font_get_line_height(lv_obj_get_style_text_font(lbl, 0)),
+                     lv_label_get_text(lbl));
+        }
+    }
     ESP_LOGW(TAG, "MARCA-1417 FORM '%s': %dx%d", CAT_NOMBRE[idx],
              (int)lv_obj_get_width(f), (int)lv_obj_get_height(f));
     form_volcar(f, 0);
@@ -5235,6 +5310,30 @@ void view_registro_diag_pantalla(int p)
     ESP_LOGW(TAG, "MARCA-1417 MENU '%s': %dx%d", PAN_NOMBRE[p],
              (int)lv_obj_get_width(m), (int)lv_obj_get_height(m));
     form_volcar(m, 0);
+}
+
+/* Rotulo del carrusel de subpantallas: dice en cual vas. Es una banda abajo,
+ * fuera del formulario, para no taparle nada. DIAGNOSTICO (ver nav.h). */
+static lv_obj_t *s_rotulo_sub;
+
+void view_registro_rotulo_subpantallas(const char *txt)
+{
+    if (!s_rotulo_sub) {
+        lv_obj_t *scr = lv_scr_act();
+        if (!scr) return;
+        s_rotulo_sub = lv_label_create(scr);
+        lv_obj_add_flag(s_rotulo_sub, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_set_style_bg_color(s_rotulo_sub, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(s_rotulo_sub, LV_OPA_80, 0);
+        lv_obj_set_style_text_color(s_rotulo_sub, lv_color_hex(0xFFD54F), 0);
+        lv_obj_set_style_text_font(s_rotulo_sub, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_pad_hor(s_rotulo_sub, 12, 0);
+        lv_obj_set_style_pad_ver(s_rotulo_sub, 4, 0);
+        lv_obj_set_style_radius(s_rotulo_sub, 8, 0);
+        lv_obj_align(s_rotulo_sub, LV_ALIGN_BOTTOM_MID, 0, -4);
+    }
+    lv_label_set_text(s_rotulo_sub, txt ? txt : "");
+    lv_obj_move_foreground(s_rotulo_sub);
 }
 
 void view_registro_paseo_mostrar(void)

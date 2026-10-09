@@ -290,6 +290,22 @@ static int s_diag_paso = 0;
 void view_info_diag_arbol(void);
 void view_inclinacion_diag_arbol(void);
 
+/* Arranca el carrusel de subpantallas desde la tarea de LVGL (ver arriba). */
+static void subpantallas_arranque_cb(lv_timer_t *t)
+{
+    (void)t;
+    nav_subpantallas_arrancar();
+}
+
+/* Y ademas, cada 3 s, vuelca la geometria de la subpantalla que se este viendo:
+ * asi cada foto del usuario se puede contrastar con los numeros. */
+static void subpantallas_medir_cb(lv_timer_t *t)
+{
+    (void)t;
+    const int cat = nav_subpantallas_categoria();
+    if (cat >= 0) view_registro_diag_arbol(cat);
+}
+
 static void pernocta_diag_cb(lv_timer_t *t)
 {
     (void)t;
@@ -322,10 +338,24 @@ static void pernocta_diag_cb(lv_timer_t *t)
 
 void capture_carousel_start(void)
 {
+#ifdef DIAG_MEDIR_TODO
+    /* (recorrido de medir, apagado) */
+#endif
 #if CAPTURE_PEAJE_DIAG
-    /* Cada 3 s: tiempo de sobra para que el layout este hecho y para leer el
-     * volcado por el puerto sin mezclarlo con el siguiente. */
-    lv_timer_create(pernocta_diag_cb, 3000, NULL);
+    /* CARRUSEL DE SUBPANTALLAS (9-oct-2026): arranca en REPOSTAJE y con un
+     * deslizamiento se pasa por las seis que se estan repasando (repostaje,
+     * peaje, bombona, servicios, ITV, pernocta), dando la vuelta al final. Una
+     * banda abajo dice en cual vas.
+     *
+     * SE LANZA DESDE UN TEMPORIZADOR, NO AQUI DIRECTAMENTE, y es importante:
+     * esta funcion se llama con el CERROJO DE LVGL TOMADO (ver main_app.c), y
+     * nav_ir_a_registros() lo vuelve a pedir -> deadlock, la tarea main se queda
+     * girando y salta el watchdog de tareas cada 5 s (visto en el arranque). Con
+     * el temporizador, el cambio de pantalla lo hace la tarea de LVGL, que es
+     * quien tiene que hacerlo. */
+    lv_timer_t *t = lv_timer_create(subpantallas_arranque_cb, 800, NULL);
+    lv_timer_set_repeat_count(t, 1);
+    lv_timer_create(subpantallas_medir_cb, 3000, NULL);
     return;
 #elif CAPTURE_CAROUSEL_SOLO_DATOS
     inject_sim_data();
