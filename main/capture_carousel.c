@@ -281,21 +281,30 @@ void capture_carousel_start(void)
 #include "lvgl.h"
 #include "ui/nav.h"
 #include "ui/view_registro.h"
-static int s_diag_form = 0;
+static int s_diag_paso = 0;
+#define DIAG_PANTALLAS 9    /* PAN_COUNT */
+#define DIAG_FORMULARIOS 9  /* CAT_COUNT */
 
 static void pernocta_diag_cb(lv_timer_t *t)
 {
     (void)t;
-    /* Primero se MIDE el formulario que quedo abierto en el tic anterior (su
-     * layout ya esta calculado), y despues se abre el siguiente. */
-    if (s_diag_form > 0 && s_diag_form <= view_registro_num_formularios()) {
-        view_registro_diag_arbol(s_diag_form - 1);
+    /* Se MIDE lo que quedo abierto en el tic anterior (su layout ya esta
+     * calculado) y despues se abre lo siguiente. Primero las pantallas de menu
+     * y luego los formularios, para tener la geometria de todo de una pasada. */
+    if (s_diag_paso > 0 && s_diag_paso <= DIAG_PANTALLAS) {
+        view_registro_diag_pantalla(s_diag_paso - 1);
+    } else if (s_diag_paso > DIAG_PANTALLAS &&
+               s_diag_paso <= DIAG_PANTALLAS + DIAG_FORMULARIOS) {
+        view_registro_diag_arbol(s_diag_paso - DIAG_PANTALLAS - 1);
     }
-    if (s_diag_form == 0) nav_ir_a_registros();
-    if (s_diag_form < view_registro_num_formularios()) {
-        view_registro_mostrar_formulario(s_diag_form);
-        s_diag_form++;
+
+    if (s_diag_paso == 0) nav_ir_a_registros();
+    if (s_diag_paso < DIAG_PANTALLAS) {
+        view_registro_mostrar_pantalla(s_diag_paso);
+    } else if (s_diag_paso < DIAG_PANTALLAS + DIAG_FORMULARIOS) {
+        view_registro_mostrar_formulario(s_diag_paso - DIAG_PANTALLAS);
     }
+    s_diag_paso++;
 }
 #endif
 

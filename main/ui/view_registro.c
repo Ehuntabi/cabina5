@@ -677,11 +677,18 @@ static lv_obj_t *make_half_number(lv_obj_t *row, const char *label_text,
                                   bool horizontal)
 {
     lv_obj_t *col = lv_obj_create(row);
-    /* EN COLUMNA (rotulo encima del campo), el alto es AUTOMATICO: es lo que
-     * mide su contenido (rotulo 29 + campo 72 + aire). Estaba clavado en 47
-     * (FIELD_TA_H) llevando 101 dentro, y el rotulo salia 5 px por arriba de su
-     * fila (medido: "Litros" y "Kilometros" en y=-5). */
+    /* EN COLUMNA (rotulo encima del campo), el alto es AUTOMATICO y ADEMAS la
+     * columna se sale del reparto del padre (IGNORE_LAYOUT).
+     *
+     * POR QUE LAS DOS COSAS, medido: con el alto automatico solo, la columna
+     * media 103 (rotulo 29 + campo 66 + aire) pero la FILA que la contiene se
+     * quedaba en 51 porque el flex la encogia, y al ser la columna hija suya
+     * acababa subiendo 5 px por encima (rotulos "Litros" y "Kilometros" en
+     * y=-5). Con IGNORE_LAYOUT la columna manda su tamano, la fila crece hasta
+     * caberla y no hay recorte. Es el mismo apaño que necesitaron los
+     * formularios en la pantalla (ver make_form_container). */
     lv_obj_set_size(col, lv_pct(48), horizontal ? FIELD_TA_H : LV_SIZE_CONTENT);
+    if (!horizontal) lv_obj_add_flag(col, LV_OBJ_FLAG_IGNORE_LAYOUT);
     lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(col, 0, 0);
     lv_obj_set_style_pad_all(col, 0, 0);
@@ -739,7 +746,11 @@ static void make_dual_number_row(lv_obj_t *parent,
         lv_obj_set_flex_grow(cont, 0);
         /* Aqui la fila lleva DOS columnas, cada una con rotulo + campo: 33+66
          * + aire = ~115. Con 96 los rotulos salian 5 px por arriba (medido). */
-        lv_obj_set_style_min_height(cont, 118, 0);
+        /* 150 y no 103: las dos columnas miden 103 de alto, pero la FILA se
+         * quedaba en 51 (el reparto del flex la encogia) y al estar las columnas
+         * dentro, subian 5 px por encima. Con 150 la fila no baja de ahi y las
+         * columnas caben enteras y centradas. */
+        lv_obj_set_style_min_height(cont, 132, 0);
         /* Las dos columnas, centradas en el alto de la fila (cada una mide su
          * contenido: rotulo + campo). */
         lv_obj_set_flex_align(cont, LV_FLEX_ALIGN_SPACE_BETWEEN,
@@ -1498,6 +1509,7 @@ static lv_obj_t *make_form_container(lv_obj_t *parent)
     return form;
 }
 
+
 /* La COLUMNA de contenido de un formulario, que es donde van los campos.
  *
  * El contenedor tiene dos hijos, siempre en este orden: 0 = la cabecera FIJA
@@ -1528,9 +1540,38 @@ static void form_volcar(lv_obj_t *o, int nivel)
     }
 }
 
+
 static lv_obj_t *form_col(lv_obj_t *form)
 {
     return form ? lv_obj_get_child(form, 1) : NULL;
+}
+
+/* REPARTE EL ALTO QUE SOBRA ENTRE LAS FILAS DEL FORMULARIO.
+ *
+ * POR QUE HACE FALTA, medido con el volcado de los 18 pantallas: los cuerpos de
+ * casi todos los formularios acababan entre y=250 y y=400 en vez de llegar a
+ * 480, o sea el contenido se quedaba en los dos tercios de arriba. El usuario lo
+ * describio asi desde el primer dia: "no ocupa en vertical toda la pantalla".
+ *
+ * Como se reparte: al terminar de construir el formulario se recorren sus filas
+ * de campo (los hijos de la columna que no son la cabecera ni el ultimo boton) y
+ * se les da flex_grow(1). Asi el hueco que sobra se reparte entre ellas y el
+ * contenido llena la pantalla, sea un formulario de 2 campos o de 6.
+ *
+ * Se llama al final de cada constructor (form_rellenar_alto). */
+static void form_rellenar_alto(lv_obj_t *form)
+{
+    lv_obj_t *col = form_col(form);
+    if (!col) return;
+    const int n = lv_obj_get_child_count(col);
+    for (int i = 0; i < n; i++) {
+        lv_obj_t *hijo = lv_obj_get_child(col, i);
+        /* El ultimo (el boton de guardar) y los botones no se estiran: los que
+         * se reparten el hueco son las filas de campo. */
+        if (lv_obj_check_type(hijo, &lv_button_class)) continue;
+        if (lv_obj_check_type(hijo, &lv_label_class)) continue;
+        lv_obj_set_flex_grow(hijo, 1);
+    }
 }
 
 /* Lo mismo, pero con el margen ESTRECHO: el contenido pasa de 320 a 680 px.
@@ -2600,6 +2641,7 @@ static void build_repostaje(lv_obj_t *form)
 
     s_repo_preciolitro_lbl = make_readonly_row(form, "Calculado");
 
+    form_rellenar_alto(form);
     make_save_button(form, "Guardar repostaje", save_generic_cb, (void *)(uintptr_t)CAT_REPOSTAJE);
 }
 
@@ -2612,6 +2654,7 @@ static void build_peaje(lv_obj_t *form)
     s_peaje_importe_ta = make_money_field_stacked(form, "Importe",
                                                   &s_peaje_currency_dd);
 
+    form_rellenar_alto(form);
     make_save_button(form, "Guardar peaje", save_generic_cb, (void *)(uintptr_t)CAT_PEAJE);
 }
 
@@ -2631,6 +2674,7 @@ static void build_bombona(lv_obj_t *form)
     s_bombona_precio_ta  = make_money_field(form, "Precio total",
                                             &s_bombona_currency_dd, true);
 
+    form_rellenar_alto(form);
     make_save_button(form, "Guardar bombona", save_generic_cb, (void *)(uintptr_t)CAT_BOMBONA);
 }
 
@@ -2682,6 +2726,7 @@ static void build_mantenimiento(lv_obj_t *form)
      * dos grandes sin robarle altura a las seis casillas. */
     make_dual_number_row(form, "Km", &s_mant_km_ta, "Coste", &s_mant_coste_ta, true);
 
+    form_rellenar_alto(form);
     make_save_button(form, "Guardar mantenimiento", save_generic_cb, (void *)(uintptr_t)CAT_MANTENIMIENTO);
 }
 
@@ -2720,6 +2765,7 @@ static void build_aguas(lv_obj_t *form)
     /* Una moneda para los tres importes: es la misma parada y el mismo pais. */
     s_agua_currency_dd = make_currency_inline_row(form, "Moneda");
 
+    form_rellenar_alto(form);
     make_save_button(form, "Guardar aguas", save_generic_cb,
                      (void *)(uintptr_t)CAT_AGUAS);
 }
@@ -2743,6 +2789,7 @@ static void build_itv(lv_obj_t *form)
     s_itv_km_ta = make_number_field(form, "Kilometros");
     s_itv_precio_ta = make_money_field(form, "Precio", &s_itv_currency_dd, false);
 
+    form_rellenar_alto(form);
     make_save_button(form, "Guardar ITV", save_generic_cb,
                      (void *)(uintptr_t)CAT_ITV);
 }
@@ -3109,6 +3156,7 @@ static void build_servicios(lv_obj_t *form)
         s_val_btn_lbl[i] = lbl;
     }
     valoracion_pinta();
+    form_rellenar_alto(form);
 }
 
 /* Pantalla de valoracion. Tres botones de un dedo con su color -- verde,
@@ -3134,6 +3182,7 @@ static void build_valoracion(lv_obj_t *form)
                                      s_val_extra_chk, COL_VIAJE, SERV_CHK_GAP);
     lv_obj_set_flex_align(lv_obj_get_parent(grid), LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+    form_rellenar_alto(form);
 }
 
 /* === Menus de la salida ===================================================
@@ -3175,7 +3224,13 @@ static lv_obj_t *s_ab_hora[SALIDA_EVENTOS_MAX];
  * sabe cerrar. Los demas tipos esperan a tener su formulario. */
 static lv_obj_t *s_ab_fin[SALIDA_EVENTOS_MAX];
 
-#define BAR_H     26
+/* 56 Y NO 26 (8-oct-2026): la franja lleva los rotulos de hora, titulo, GPS y
+ * P4, que con la letra nueva miden 29 px de alto. Con 26 el texto se salia de
+ * la franja en LAS NUEVE pantallas de menu (medido: rotulos en y=-1, pegados al
+ * borde de arriba). 56 = 29 del rotulo + aire, y deja la franja con el peso que
+ * tiene en la referencia de la 3,5" (alli eran 26 px sobre 320 de alto; aqui
+ * 56 sobre 480 es la misma proporcion). */
+#define BAR_H     56
 #define CONN_MS   5000   /* mismo criterio que view_info.c */
 
 static void mostrar_menu(pantalla_t p);
@@ -5061,13 +5116,24 @@ static void crear_menus(lv_obj_t *parent)
  * comprueba nada de la salida en curso a proposito -- su razon de ser es
  * precisamente poder ver las pantallas SIN salida.
  */
+/* Vuelca el arbol de un formulario (idx = categoria) o de una pantalla de menu
+ * (idx = pantalla, con es_formulario=false). DIAGNOSTICO. */
 void view_registro_diag_arbol(int idx)
 {
     if (idx < 0 || idx >= CAT_COUNT) return;
     lv_obj_t *f = s_forms[idx];
-    ESP_LOGW(TAG, "MARCA-1417 ARBOL '%s': %dx%d", CAT_NOMBRE[idx],
+    ESP_LOGW(TAG, "MARCA-1417 FORM '%s': %dx%d", CAT_NOMBRE[idx],
              (int)lv_obj_get_width(f), (int)lv_obj_get_height(f));
     form_volcar(f, 0);
+}
+
+void view_registro_diag_pantalla(int p)
+{
+    if (p < 0 || p >= PAN_COUNT || !s_menus[p]) return;
+    lv_obj_t *m = s_menus[p];
+    ESP_LOGW(TAG, "MARCA-1417 MENU '%s': %dx%d", PAN_NOMBRE[p],
+             (int)lv_obj_get_width(m), (int)lv_obj_get_height(m));
+    form_volcar(m, 0);
 }
 
 void view_registro_paseo_mostrar(void)

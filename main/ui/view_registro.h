@@ -65,6 +65,7 @@ void view_registro_paseo_mostrar(void);
 
 /* DIAGNOSTICO: vuelca el arbol de objetos de un formulario al log. */
 void view_registro_diag_arbol(int idx);
+void view_registro_diag_pantalla(int p);
 
 /* DIAGNOSTICO temporal: vuelca al log el arbol de objetos de un formulario con
  * posiciones y tamanos reales (ver view_registro.c). */
