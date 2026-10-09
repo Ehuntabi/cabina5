@@ -1584,6 +1584,15 @@ static void form_rellenar_alto(lv_obj_t *form)
         lv_obj_set_height(hijo, LV_SIZE_CONTENT);
         lv_obj_set_flex_grow(hijo, 1);
     }
+    /* Y ADEMAS, el reparto por posiciones como red de seguridad: el primer
+     * hijo pegado arriba y el ULTIMO (el boton, o la fila de acciones) AL
+     * FONDO. Con flex_grow solo, cuatro formularios (peaje, bombona, valoracion
+     * y pernocta) dejaban 120-150 px sin repartir aunque el grow estuviera
+     * puesto -- comprobado en el volcado, que ya imprime grow y min de cada
+     * fila. Con SPACE_BETWEEN el ultimo elemento cae al fondo pase lo que pase
+     * con el reparto del hueco. */
+    lv_obj_set_flex_align(col, LV_FLEX_ALIGN_SPACE_BETWEEN,
+                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 }
 
 /* Lo mismo, pero con el margen ESTRECHO: el contenido pasa de 320 a 680 px.
