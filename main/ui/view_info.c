@@ -359,11 +359,11 @@ static lv_color_t color_for_frigo(int16_t centi) {
  * Los 472 utiles (480 menos los 4+4 de margen) se reparten: 116 + 4 + 184 + 4 +
  * 164. La bateria baja de 210 a 184 -- su dibujo mide 138 y el titulo 33, o sea
  * 171 + 8 de relleno = 179, asi que 184 es lo justo. */
-#define GPS_CARD_H      116
+#define GPS_CARD_H      172
 /* La T de la bateria (9-oct-2026): la barra va arriba a todo lo ancho y el palo
  * cuelga del medio, para que aguas y temperaturas se queden a los lados y BAJEN
  * de alto (estaban en 348 px y el usuario las veia "muy muy grandes"). */
-#define BAT_BAR_H    140
+#define BAT_BAR_H     84
 #define BAT_BAR_Y    (4 + GPS_CARD_H + 4)
 #define BAT_STEM_Y   (BAT_BAR_Y + BAT_BAR_H)
 #define BAT_STEM_W   260
@@ -1541,14 +1541,14 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_width(s_bat_volt, BAT_NUM_W);
     lv_obj_set_style_text_align(s_bat_volt, LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_clear_flag(s_bat_volt, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_volt, LV_ALIGN_LEFT_MID, 30, -30);
+    lv_obj_align(s_bat_volt, LV_ALIGN_LEFT_MID, 30, 0);
 
     lv_obj_t *u_v = lv_label_create(s_bat_card);
     lv_label_set_text(u_v, "V");
     paleta_texto(u_v, 0xCCCCCC, 0xFFFFFF);
     lv_obj_set_style_text_font(u_v, &lv_font_montserrat_24, 0);
     lv_obj_clear_flag(u_v, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(u_v, LV_ALIGN_LEFT_MID, 30 + BAT_NUM_W + 10, -30 + 4);
+    lv_obj_align(u_v, LV_ALIGN_LEFT_MID, 30 + BAT_NUM_W + 10, 4);
 
     s_bat_amp = lv_label_create(s_bat_card);
     lv_label_set_text(s_bat_amp, "");    lv_obj_set_style_text_color(s_bat_amp, COL_TEXT, 0);
@@ -1557,14 +1557,14 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_width(s_bat_amp, BAT_NUM_W);
     lv_obj_set_style_text_align(s_bat_amp, LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_clear_flag(s_bat_amp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_amp, LV_ALIGN_LEFT_MID, 30, 30);
+    lv_obj_align(s_bat_amp, LV_ALIGN_LEFT_MID, 30 + BAT_NUM_W + 90, 0);
 
     s_bat_amp_u = lv_label_create(s_bat_card);
     lv_label_set_text(s_bat_amp_u, "A");
     paleta_texto(s_bat_amp_u, 0xCCCCCC, 0xFFFFFF);
     lv_obj_set_style_text_font(s_bat_amp_u, &lv_font_montserrat_24, 0);
     lv_obj_clear_flag(s_bat_amp_u, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, 30 + BAT_NUM_W + 10, 30 + 4);
+    lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, 30 + BAT_NUM_W + 90 + BAT_NUM_W + 10, 4);
 
     /* La del motor, a la derecha del todo y mas discreta: es bateria tambien,
      * pero solo se mira cuando el vehiculo no arranca. */
