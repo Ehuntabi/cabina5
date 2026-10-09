@@ -1675,6 +1675,28 @@ static lv_obj_t *form_col(lv_obj_t *form)
  * contenido llena la pantalla, sea un formulario de 2 campos o de 6.
  *
  * Se llama al final de cada constructor (form_rellenar_alto). */
+/* ⚠ AVISO IMPORTANTE, DESCUBIERTO EL 9-oct-2026 LEYENDO LOS VOLCADOS: ESTA
+ * FUNCION HOY NO HACE LO QUE DICE.
+ *
+ * Los constructores la llaman con la COLUMNA (`build_repostaje(form_col(...))`
+ * -> dentro, `form_rellenar_alto(form)` es la columna), pero la primera linea
+ * vuelve a pedir `form_col(form)`, que devuelve el HIJO 1 de lo que le pasen. O
+ * sea: con la columna en la mano, trabaja sobre la SEGUNDA FILA de campos (la de
+ * "Importe"), no sobre la columna.
+ *
+ * Se ve en el volcado: la fila de Importe de repostaje sale con su rotulo
+ * CENTRADO en vertical (y=13 dentro de una fila de 116) cuando en su creacion se
+ * le puso START, START, START (ver make_field_row): ese CENTER lo escribe el
+ * `lv_obj_set_flex_align` del final de esta funcion, aplicado a la fila
+ * equivocada.
+ *
+ * POR QUE NO SE ARREGLA AQUI: el reparto vertical que de verdad se ve en la
+ * placa NO sale de esta funcion, sale de que las filas de campo nacen con
+ * `flex_grow(1)` (ver make_field_row) y de que la columna es un flex COLUMN con
+ * los hijos al principio. Al pasar la columna de verdad, el reparto cambiaria en
+ * las nueve pantallas a la vez (la cabecera tambien recibiria grow, y las filas
+ * otro alto), y eso hay que hacerlo CON LA PANTALLA DELANTE, midiendo antes y
+ * despues -- no a ciegas. Queda anotado como deuda tecnica, no como misterio. */
 static void form_rellenar_alto(lv_obj_t *form)
 {
     lv_obj_t *col = form_col(form);
@@ -2729,21 +2751,66 @@ static void viaje_finalizar_cb(lv_event_t *e)
     confirm_screen_ok_destructivo();
 }
 
+/* TAMANO UNICO DEL BOTON DE GUARDAR, igual en las nueve subpantallas.
+ *
+ * PEDIDO POR EL USUARIO (9-oct-2026): "el boton guardar siempre tiene que estar
+ * abajo a la derecha con igual tamano en todas las subpantallas".
+ *
+ * ANTES media 800x72 (el ancho de la pantalla ENTERA, con margen negativo para
+ * saltarse el relleno de la columna): en un formulario de dos campos el boton
+ * mas importante era una franja verde de lado a lado, y en la pernocta la misma
+ * franja. Ni parecia un boton ni dejaba claro donde acaba el formulario.
+ *
+ * AHORA mide siempre 360x88 y vive en la esquina inferior derecha. El ancho es
+ * el del texto mas largo que lleva ("Guardar mantenimiento", 21 caracteres): a
+ * letra 28 no cabe en los 332 px utiles de la caja y rotulo_autoajustable() lo
+ * baja un escalon SOLO ahi -- en los otros ocho la letra sale identica. El alto,
+ * 88 px, es el doble del minimo comodo para acertar con el dedo sin mirar.
+ *
+ * El tamano de FUENTE no se toca aqui: sigue siendo el 28 que ya llevaba. */
+#define SAVE_W  360
+#define SAVE_H   88
+
 static lv_obj_t *make_save_button(lv_obj_t *parent, const char *text, lv_event_cb_t cb, void *user_data)
 {
-    lv_obj_t *btn = lv_btn_create(parent);
-    /* 72 de alto y letra 26 (la de la escala nueva): con 50 y letra 20 el boton
-     * mas importante de cada formulario era el mas pequeno de la pantalla, y en
-     * una fila de 76 quedaba descolgado. */
-    /* ANCHO DE PANTALLA (800), no el de la columna (680): regla pedida por el
-     * usuario, "el boton de guardar siempre... ocupando todo el ancho de la
-     * pantalla". El padre (la columna) lleva UI_MARGEN_ANCHO (60) de relleno a
-     * cada lado -- con lv_pct(100) el boton se quedaba en esos 680 px de
-     * dentro. El margen NEGATIVO contrarresta ese relleno y lo saca a los
-     * bordes de la pantalla sin tocar el relleno de nadie mas. */
-    lv_obj_set_width(btn, UI_ANCHO);
-    lv_obj_set_height(btn, 72);
-    lv_obj_set_style_margin_hor(btn, -UI_MARGEN_ANCHO, 0);
+    /* LA FILA QUE LO LLEVA A LA ESQUINA, y hace falta.
+     *
+     * El padre es la COLUMNA del formulario, que es un flex COLUMN con los hijos
+     * centrados en el eje horizontal. Poner el boton a la derecha NO se puede
+     * hacer desde el boton: LVGL lee el flex_cross_place del CONTENEDOR, no del
+     * hijo (comprobado en lv_flex.c, "f.cross_place =
+     * lv_obj_get_style_flex_cross_place(cont, ...)"), asi que un estilo puesto
+     * en el hijo se ignora en silencio. Y cambiar la alineacion de la columna
+     * moveria TODOS los campos, no solo el boton.
+     *
+     * La solucion es la misma que ya usa la fila "acciones" de la pernocta: una
+     * fila de ancho completo que reparte su contenido hacia el final. La columna
+     * coloca la fila donde iba el boton (es su ultimo hijo) y dentro de la fila
+     * el boton cae a la derecha.
+     *
+     * Y LA FILA ADEMAS CRECE (flex_grow 1) CON EL BOTON PEGADO A SU FONDO, que
+     * es lo que garantiza el "abajo" en TODAS las subpantallas. Medido con el
+     * volcado: sin esto, los formularios cuyo contenido no tiene ninguna fila
+     * elastica dejaban el boton colgando -- AGUAS acababa en y=438 de 480 (42 px
+     * de negro debajo) y PERNOCTA en 453 (27 px). Con la fila elastica, lo que
+     * sobra se lo queda ella y el boton baja al borde: 392+88 = 480 clavado en
+     * las nueve. En los formularios que ya llenaban la pantalla no cambia nada
+     * porque no hay hueco que repartir. */
+    lv_obj_t *fila = lv_obj_create(parent);
+    lv_obj_set_size(fila, lv_pct(100), SAVE_H);
+    lv_obj_set_flex_grow(fila, 1);
+    lv_obj_set_style_bg_opa(fila, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(fila, 0, 0);
+    lv_obj_set_style_pad_all(fila, 0, 0);
+    lv_obj_clear_flag(fila, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(fila, LV_FLEX_FLOW_ROW);
+    /* MAIN END (a la derecha) y CROSS END (al fondo): en una fila el eje
+     * transversal es el vertical, asi que CROSS END es "abajo". */
+    lv_obj_set_flex_align(fila, LV_FLEX_ALIGN_END,
+                          LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+
+    lv_obj_t *btn = lv_btn_create(fila);
+    lv_obj_set_size(btn, SAVE_W, SAVE_H);
     lv_obj_set_style_bg_color(btn, lv_color_hex(COL_ACCION_OK), 0);
     lv_obj_set_style_bg_color(btn, lv_color_darken(lv_color_hex(COL_ACCION_OK), LV_OPA_30),
                               LV_STATE_PRESSED);
@@ -3302,12 +3369,11 @@ static void build_pernocta(lv_obj_t *form)
     lv_obj_set_style_text_color(serv_lbl, lv_color_hex(COL_TILE_FG), 0);
     lv_obj_center(serv_lbl);
 
-    /* --- Guardar, FUERA de "acciones" y solo (regla comun: siempre abajo y a
-     * todo el ancho de pantalla). Compartir fila con "Servicios" le hacia
-     * perder el ancho completo: el flex_grow de esa fila lo repartia con el
-     * otro boton (462 px de 800, medido), no el ancho de pantalla que pide la
-     * regla. Iqual que el resto de formularios: make_save_button hijo directo
-     * de "form". */
+    /* --- Guardar, en su propia fila (regla comun: siempre abajo a la derecha y
+     * con el mismo tamano en todas las subpantallas). Compartir fila con
+     * "Servicios" le hacia perder el tamano: el flex_grow de esa fila lo
+     * repartia con el otro boton (462 px de 800, medido). Igual que el resto de
+     * formularios: make_save_button como ultimo hijo de "form". */
     make_save_button(form, "Guardar noche", save_generic_cb,
                      (void *)(uintptr_t)CAT_PERNOCTA);
 }
@@ -3332,11 +3398,20 @@ static void build_pernocta(lv_obj_t *form)
  * 29 de alto con la letra nueva, se salia 8 px por arriba -- medido en su
  * dia), asi que 50 deja margen de sobra sin volver a ese problema. */
 /* NO CAMPO_DATO_ALTO aqui: esta pantalla tiene su propio presupuesto de alto
- * muy ajustado (6 filas + valoracion + ahora el boton de guardar, en los
- * ~405 px utiles) y con 50 no entraba todo tras anadir el boton -- 44 deja
- * sitio de sobra sin volver al problema viejo del 34 (rotulo saliendose por
- * arriba, ver historial). */
-#define SERV_ROW_H  44
+ * muy ajustado y con 50 no entraba todo.
+ *
+ * 44 -> 40 (9-oct-2026), MEDIDO CON EL VOLCADO: con el boton de guardar nuevo
+ * (360x88 en su propia fila), la columna de SERVICIOS sumaba 500 px sobre una
+ * pantalla de 480 y los ultimos 20 px del boton se quedaban FUERA:
+ *
+ *     cabecera 64 + 10 + seis filas (274) + 10 + notas 44 + 10 + guardar 88 = 500
+ *
+ * Con 40 las seis filas miden 250 (6*40 + 5 huecos de 2) y el total baja a 476:
+ * entra con 4 px de sobra. El contenido de cada fila sigue cabiendo -- el
+ * campo mide 38 y el rotulo 33, y con el reparto centrado quedan en 1 y 3 px
+ * de margen. Lo que NO se toca es el boton: la regla es que mida lo mismo en
+ * todas las subpantallas, asi que el sitio lo tiene que dar el contenido. */
+#define SERV_ROW_H  40
 
 static void build_servicios(lv_obj_t *form)
 {
@@ -5078,7 +5153,25 @@ static lv_obj_t *tira_crear(lv_obj_t *body, int idx)
 
     lv_obj_t *l = lv_label_create(fila_t);
     lv_label_set_text(l, "");
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
+    /* LETRA AL ESCALON SIGUIENTE Y TEXTO CENTRADO (9-oct-2026). Pedido del
+     * usuario: "cuando ya haya un viaje en marcha, en la pantalla de anadir
+     * parada etc, que el nombre del viaje y el dia aparezcan centrados en
+     * horizontal y el tamano de la letra al siguiente".
+     *
+     * "lv_font_montserrat_20" es, con la escala de estilos.h, la 26: un escalon
+     * por encima de la 22 que llevaba (16 viejo). Y el CENTRADO se hace con
+     * text_align y no moviendo el widget: la etiqueta se estira (flex_grow) para
+     * ocupar la fila entera, asi que su caja YA esta centrada en el cuerpo y lo
+     * unico que hacia falta era centrar el texto DENTRO de ella. Mover el widget
+     * no valdria: con LONG_DOT el ancho depende del flex y la etiqueta tiene que
+     * seguir estirandose.
+     *
+     * Cuando el chip de "N sin cerrar" esta visible, la etiqueta se queda con lo
+     * que sobra a su izquierda y el texto se centra en ese hueco: queda un poco a
+     * la izquierda del eje de la pantalla, que es lo correcto -- centrarlo en la
+     * pantalla lo metia debajo del chip. */
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(COL_LABEL), 0);
     lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
     lv_obj_set_flex_grow(l, 1);
@@ -5464,12 +5557,18 @@ void view_registro_diag_arbol(int idx)
     if (idx < 0 || idx >= CAT_COUNT) return;
     lv_obj_t *f = s_forms[idx];
     /* MEDIDA DIRECTA del rotulo "Importe" de repostaje, buscandolo por su texto:
-     * asi se sabe si el problema es del objeto o de lo que yo leo en el volcado. */
+     * asi se sabe si el problema es del objeto o de lo que yo leo en el volcado.
+     * CON COMPROBACION DE TIPO, y no es un adorno: sin ella, en el formulario de
+     * MANTENIMIENTO el hijo 0 de la fila 1 es una MATRIZ de casillas, no un
+     * rotulo, y lv_label_get_text() sobre eso devuelve un puntero a cualquier
+     * cosa -> LoadProhibited leyendo la cadena dentro de vfprintf (visto el
+     * 9-oct-2026: "EXCVADDR 0x2c", con el PC en _vfprintf_r). Lo que se rompia
+     * era ESTE diagnostico, no la pantalla. */
     {
         lv_obj_t *col = form_col(f);
         lv_obj_t *fila = col ? lv_obj_get_child(col, 1) : NULL;
         lv_obj_t *lbl = fila ? lv_obj_get_child(fila, 0) : NULL;
-        if (lbl) {
+        if (lbl && lv_obj_check_type(lbl, &lv_label_class)) {
             ESP_LOGW(TAG, "MEDIDA-DIRECTA rotulo: %dx%d  (fuente linea %d)  texto '%s'",
                      (int)lv_obj_get_width(lbl), (int)lv_obj_get_height(lbl),
                      (int)lv_font_get_line_height(lv_obj_get_style_text_font(lbl, 0)),

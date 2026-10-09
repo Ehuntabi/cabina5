@@ -342,20 +342,21 @@ void capture_carousel_start(void)
     /* (recorrido de medir, apagado) */
 #endif
 #if CAPTURE_PEAJE_DIAG
-    /* CARRUSEL DE SUBPANTALLAS (9-oct-2026): arranca en REPOSTAJE y con un
-     * deslizamiento se pasa por las seis que se estan repasando (repostaje,
-     * peaje, bombona, servicios, ITV, pernocta), dando la vuelta al final. Una
-     * banda abajo dice en cual vas.
+    /* PASEO DE MEDIDA (9-oct-2026): recorre los nueve menus y los nueve
+     * formularios uno a uno y vuelca el arbol de cada uno al log. Es lo que
+     * permite comprobar la geometria de TODAS las pantallas en una sola pasada,
+     * sin tocar el tactil.
      *
      * SE LANZA DESDE UN TEMPORIZADOR, NO AQUI DIRECTAMENTE, y es importante:
      * esta funcion se llama con el CERROJO DE LVGL TOMADO (ver main_app.c), y
-     * nav_ir_a_registros() lo vuelve a pedir -> deadlock, la tarea main se queda
-     * girando y salta el watchdog de tareas cada 5 s (visto en el arranque). Con
-     * el temporizador, el cambio de pantalla lo hace la tarea de LVGL, que es
-     * quien tiene que hacerlo. */
-    lv_timer_t *t = lv_timer_create(subpantallas_arranque_cb, 800, NULL);
-    lv_timer_set_repeat_count(t, 1);
-    lv_timer_create(subpantallas_medir_cb, 3000, NULL);
+     * los cambios de pantalla lo vuelven a pedir -> deadlock, la tarea main se
+     * queda girando y salta el watchdog de tareas cada 5 s (visto en el
+     * arranque). Con el temporizador, todo lo hace la tarea de LVGL, que es
+     * quien tiene que hacerlo.
+     *
+     * 1200 ms por paso y 19 pasos (9 menus + 1 de arranque + 9 formularios). */
+    lv_timer_t *t = lv_timer_create(pernocta_diag_cb, 1200, NULL);
+    lv_timer_set_repeat_count(t, DIAG_PANTALLAS + DIAG_FORMULARIOS + 1);
     return;
 #elif CAPTURE_CAROUSEL_SOLO_DATOS
     inject_sim_data();
