@@ -217,34 +217,29 @@ así una pantalla a oscuras nunca se queda grabada y siempre se sale
 desenchufando. El cambio de nivel se aplica con una rampa de 8 tramos de 15 ms
 (antes saltaba de golpe, y eso era el "no funciona bien").
 
-## Credenciales: hacen falta DOS ficheros, y solo uno se versiona
+## Credenciales: hay que copiar la plantilla antes de compilar
 
-El repositorio es **público**, así que las claves de verdad **no** están en él.
-`main/wifi_credentials.h` va versionado y solo lleva valores de mentira
-(`"CAMBIAR"`), que es con lo que compila el CI. Las de verdad viven en
-`main/wifi_credentials_local.h`, que **no se versiona** y que el primero incluye
-solo si existe.
+El repositorio es **público**, así que las claves de la P4 **no** se versionan.
+Lo que sí está en el repositorio es la plantilla
+`main/wifi_credentials.h.example`. Antes de compilar hay que copiarla y rellenar
+los valores:
 
-Para compilar en casa **con las claves buenas** hay que crear
-`main/wifi_credentials_local.h` con los cuatro valores (y sus `#undef`):
-
-```c
-#pragma once
-#undef  WIFI_CRED_SSID
-#define WIFI_CRED_SSID "VictronConfig"   /* el AP de la P4 */
-#undef  WIFI_CRED_PASS
-#define WIFI_CRED_PASS "..."
-#undef  PORTAL_CRED_USER
-#define PORTAL_CRED_USER "victron"       /* el portal de la P4 */
-#undef  PORTAL_CRED_PASS
-#define PORTAL_CRED_PASS "..."
+```bash
+cp main/wifi_credentials.h.example main/wifi_credentials.h
+$EDITOR main/wifi_credentials.h
 ```
 
-Sin ese fichero el proyecto **compila igual** (con los "CAMBIAR"), pero la placa
-no se asociaría al AP de la P4 ni podría mandarle apuntes. Esto se rompió el
-9-oct-2026: al hacer público el repositorio se quitó el fichero con las claves y
-nadie dejó uno de mentira, así que **el CI estuvo 24 h sin compilar** sin que se
-notara (en el PC de casa sí, porque allí estaba el fichero).
+`main/wifi_credentials.h` está en el `.gitignore`, y **el build falla a
+propósito** si no existe: no se debe poder compilar y grabar con una contraseña
+de broma. La única excepción es el CI, que copia la plantilla solo para que el
+compilador tenga algo que leer (ese CI no publica binarios).
+
+⚠ **Si añades un dato de configuración nuevo, añádelo también a la plantilla.**
+El 9-oct-2026 el CI llevaba desde el 8 sin compilar por esto: `p4_creds.c` usa
+`PORTAL_CRED_USER` y `PORTAL_CRED_PASS`, que estaban en el fichero de verdad
+pero **no en la plantilla**, así que en GitHub salía
+`error: 'PORTAL_CRED_USER' undeclared`. En el PC de casa no se veía porque allí
+el fichero está completo.
 
 ## Cómo se prueba en la placa
 
