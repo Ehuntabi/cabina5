@@ -1527,7 +1527,7 @@ void view_info_create(lv_obj_t *parent)
      * junto a la rejilla en view_info_create): el bloque dibujo+bornes se
      * centra en el hueco que queda POR DEBAJO del titulo. */
     lv_obj_t *dib = make_bateria_dibujo(palo);
-    lv_obj_align(dib, LV_ALIGN_TOP_MID, 0, 118);
+    lv_obj_align(dib, LV_ALIGN_CENTER, 0, 4);
 
     /* Numero y UNIDAD van en etiquetas separadas, y no en un solo texto, para que
      * la V y la A no se muevan: el numero se alinea a la DERECHA dentro de un
@@ -1539,9 +1539,9 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_bat_volt, COL_TEXT, 0);
     lv_obj_set_style_text_font(s_bat_volt, &lv_font_montserrat_32, 0);
     lv_obj_set_width(s_bat_volt, BAT_NUM_W);
-    lv_obj_set_style_text_align(s_bat_volt, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_text_align(s_bat_volt, LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_clear_flag(s_bat_volt, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_volt, LV_ALIGN_TOP_MID, 0, 34);
+    lv_obj_align(s_bat_volt, LV_ALIGN_LEFT_MID, 30, -30);
 
     lv_obj_t *u_v = lv_label_create(s_bat_card);
     lv_label_set_text(u_v, "V");
@@ -1555,9 +1555,9 @@ void view_info_create(lv_obj_t *parent)
     /* Mismo tamano que los voltios: los dos son el dato principal de su lado. */
     lv_obj_set_style_text_font(s_bat_amp, &lv_font_montserrat_32, 0);
     lv_obj_set_width(s_bat_amp, BAT_NUM_W);
-    lv_obj_set_style_text_align(s_bat_amp, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_text_align(s_bat_amp, LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_clear_flag(s_bat_amp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_amp, LV_ALIGN_TOP_MID, 0, 76);
+    lv_obj_align(s_bat_amp, LV_ALIGN_LEFT_MID, 30, 30);
 
     s_bat_amp_u = lv_label_create(s_bat_card);
     lv_label_set_text(s_bat_amp_u, "A");
@@ -1582,7 +1582,7 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_flex_align(col_motor, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(col_motor, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(col_motor, LV_ALIGN_BOTTOM_MID, 0, -6);
+    lv_obj_align(col_motor, LV_ALIGN_RIGHT_MID, -30, 0);
 
     lv_obj_t *aux_tit = lv_label_create(col_motor);
     lv_label_set_text(aux_tit, "MOTOR");
