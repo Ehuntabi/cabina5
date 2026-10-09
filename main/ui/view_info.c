@@ -363,7 +363,7 @@ static lv_color_t color_for_frigo(int16_t centi) {
  * Los 472 utiles (480 menos los 4+4 de margen) se reparten: 116 + 4 + 184 + 4 +
  * 164. La bateria baja de 210 a 184 -- su dibujo mide 138 y el titulo 33, o sea
  * 171 + 8 de relleno = 179, asi que 184 es lo justo. */
-#define GPS_CARD_H      172
+#define GPS_CARD_H      199
 /* La T de la bateria (9-oct-2026): la barra va arriba a todo lo ancho y el palo
  * cuelga del medio, para que aguas y temperaturas se queden a los lados y BAJEN
  * de alto (estaban en 348 px y el usuario las veia "muy muy grandes"). */
@@ -1441,7 +1441,7 @@ void view_info_create(lv_obj_t *parent)
      * "un poco menos altas". Los 23 px que sobran se los queda el palo de la
      * bateria, que va colocado a mano y baja hasta el borde de la pantalla:
      * asi la T asoma por debajo de las dos tarjetas. */
-    static lv_coord_t row_dsc[] = {GPS_CARD_H, BAT_BAR_H, 185,
+    static lv_coord_t row_dsc[] = {GPS_CARD_H, BAT_BAR_H, LV_GRID_FR(1),
                                    LV_GRID_TEMPLATE_LAST};
 
     lv_obj_t *grid = lv_obj_create(parent);
@@ -1662,16 +1662,16 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_clear_flag(s_frigo_trend, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(s_frigo_trend, LV_ALIGN_TOP_RIGHT, 0, 74);
 
-    s_ext_val   = make_fila_dato(temp_card, "Exterior", &lv_font_montserrat_32, 108);
+    s_ext_val   = make_fila_dato(temp_card, "Exterior", &lv_font_montserrat_32, 96);
     lv_obj_set_width(s_ext_val, TEMP_NUM_W);
     lv_obj_set_style_text_align(s_ext_val, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(s_ext_val, LV_ALIGN_TOP_RIGHT, -26, 108);
+    lv_obj_align(s_ext_val, LV_ALIGN_TOP_RIGHT, -26, 96);
 
     s_ext_trend = lv_label_create(temp_card);
     lv_label_set_text(s_ext_trend, "");
     lv_obj_set_style_text_font(s_ext_trend, &lv_font_montserrat_20, 0);
     lv_obj_clear_flag(s_ext_trend, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_ext_trend, LV_ALIGN_TOP_RIGHT, 0, 130);
+    lv_obj_align(s_ext_trend, LV_ALIGN_TOP_RIGHT, 0, 118);
 
     /* Icono del altavoz de la alarma del congelador: arriba a la DERECHA, que
      * es el unico hueco libre de la tarjeta (el titulo va centrado, "Frigo" a
