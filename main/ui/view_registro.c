@@ -360,10 +360,11 @@ static const char *const SITIO_CLAVE[SITIO_COUNT] = {
  *
  * Vale igual para el resto de la interfaz: nada de acentos ni "n" con virgulilla
  * en los textos que se pintan, o apareceran cuadrados. */
-#define CURRENCY_OPTIONS \
-    "EUR\n" "GBP\n" "CHF Fr\n" "SEK kr\n" \
-    "NOK kr\n" "DKK kr\n" "PLN zl\n" "CZK Kc\n" \
-    "HUF Ft\n" "RON lei"
+/* La lista de opciones y la regla de ancho (moneda_dd_ancho) viven en
+ * estilos.h: es la primera "regla de diseno comun", para no tener 5 anchos
+ * distintos inventados a mano. CURRENCY_OPTIONS se queda como alias para no
+ * tocar las ~6 lineas de abajo que ya lo usaban. */
+#define CURRENCY_OPTIONS MONEDA_OPCIONES
 static const char *const CURRENCY_CODES[] = {
     "EUR", "GBP", "CHF", "SEK", "NOK", "DKK", "PLN", "CZK", "HUF", "RON"
 };
@@ -560,8 +561,11 @@ static void ta_click_cb(lv_event_t *e)
  * "linea de la letra mas grande + 12 de aire".
  *
  *   letra 32 -> 38 de linea  ->  50 de campo
- *   letra 40 -> 47 de linea  ->  50 de campo (el mismo sirve) */
-#define FIELD_TA_H   50
+ *   letra 40 -> 47 de linea  ->  50 de campo (el mismo sirve)
+ *
+ * Es la regla comun CAMPO_DATO_ALTO de estilos.h: toda casilla de dato mide
+ * 50, da igual su fuente. */
+#define FIELD_TA_H   CAMPO_DATO_ALTO
 
 /* La cabecera crece de 34 a 48 para que quepa el boton de Volver en pastilla.
  * Los 14 px extra los ceden las filas de campo, que son elasticas. */
@@ -582,6 +586,18 @@ static void ta_click_cb(lv_event_t *e)
  * y se corta: era justo lo que se veia en la foto de repostaje ("no se ve
  * completa la parte superior de los blancos"). Poniendo el alto a la linea de
  * su fuente (fija, no automatica) no hay contenedor que lo estire. */
+static void diag_rotulo_size_changed_cb(lv_event_t *e)
+{
+    lv_obj_t *l = lv_event_get_target(e);
+    lv_area_t *old = (lv_area_t *)lv_event_get_param(e);
+    const char *txt = lv_label_get_text(l);
+    ESP_LOGW(TAG, "ROTULO '%s' SIZE_CHANGED: antes %dx%d -> ahora %dx%d (flex_grow propio=%d)",
+             txt ? txt : "?",
+             (int)lv_area_get_width(old), (int)lv_area_get_height(old),
+             (int)lv_obj_get_width(l), (int)lv_obj_get_height(l),
+             (int)lv_obj_get_style_flex_grow(l, LV_PART_MAIN));
+}
+
 static lv_obj_t *make_field_label(lv_obj_t *parent, const char *txt,
                                   const lv_font_t *fuente)
 {
@@ -590,11 +606,13 @@ static lv_obj_t *make_field_label(lv_obj_t *parent, const char *txt,
     lv_obj_set_style_text_color(l, lv_color_hex(COL_LABEL), 0);
     lv_obj_set_style_text_font(l, fuente, 0);
     lv_obj_set_height(l, lv_font_get_line_height(fuente));
+    lv_obj_set_style_max_height(l, lv_font_get_line_height(fuente), 0);
     lv_obj_set_width(l, LV_SIZE_CONTENT);
     /* TRAZA UNICA (se quita al cerrar el diagnostico): confirma que el rotulo
      * pasa por aqui y con que alto queda. */
     ESP_LOGW(TAG, "ROTULO '%s': alto forzado a %d", txt,
              (int)lv_font_get_line_height(fuente));
+    lv_obj_add_event_cb(l, diag_rotulo_size_changed_cb, LV_EVENT_SIZE_CHANGED, NULL);
     lv_obj_clear_flag(l, LV_OBJ_FLAG_CLICKABLE);
     return l;
 }
@@ -652,56 +670,19 @@ static lv_obj_t *make_field_row(lv_obj_t *parent)
  * contempla otras monedas de la Europa continental para cuando se viaje
  * fuera de la zona euro). Devuelve la textarea; *dd_out (si no es NULL)
  * se rellena con el dropdown de moneda por si hace falta leerlo luego. */
-/* Variante APILADA del campo de importe: la moneda arriba y el numero debajo,
- * los dos a lo ancho y con letra mayor. Solo la usa peaje, que tiene un unico
- * campo y por tanto una fila que se estira hasta ~195 px: sitio de sobra. En
- * repostaje no cabria, porque comparte el alto con litros y precio/litro. */
-/* ALTURAS DEL CAMPO GRANDE DE IMPORTE (el de Peaje y el de "Importe" de otros
- * formularios): lleva la letra mas grande de la UI, la 48, cuya linea mide 52
- * px. El campo tiene ademas relleno y borde propios, asi que el hueco interior
- * es el alto menos ~14: con 64 se quedaba en 50 y el texto NO CABIA (52 de
- * linea), y el campo se pasaba el rato recolocandose. Medido y corregido el
- * 8-oct-2026, a raiz del "peaje en negro". */
-#define MONEY_BIG_DD_H   56
-#define MONEY_BIG_TA_H   72
+/* Regla comun (ver estilos.h): TODA casilla de dato mide CAMPO_DATO_ALTO (50),
+ * igual que Importe -- antes 72 a pelo, Litros/Kilometros quedaban mas altas
+ * que Importe pese a arreglar el hueco (visto en la placa: "veo diferentes de
+ * tamano vertical entre importe y litros y kilometros"). */
+#define MONEY_BIG_TA_H   CAMPO_DATO_ALTO
 
-static lv_obj_t *make_money_field_stacked(lv_obj_t *parent, const char *label_text,
-                                           lv_obj_t **dd_out)
-{
-    lv_obj_t *cont = make_field_row(parent);
-
-    lv_obj_t *lbl = make_field_label(cont, label_text, &lv_font_montserrat_20);
-
-    lv_obj_t *ta = lv_textarea_create(cont);
-    lv_textarea_set_one_line(ta, true);
-    lv_textarea_set_placeholder_text(ta, "0.00");
-    lv_obj_set_size(ta, lv_pct(100), MONEY_BIG_TA_H);
-    lv_obj_set_style_pad_top(ta, 0, 0);
-    lv_obj_set_style_pad_bottom(ta, 0, 0);
-    lv_obj_set_style_text_font(ta, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_align(ta, LV_TEXT_ALIGN_CENTER, 0);
-    lv_textarea_set_accepted_chars(ta, "0123456789.");
-    /* Sin esto no habia tope: un importe/precio de 30+ digitos (tecleado o
-     * pegado) desbordaba el snprintf encadenado de repo_recalc_cb (buf[40]) --
-     * ver el comentario alli. 10 cifras cubre cualquier importe real de sobra.
-     * Detectado auditando el 07-sep-2026. */
-    lv_textarea_set_max_length(ta, 10);
-    lv_obj_set_user_data(ta, (void *)label_text);
-    lv_obj_add_event_cb(ta, ta_click_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)true);
-
-    /* La moneda ya no reparte fila propia arriba: mas estrecha y clavada
-     * abajo a la derecha del campo. FLOATING la saca del flujo flex para
-     * poder alinearla a mano sin que empuje al resto de hijos. */
-    lv_obj_t *dd = lv_dropdown_create(cont);
-    lv_dropdown_set_options(dd, CURRENCY_OPTIONS);
-    lv_obj_set_size(dd, ESC(90), MONEY_BIG_DD_H);
-    lv_obj_set_style_text_font(dd, &lv_font_montserrat_20, 0);
-    lv_obj_add_flag(dd, LV_OBJ_FLAG_FLOATING);
-    lv_obj_align(dd, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-    if (dd_out) *dd_out = dd;
-
-    return ta;
-}
+/* make_money_field_stacked() (importe grande apilado, con la moneda flotando
+ * abajo a la derecha) se uso en Peaje mientras fue el unico formulario de un
+ * solo campo. Se quito el 9-oct-2026: al ser el unico campo, form_rellenar_
+ * alto() le daba TODO el alto sobrante de la pantalla y el campo salia
+ * desproporcionado (ademas de un estiramiento de alto no identificado) --
+ * pedido ademas que importe y moneda fueran en la misma linea, como el resto
+ * de formularios. Peaje pasa a usar make_money_field() normal. */
 
 /* Media fila: rotulo pequeno arriba y numero grande debajo. Con 'horizontal'
  * (mantenimiento, para hacer sitio a las casillas nuevas) el rotulo pasa a ir
@@ -738,8 +719,14 @@ static lv_obj_t *make_half_number(lv_obj_t *row, const char *label_text,
     /* 20 y no 16 como el resto de rotulos: en esta fila el rotulo es lo unico
      * que distingue un numero del otro, asi que tiene que leerse de golpe. */
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+    /* Mismo tope que make_field_label(): sin el, el rotulo ("Litros",
+     * "Kilometros") se estiraba por encima de su propia letra y quedaba mas
+     * alto que el campo del dato debajo -- visto en la placa. */
+    lv_obj_set_height(lbl, lv_font_get_line_height(&lv_font_montserrat_20));
+    lv_obj_set_style_max_height(lbl, lv_font_get_line_height(&lv_font_montserrat_20), 0);
 
     lv_obj_t *ta = lv_textarea_create(col);
+    campo_texto_contraste(ta);
     lv_textarea_set_one_line(ta, true);
     lv_textarea_set_placeholder_text(ta, "0.00");
     lv_obj_set_size(ta, horizontal ? lv_pct(55) : lv_pct(100),
@@ -792,8 +779,18 @@ static void make_dual_number_row(lv_obj_t *parent,
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(cont, LV_FLEX_ALIGN_SPACE_BETWEEN,
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    if (ta1_out) *ta1_out = make_half_number(cont, l1, horizontal);
-    if (ta2_out) *ta2_out = make_half_number(cont, l2, horizontal);
+    lv_obj_t *ta1 = make_half_number(cont, l1, horizontal);
+    lv_obj_t *ta2 = make_half_number(cont, l2, horizontal);
+    if (!horizontal) {
+        /* Las dos columnas llevan IGNORE_LAYOUT (ver make_half_number): el
+         * flex de "cont" ya no las coloca, asi que sin esto las dos se quedan
+         * en x=0 SUPERPUESTAS -- medido en la placa, Litros y Kilometros uno
+         * encima del otro. Las alineamos a mano, cada una a su lado. */
+        lv_obj_align(lv_obj_get_parent(ta1), LV_ALIGN_LEFT_MID, 0, 0);
+        lv_obj_align(lv_obj_get_parent(ta2), LV_ALIGN_RIGHT_MID, 0, 0);
+    }
+    if (ta1_out) *ta1_out = ta1;
+    if (ta2_out) *ta2_out = ta2;
 }
 
 static lv_obj_t *make_money_field(lv_obj_t *parent, const char *label_text,
@@ -802,6 +799,16 @@ static lv_obj_t *make_money_field(lv_obj_t *parent, const char *label_text,
     lv_obj_t *cont = make_field_row(parent);
 
     lv_obj_t *lbl = make_field_label(cont, label_text, &lv_font_montserrat_16);
+    /* Regla comun: rotulo centrado en TODO el ancho de la fila. Se probo a
+     * centrarlo solo sobre el campo (con translate, y luego con una
+     * sub-columna + dropdown FLOATING) pero la version de la sub-columna
+     * descuadro repostaje (que ya estaba aprobado) y ademas colgaba el
+     * dispositivo: el volcado de diagnostico (view_registro_diag_arbol) no
+     * esperaba esa profundidad/orden de hijos y asomaba a memoria invalida
+     * (panic LoadProhibited en placa, EXCVADDR 0x2c). Vuelta a la version
+     * simple y SIN fallos: centrado sobre toda la fila. */
+    lv_obj_set_width(lbl, lv_pct(100));
+    lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
 
     /* Sub-fila para poner numero y moneda uno al lado del otro dentro de la
      * columna centrada de make_field_row(). Las dos variantes usan el MISMO
@@ -817,6 +824,7 @@ static lv_obj_t *make_money_field(lv_obj_t *parent, const char *label_text,
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *ta = lv_textarea_create(row);
+    campo_texto_contraste(ta);
     lv_textarea_set_one_line(ta, true);
     lv_textarea_set_placeholder_text(ta, "0.00");
     lv_obj_set_size(ta, lv_pct(62), ta_h);
@@ -840,9 +848,12 @@ static lv_obj_t *make_money_field(lv_obj_t *parent, const char *label_text,
 
     lv_obj_t *dd = lv_dropdown_create(row);
     lv_dropdown_set_options(dd, CURRENCY_OPTIONS);
-    lv_obj_set_size(dd, lv_pct(36), ta_h);
+    /* Fuente SIEMPRE explicita (antes solo se ponia si moneda_izda, y el otro
+     * caso heredaba lo que tocara): la regla del ancho necesita saber con que
+     * fuente se mide, asi que aqui no hay "lo que caiga". */
+    lv_obj_set_style_text_font(dd, &lv_font_montserrat_20, 0);
+    lv_obj_set_size(dd, moneda_dd_ancho(&lv_font_montserrat_20), ta_h);
     lv_obj_align(dd, moneda_izda ? LV_ALIGN_LEFT_MID : LV_ALIGN_RIGHT_MID, 0, 0);
-    if (moneda_izda) lv_obj_set_style_text_font(dd, &lv_font_montserrat_20, 0);
     if (dd_out) *dd_out = dd;
 
     return ta;
@@ -966,7 +977,7 @@ static lv_obj_t *make_check_grid(lv_obj_t *parent, const char *const *options,
  * valoracion, que no es un servicio sino la puerta a su pantalla. */
 static void make_check_money_row(lv_obj_t *parent, const char *label_text,
                                   lv_obj_t **chk_out, lv_obj_t **ta_out,
-                                  lv_coord_t alto)
+                                  lv_coord_t alto, lv_color_t color)
 {
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_set_size(row, lv_pct(100), alto);
@@ -978,7 +989,9 @@ static void make_check_money_row(lv_obj_t *parent, const char *label_text,
     lv_obj_t *cb = lv_checkbox_create(row);
     lv_checkbox_set_text(cb, label_text);
     lv_obj_align(cb, LV_ALIGN_LEFT_MID, 0, 0);
-    lv_obj_set_style_text_color(cb, lv_color_hex(0xFFFFFF), 0);
+    /* Color por fila, no fijo en blanco: pedido para distinguir de un vistazo
+     * en que fila se esta (ver build_servicios, que alterna dos tonos). */
+    lv_obj_set_style_text_color(cb, color, 0);
     lv_obj_set_style_text_font(cb, &lv_font_montserrat_20, 0);
     /* Casilla grande, igual que en make_check_grid(): la de serie es diminuta
      * para un dedo en la cabina. */
@@ -993,6 +1006,12 @@ static void make_check_money_row(lv_obj_t *parent, const char *label_text,
     if (!ta_out) return;
 
     lv_obj_t *ta = lv_textarea_create(row);
+    campo_texto_contraste(ta);
+    /* El mismo color de la fila, pero en el FONDO de la casilla (el texto
+     * sigue oscuro, fijado por campo_texto_contraste): pedido tras ver que
+     * solo el rotulo cambiaba y la casilla se quedaba blanca siempre en todas
+     * las filas. */
+    lv_obj_set_style_bg_color(ta, color, 0);
     lv_textarea_set_one_line(ta, true);
     lv_textarea_set_placeholder_text(ta, "0.00");
     lv_obj_set_size(ta, CHKMONEY_TA_W, alto - 6);
@@ -1019,9 +1038,9 @@ static void make_check_money_row(lv_obj_t *parent, const char *label_text,
 
 /* Moneda en UNA linea: rotulo a la izquierda y desplegable a la derecha.
  * make_currency_row() se lleva 68 px con el rotulo encima; en aguas esos 68 px
- * son justo los que necesitan los tres importes. */
+ * son justo los que necesitan los tres importes. El ancho del desplegable ya
+ * no es un numero suelto: sale de moneda_dd_ancho() (estilos.h, regla comun). */
 #define MONEDA_ROW_H  56
-#define MONEDA_DD_W  150
 
 static lv_obj_t *make_currency_inline_row(lv_obj_t *parent, const char *label_text)
 {
@@ -1040,9 +1059,9 @@ static lv_obj_t *make_currency_inline_row(lv_obj_t *parent, const char *label_te
 
     lv_obj_t *dd = lv_dropdown_create(row);
     lv_dropdown_set_options(dd, CURRENCY_OPTIONS);
-    lv_obj_set_size(dd, MONEDA_DD_W, MONEDA_ROW_H - 2);
-    lv_obj_align(dd, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_set_style_text_font(dd, &lv_font_montserrat_20, 0);
+    lv_obj_set_size(dd, moneda_dd_ancho(&lv_font_montserrat_20), MONEDA_ROW_H - 2);
+    lv_obj_align(dd, LV_ALIGN_RIGHT_MID, 0, 0);
     return dd;
 }
 
@@ -1053,20 +1072,29 @@ static lv_obj_t *make_number_field(lv_obj_t *parent, const char *label_text)
 {
     lv_obj_t *cont = make_field_row(parent);
 
+    /* Regla comun: rotulo centrado en toda la fila (ver make_money_field: la
+     * version con sub-columna se revirtio alli por un panic en placa, asi que
+     * aqui tambien se deja la version simple por consistencia y seguridad). */
     lv_obj_t *lbl = make_field_label(cont, label_text, &lv_font_montserrat_16);
+    lv_obj_set_width(lbl, lv_pct(100));
+    lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
 
     lv_obj_t *ta = lv_textarea_create(cont);
+    campo_texto_contraste(ta);
     lv_textarea_set_one_line(ta, true);
     lv_textarea_set_placeholder_text(ta, "0");
     lv_obj_set_size(ta, lv_pct(62), FIELD_TA_H);
     lv_obj_set_style_text_font(ta, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_align(ta, LV_TEXT_ALIGN_CENTER, 0);
+    /* Sin esto el valor no queda centrado en vertical dentro de su alto: mismo
+     * caso que make_money_field/make_half_number -- visto en la placa, el "0"
+     * de Kilometros pegado arriba. */
+    lv_obj_set_style_pad_top(ta, 0, 0);
+    lv_obj_set_style_pad_bottom(ta, 0, 0);
     /* Sin punto: un cuentakilometros no tiene decimales. */
     lv_textarea_set_accepted_chars(ta, "0123456789");
-    /* Tope por la misma razon que en make_money_field* (ver alli): sin el, un
-     * cuentakilometros con demasiadas cifras alimentaria el mismo calculo de
-     * repo_recalc_cb. 9 cifras cubre cualquier odometro real de sobra. */
-    lv_textarea_set_max_length(ta, 9);
+    /* Rango pedido por el usuario: 000000 a 999999, 6 cifras exactas. */
+    lv_textarea_set_max_length(ta, 6);
     lv_obj_set_user_data(ta, (void *)label_text);
     lv_obj_add_event_cb(ta, ta_click_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)true);
     return ta;
@@ -1107,10 +1135,38 @@ static void ruedas_actualiza_texto(bool marcado)
  * lv_btnmatrix_set_btn_ctrl() por si solo NO desmarca los demas: el reparto lo
  * hace el manejador interno del widget al pulsar (make_one_button_checked en
  * lv_btnmatrix.c), no la API. Por eso se limpian todos primero. */
-static void btnmatrix_reset(lv_obj_t *bm)
+/* Deja un selector de opciones como al principio.
+ *
+ * COMPRUEBA DE QUE TIPO ES ANTES DE TOCARLO, y esto es un arreglo de un CRASH
+ * (9-oct-2026): el selector "Noche | 24 h" de la pernocta se rehizo con dos
+ * botones normales dentro de un contenedor, pero aqui se le seguia llamando a
+ * lv_btnmatrix_clear_btn_ctrl_all() -- que da por hecho que el objeto es una
+ * matriz y escribe en su estructura interna. Al deslizar el carrusel se llamaba
+ * a esto y la placa se reiniciaba: LoadProhibited en
+ * lv_buttonmatrix_clear_button_ctrl, con la traza
+ * gesture_cb -> view_registro_reset -> btnmatrix_reset. 408 reinicios contados.
+ *
+ * Con la comprobacion de tipo, si un dia un selector cambia de forma, esto deja
+ * de resetear (y se nota en la pantalla) en vez de tirar la placa. */
+static void selector_reset(lv_obj_t *sel)
 {
-    lv_btnmatrix_clear_btn_ctrl_all(bm, LV_BTNMATRIX_CTRL_CHECKED);
-    lv_btnmatrix_set_btn_ctrl(bm, 0, LV_BTNMATRIX_CTRL_CHECKED);
+    if (!sel) return;
+
+    if (lv_obj_check_type(sel, &lv_buttonmatrix_class)) {
+        lv_btnmatrix_clear_btn_ctrl_all(sel, LV_BTNMATRIX_CTRL_CHECKED);
+        lv_btnmatrix_set_btn_ctrl(sel, 0, LV_BTNMATRIX_CTRL_CHECKED);
+        return;
+    }
+
+    /* Contenedor con botones marcables (el "Noche | 24 h" de la pernocta):
+     * se queda marcado el primero y se desmarcan los demas. */
+    const int n = lv_obj_get_child_count(sel);
+    for (int i = 0; i < n; i++) {
+        lv_obj_t *b = lv_obj_get_child(sel, i);
+        if (!b) continue;
+        if (i == 0) lv_obj_add_state(b, LV_STATE_CHECKED);
+        else        lv_obj_clear_state(b, LV_STATE_CHECKED);
+    }
 }
 
 /* Vacia los servicios y la nota del sitio. Se llama al volver al menu: lo
@@ -1152,7 +1208,7 @@ static void clear_forms(void)
 
     lv_textarea_set_text(s_bombona_precio_ta, "");
     lv_dropdown_set_selected(s_bombona_currency_dd, 0);
-    btnmatrix_reset(s_bombona_cuantas_bm);
+    selector_reset(s_bombona_cuantas_bm);
 
     lv_textarea_set_text(s_mant_km_ta, "");
     lv_textarea_set_text(s_mant_coste_ta, "");
@@ -1160,7 +1216,7 @@ static void clear_forms(void)
     for (uint8_t i = 0; i < MANT_COUNT; i++) {
         lv_obj_clear_state(s_mant_chk[i], LV_STATE_CHECKED);
     }
-    btnmatrix_reset(s_mant_ruedas_bm);
+    selector_reset(s_mant_ruedas_bm);
     /* Quitar el estado a mano NO dispara VALUE_CHANGED, asi que el texto de la
      * casilla ("Ruedas: 4") y el ocultado de la fila del contador hay que
      * rehacerlos aqui; si no, ruedas_toggle_cb no se entera. */
@@ -1181,9 +1237,9 @@ static void clear_forms(void)
 
     lv_textarea_set_text(s_pern_precio_ta, "");
     lv_dropdown_set_selected(s_pern_currency_dd, 0);
-    btnmatrix_reset(s_pern_cobro_bm);
+    selector_reset(s_pern_cobro_bm);
 
-    btnmatrix_reset(s_itv_resultado_bm);
+    selector_reset(s_itv_resultado_bm);
     lv_textarea_set_text(s_itv_km_ta, "");
     lv_textarea_set_text(s_itv_precio_ta, "");
     lv_dropdown_set_selected(s_itv_currency_dd, 0);
@@ -1414,15 +1470,29 @@ static lv_obj_t *make_readonly_row(lv_obj_t *parent, const char *label_text)
     lv_obj_set_style_border_width(cont, 0, 0);
     lv_obj_set_style_pad_all(cont, 2, 0);
     lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+    /* Centrado como el resto de campos (regla comun): antes rotulo a la
+     * izquierda y valor a la derecha, pegados a los bordes -- pedido que
+     * "Calculado" y su valor vayan centrados, como un campo mas. */
+    lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(cont, 12, 0);
+    /* "Calculado" fijo a su tamano natural, a la izquierda; el VALOR se lleva
+     * con flex_grow=1 lo que sobre de la fila -- asi nunca puede desbordar
+     * cont (toma exactamente el hueco libre, nunca mas), y su texto se centra
+     * DENTRO de ese hueco. Con ancho fijo al peor caso ("999.999 CHF Fr/L  -
+     * 999.9 L/100") media 632 px y no cabian los 518 libres: el par se salia
+     * de cont por la izquierda y "Calculado" quedaba cortado -- visto en la
+     * placa. */
+    lv_obj_set_flex_align(cont, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
 
     lv_obj_t *lbl = make_field_label(cont, label_text, &lv_font_montserrat_16);
-    lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
     lv_obj_t *val = lv_label_create(cont);
     lv_label_set_text(val, "--");
     lv_obj_set_style_text_color(val, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(val, &lv_font_montserrat_24, 0);
-    lv_obj_align(val, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_set_flex_grow(val, 1);
+    lv_obj_set_style_text_align(val, LV_TEXT_ALIGN_CENTER, 0);
 
     return val;
 }
@@ -2665,14 +2735,24 @@ static lv_obj_t *make_save_button(lv_obj_t *parent, const char *text, lv_event_c
     /* 72 de alto y letra 26 (la de la escala nueva): con 50 y letra 20 el boton
      * mas importante de cada formulario era el mas pequeno de la pantalla, y en
      * una fila de 76 quedaba descolgado. */
-    lv_obj_set_size(btn, lv_pct(100), 72);
+    /* ANCHO DE PANTALLA (800), no el de la columna (680): regla pedida por el
+     * usuario, "el boton de guardar siempre... ocupando todo el ancho de la
+     * pantalla". El padre (la columna) lleva UI_MARGEN_ANCHO (60) de relleno a
+     * cada lado -- con lv_pct(100) el boton se quedaba en esos 680 px de
+     * dentro. El margen NEGATIVO contrarresta ese relleno y lo saca a los
+     * bordes de la pantalla sin tocar el relleno de nadie mas. */
+    lv_obj_set_width(btn, UI_ANCHO);
+    lv_obj_set_height(btn, 72);
+    lv_obj_set_style_margin_hor(btn, -UI_MARGEN_ANCHO, 0);
     lv_obj_set_style_bg_color(btn, lv_color_hex(COL_ACCION_OK), 0);
     lv_obj_set_style_bg_color(btn, lv_color_darken(lv_color_hex(COL_ACCION_OK), LV_OPA_30),
                               LV_STATE_PRESSED);
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, user_data);
     lv_obj_t *lbl = lv_label_create(btn);
     lv_label_set_text(lbl, text);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_26, 0);
+    /* 28 y no 26: pedido "al siguiente tamano" (siguiente escalon de fuente
+     * disponible tras el 26 que llevaba). */
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(COL_TILE_FG), 0);
     lv_obj_center(lbl);
     rotulo_autoajustable(btn, lbl);
@@ -2746,6 +2826,11 @@ static void build_repostaje(lv_obj_t *form)
     s_repo_importe_ta = make_money_field(form, "Importe", &s_repo_currency_dd, false);
     make_dual_number_row(form, "Litros",     &s_repo_litros_ta,
                                "Kilometros", &s_repo_km_ta, false);
+    /* Kilometros NO lleva decimales (make_half_number los acepta porque los
+     * comparte con Litros, que si los necesita): rango pedido 000000-999999,
+     * 6 cifras exactas y sin punto. */
+    lv_textarea_set_accepted_chars(s_repo_km_ta, "0123456789");
+    lv_textarea_set_max_length(s_repo_km_ta, 6);
     lv_obj_add_event_cb(s_repo_importe_ta, repo_recalc_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(s_repo_litros_ta, repo_recalc_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(s_repo_km_ta, repo_recalc_cb, LV_EVENT_VALUE_CHANGED, NULL);
@@ -2762,9 +2847,12 @@ static void build_peaje(lv_obj_t *form)
     add_header(form, "PEAJE", lv_color_hex(COL_PEAJE), BACK_TO_GRID);
 
     /* Sin coordenada GPS ni hora, igual que repostaje: ver comentario alli.
-     * Al ser el unico campo, va en la variante apilada y grande. */
-    s_peaje_importe_ta = make_money_field_stacked(form, "Importe",
-                                                  &s_peaje_currency_dd);
+     * Variante normal (importe y moneda en la misma linea), como Repostaje e
+     * ITV: la apilada grande dejaba el campo desproporcionado al ser el unico
+     * de la pantalla (form_rellenar_alto le daba todo el alto sobrante) y
+     * pedido que vaya en una sola linea, como el resto. */
+    s_peaje_importe_ta = make_money_field(form, "Importe",
+                                          &s_peaje_currency_dd, false);
 
     form_rellenar_alto(form);
     make_save_button(form, "Guardar peaje", save_generic_cb, (void *)(uintptr_t)CAT_PEAJE);
@@ -2869,7 +2957,8 @@ static void build_aguas(lv_obj_t *form)
      * P4 al recibir el apunte, que tiene el reloj bueno. */
     for (uint8_t i = 0; i < AGUA_COUNT; i++) {
         make_check_money_row(form, AGUA_OPCIONES[i], &s_agua_chk[i],
-                             &s_agua_precio_ta[i], CHKMONEY_ROW_H);
+                             &s_agua_precio_ta[i], CHKMONEY_ROW_H,
+                             lv_color_hex(fila_color_alterna(i)));
         lv_obj_add_event_cb(s_agua_precio_ta[i], precio_marca_cb,
                             LV_EVENT_VALUE_CHANGED, s_agua_chk[i]);
     }
@@ -2921,7 +3010,9 @@ static void build_itv(lv_obj_t *form)
  * 304 utiles. */
 #define PRECIO_ROW_H   52
 #define PRECIO_GROW_TA  4
-#define PRECIO_GROW_DD  2
+/* El desplegable ya no crece por proporcion (PRECIO_GROW_DD): ancho fijo via
+ * moneda_dd_ancho() (regla comun, estilos.h). Lo que sobra se lo lleva ta,
+ * que es el unico con flex_grow ahora. */
 #define PRECIO_GROW_BM  3
 
 /* Los cuatro cacharros de la fila, para que la pueda montar cualquiera de los
@@ -2955,6 +3046,7 @@ static lv_obj_t *make_precio_row(lv_obj_t *parent, precio_row_t *o,
                           LV_FLEX_ALIGN_CENTER);
 
     o->ta = lv_textarea_create(row);
+    campo_texto_contraste(o->ta);
     lv_textarea_set_one_line(o->ta, true);
     lv_textarea_set_placeholder_text(o->ta, "0.00");
     lv_obj_set_height(o->ta, lv_pct(100));
@@ -2969,9 +3061,8 @@ static lv_obj_t *make_precio_row(lv_obj_t *parent, precio_row_t *o,
 
     o->dd = lv_dropdown_create(row);
     lv_dropdown_set_options(o->dd, CURRENCY_OPTIONS);
-    lv_obj_set_height(o->dd, lv_pct(100));
-    lv_obj_set_flex_grow(o->dd, PRECIO_GROW_DD);
     lv_obj_set_style_text_font(o->dd, &lv_font_montserrat_20, 0);
+    lv_obj_set_size(o->dd, moneda_dd_ancho(&lv_font_montserrat_20), lv_pct(100));
 
     /* Excluyente y con "Noche" de partida: es lo normal, y el area de 24 h se
      * marca cuando toca. */
@@ -3105,6 +3196,9 @@ static void build_pernocta(lv_obj_t *form)
     lv_label_set_text(s_pern_precio_lbl, "Precio");
     lv_obj_set_style_text_color(s_pern_precio_lbl, lv_color_hex(COL_LABEL), 0);
     lv_obj_set_style_text_font(s_pern_precio_lbl, &lv_font_montserrat_26, 0);
+    /* Regla comun: rotulo centrado (ver make_money_field/make_number_field). */
+    lv_obj_set_width(s_pern_precio_lbl, lv_pct(100));
+    lv_obj_set_style_text_align(s_pern_precio_lbl, LV_TEXT_ALIGN_CENTER, 0);
 
     /* La fila de los cuatro controles. ALTURA FIJA de 64 (el campo de la
      * referencia media 34): es lo que pide la letra 40 del importe. */
@@ -3123,6 +3217,7 @@ static void build_pernocta(lv_obj_t *form)
 
     /* Importe: 40% del ancho (en la referencia es el mas ancho de los cuatro) */
     s_pern_precio_ta = lv_textarea_create(s_pern_precio_row);
+    campo_texto_contraste(s_pern_precio_ta);
     lv_textarea_set_one_line(s_pern_precio_ta, true);
     lv_textarea_set_placeholder_text(s_pern_precio_ta, "0.00");
     lv_obj_set_size(s_pern_precio_ta, lv_pct(40), lv_pct(100));
@@ -3134,19 +3229,25 @@ static void build_pernocta(lv_obj_t *form)
     lv_obj_add_event_cb(s_pern_precio_ta, ta_click_cb, LV_EVENT_CLICKED,
                         (void *)(uintptr_t)true);
 
-    /* Moneda: 20% */
+    /* Moneda: ancho medido (regla comun), no un % inventado. */
     s_pern_currency_dd = lv_dropdown_create(s_pern_precio_row);
     lv_dropdown_set_options(s_pern_currency_dd, CURRENCY_OPTIONS);
-    lv_obj_set_size(s_pern_currency_dd, lv_pct(20), lv_pct(100));
     lv_obj_set_style_text_font(s_pern_currency_dd, &lv_font_montserrat_26, 0);
+    lv_obj_set_size(s_pern_currency_dd, moneda_dd_ancho(&lv_font_montserrat_26), lv_pct(100));
 
-    /* Noche | 24 h: los dos botones, 19% cada uno (el 2% que sobra son los dos
-     * huecos de 14). Dos botones NORMALES, no btnmatrix: sus botones se salian
-     * de su caja (visto en la placa). */
+    /* Noche | 24 h: los dos botones se reparten con flex_grow lo que QUEDE
+     * tras el importe (40%) y la moneda (ancho fijo medido), no un % fijo.
+     * Con 19% cada uno el calculo no contaba los TRES huecos de 14 (42 px) --
+     * la fila sumaba 715 px en 680 disponibles y "24 h" (el ultimo) salia
+     * cortado, visto en la placa. Con flex_grow nunca puede desbordar: cada
+     * boton se queda exactamente con la mitad de lo que sobre. Dos botones
+     * NORMALES, no btnmatrix: sus botones se salian de su caja (visto en la
+     * placa, por otro motivo, antes de esto). */
     static const char *COBRO_TXT[2] = { "Noche", "24 h" };
     for (int i = 0; i < 2; i++) {
         lv_obj_t *b = lv_btn_create(s_pern_precio_row);
-        lv_obj_set_size(b, lv_pct(19), lv_pct(100));
+        lv_obj_set_size(b, 0, lv_pct(100));
+        lv_obj_set_flex_grow(b, 1);
         lv_obj_set_style_radius(b, 10, 0);
         /* Fondo y texto como la referencia: el marcado en azul vivo con letra
          * oscura, el otro en gris con letra clara. */
@@ -3167,9 +3268,9 @@ static void build_pernocta(lv_obj_t *form)
      * precio() lo oculta en camping. */
     s_pern_cobro_bm = s_pern_precio_row;
 
-    /* --- Los dos botones de abajo --- */
+    /* --- Servicios, en su propia fila --- */
     lv_obj_t *acciones = lv_obj_create(form);
-    /* ALTO FIJO Y SIN grow EN LOS BOTONES.
+    /* ALTO FIJO Y SIN grow EN EL BOTON.
      *
      * Lo que se vio en la placa: con flex_grow en esta fila, el reparto se lo
      * comia todo y el boton "Servicios" salia de 204x255 -- un boton GIGANTE
@@ -3182,7 +3283,6 @@ static void build_pernocta(lv_obj_t *form)
     lv_obj_set_style_bg_opa(acciones, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(acciones, 0, 0);
     lv_obj_set_style_pad_all(acciones, 0, 0);
-    lv_obj_set_style_pad_column(acciones, 14, 0);
     lv_obj_clear_flag(acciones, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(acciones, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(acciones, LV_FLEX_ALIGN_START,
@@ -3202,11 +3302,14 @@ static void build_pernocta(lv_obj_t *form)
     lv_obj_set_style_text_color(serv_lbl, lv_color_hex(COL_TILE_FG), 0);
     lv_obj_center(serv_lbl);
 
-    lv_obj_t *guardar = make_save_button(acciones, "Guardar noche",
-                                         save_generic_cb,
-                                         (void *)(uintptr_t)CAT_PERNOCTA);
-    /* Ocupa el resto de la fila (el boton principal, como en la referencia) */
-    lv_obj_set_flex_grow(guardar, 1);
+    /* --- Guardar, FUERA de "acciones" y solo (regla comun: siempre abajo y a
+     * todo el ancho de pantalla). Compartir fila con "Servicios" le hacia
+     * perder el ancho completo: el flex_grow de esa fila lo repartia con el
+     * otro boton (462 px de 800, medido), no el ancho de pantalla que pide la
+     * regla. Iqual que el resto de formularios: make_save_button hijo directo
+     * de "form". */
+    make_save_button(form, "Guardar noche", save_generic_cb,
+                     (void *)(uintptr_t)CAT_PERNOCTA);
 }
 
 /* Una linea por servicio, con su casilla y su importe (24-ago-2026). Antes eran
@@ -3222,10 +3325,18 @@ static void build_pernocta(lv_obj_t *form)
  * La moneda no esta aqui: es la misma de la pernocta, que es la misma parada.
  * Por eso su selector se queda a la vista aunque el sitio sea gratis (ver
  * pern_refresh_precio). */
-/* 64 Y NO 34: cada fila lleva su rotulo (29 de alto con la letra nueva) y el
- * importe al lado. Con 34 el rotulo se salia 8 px por arriba de la fila
- * (medido: "Buena", "Aceptable" y "Mala" en y=-8). */
-#define SERV_ROW_H  64
+/* 50 (CAMPO_DATO_ALTO, la regla comun) y no 64: con 64, las 6 filas + la de
+ * valoracion no cabian en el alto util de esta pantalla (~405 px) y habia que
+ * deslizar para ver "Buena/Aceptable/Mala" -- pedido que entre todo en una
+ * pantalla sin scroll. Por encima de 34 (que SI se quedaba corto: el rotulo,
+ * 29 de alto con la letra nueva, se salia 8 px por arriba -- medido en su
+ * dia), asi que 50 deja margen de sobra sin volver a ese problema. */
+/* NO CAMPO_DATO_ALTO aqui: esta pantalla tiene su propio presupuesto de alto
+ * muy ajustado (6 filas + valoracion + ahora el boton de guardar, en los
+ * ~405 px utiles) y con 50 no entraba todo tras anadir el boton -- 44 deja
+ * sitio de sobra sin volver al problema viejo del 34 (rotulo saliendose por
+ * arriba, ver historial). */
+#define SERV_ROW_H  44
 
 static void build_servicios(lv_obj_t *form)
 {
@@ -3251,7 +3362,8 @@ static void build_servicios(lv_obj_t *form)
 
     for (uint8_t i = 0; i < SERV_COUNT; i++) {
         make_check_money_row(bloque, SERV_OPCIONES[i], &s_serv_chk[i],
-                             &s_serv_precio_ta[i], SERV_ROW_H);
+                             &s_serv_precio_ta[i], SERV_ROW_H,
+                             lv_color_hex(fila_color_alterna(i)));
         lv_obj_add_event_cb(s_serv_precio_ta[i], precio_marca_cb,
                             LV_EVENT_VALUE_CHANGED, s_serv_chk[i]);
     }
@@ -3291,6 +3403,14 @@ static void build_servicios(lv_obj_t *form)
     }
     valoracion_pinta();
     form_rellenar_alto(form);
+
+    /* Boton de abajo, pedido para que la pantalla tenga el mismo cierre que
+     * el resto: lo marcado aqui ya se guarda solo (ver el comentario de mas
+     * arriba), asi que "Guardar" aqui es simplemente volver -- reutiliza
+     * back_click_cb con el mismo destino que el Volver de la cabecera
+     * (BACK_TO_ORIGEN), no un callback nuevo. */
+    make_save_button(form, "Guardar servicios", back_click_cb,
+                     (void *)(intptr_t)(BACK_TO_ORIGEN + 1));
 }
 
 /* Pantalla de valoracion. Tres botones de un dedo con su color -- verde,
@@ -3379,7 +3499,11 @@ static void volver_al_menu(void);
  * hay enlace con la P4. Los dos puntos CADUCAN con el enlace: un indicador que
  * miente cuando se cae la comunicacion es peor que no tenerlo, porque el
  * momento en que se mira es justo cuando algo va mal. */
-static lv_obj_t *punto_crear(lv_obj_t *padre, const char *texto)
+/* 'es_icono' (solo GPS, pedido): en vez de punto+texto, un unico icono cuyo
+ * COLOR dice el estado -- sustituye al punto gris y la palabra "GPS". Se
+ * devuelve el objeto a colorear (el icono mismo, en vez del punto) para que
+ * quien actualice el estado pinte el sitio que toca. */
+static lv_obj_t *punto_crear(lv_obj_t *padre, const char *texto, bool es_icono)
 {
     lv_obj_t *w = lv_obj_create(padre);
     lv_obj_remove_style_all(w);
@@ -3388,6 +3512,14 @@ static lv_obj_t *punto_crear(lv_obj_t *padre, const char *texto)
     lv_obj_set_flex_align(w, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(w, 4, 0);
     lv_obj_clear_flag(w, LV_OBJ_FLAG_SCROLLABLE);
+
+    if (es_icono) {
+        lv_obj_t *ic = lv_label_create(w);
+        lv_label_set_text(ic, LV_SYMBOL_GPS);
+        lv_obj_set_style_text_font(ic, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(ic, lv_color_hex(0x666666), 0);
+        return ic;
+    }
 
     lv_obj_t *dot = lv_obj_create(w);
     lv_obj_set_size(dot, 8, 8);
@@ -3438,15 +3570,27 @@ static lv_obj_t *pantalla_crear(lv_obj_t *parent, pantalla_t id,
     lv_obj_set_style_pad_column(bar, 10, 0);
 
     if (atras >= 0) {
-        lv_obj_t *b = lv_label_create(bar);
-        lv_label_set_text(b, LV_SYMBOL_LEFT " Atras");
-        lv_obj_set_style_text_font(b, &lv_font_montserrat_14, 0);
-        lv_obj_set_style_text_color(b, lv_color_hex(0xB0BEC5), 0);
-        /* Area de toque generosa: el rotulo solo son 60x14 px y con la
-         * autocaravana en marcha eso no se acierta. */
-        lv_obj_set_ext_click_area(b, 14);
-        lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+        /* Pastilla, como "Volver" en add_header() (view_registro.c): pedido
+         * que el boton de atras sea coherente en todas las pantallas. Antes
+         * era un rotulo suelto con area de toque ampliada -- se notaba menos
+         * y no se parecia en nada al resto. Mas pequena que la de 192x56
+         * (esta barra, BAR_H, mide 56 clavados: sin margen para esa altura
+         * entera), pero mismo patron: borde+texto de color, fondo que se
+         * invierte al pulsar. */
+        lv_obj_t *b = lv_btn_create(bar);
+        lv_obj_set_size(b, 140, 48);
+        lv_obj_set_style_radius(b, 24, 0);
+        lv_obj_set_style_bg_color(b, lv_color_hex(0x1E1E1E), 0);
+        lv_obj_set_style_border_width(b, 2, 0);
+        lv_obj_set_style_border_color(b, lv_color_hex(COL_VIAJE), 0);
+        lv_obj_set_style_bg_color(b, lv_color_hex(COL_VIAJE), LV_STATE_PRESSED);
         lv_obj_add_event_cb(b, atras_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)atras);
+        lv_obj_t *lbl = lv_label_create(b);
+        lv_label_set_text(lbl, LV_SYMBOL_LEFT " Atras");
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(COL_VIAJE), 0);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(COL_TILE_FG), LV_STATE_PRESSED);
+        lv_obj_center(lbl);
     } else {
         s_bar_hora[id] = lv_label_create(bar);
         lv_label_set_text(s_bar_hora[id], "--:--");
@@ -3469,8 +3613,8 @@ static lv_obj_t *pantalla_crear(lv_obj_t *parent, pantalla_t id,
         lv_obj_set_flex_grow(sp, 1);
     }
 
-    s_bar_gps[id]  = punto_crear(bar, "GPS");
-    s_bar_wifi[id] = punto_crear(bar, "P4");
+    s_bar_gps[id]  = punto_crear(bar, "GPS", true);
+    s_bar_wifi[id] = punto_crear(bar, "P4", false);
 
     /* --- cuerpo --- */
     lv_obj_t *body = lv_obj_create(scr);
@@ -3522,7 +3666,9 @@ static void barra_timer_cb(lv_timer_t *t)
     }
 
     for (int i = 0; i < PAN_COUNT; i++) {
-        if (s_bar_gps[i])  lv_obj_set_style_bg_color(s_bar_gps[i],  lv_color_hex(c_gps), 0);
+        /* text_color y no bg_color: s_bar_gps[i] es ahora el icono (ver
+         * punto_crear, es_icono), no el punto de antes. */
+        if (s_bar_gps[i])  lv_obj_set_style_text_color(s_bar_gps[i], lv_color_hex(c_gps), 0);
         if (s_bar_wifi[i]) lv_obj_set_style_bg_color(s_bar_wifi[i], lv_color_hex(c_wifi), 0);
         if (s_bar_hora[i]) lv_label_set_text(s_bar_hora[i], hora);
     }
@@ -5117,14 +5263,38 @@ static void crear_menus(lv_obj_t *parent)
     s_puntual_fin_cont = lv_obj_create(body);
     lv_obj_remove_style_all(s_puntual_fin_cont);
     lv_obj_set_size(s_puntual_fin_cont, lv_pct(100), LV_SIZE_CONTENT);
+    /* Crece para ocupar el resto de "body" y empuja el texto+boton al FONDO
+     * (FLEX_ALIGN_END en el eje principal) -- pedido que "Ya he llegado"
+     * vaya abajo del todo, no a media pantalla. Antes CENTER sin grow: sin
+     * nada mas que lo reparta, el bloque se quedaba pegado justo debajo de
+     * las casillas ocultas, en la parte de arriba. */
+    lv_obj_set_flex_grow(s_puntual_fin_cont, 1);
     lv_obj_set_layout(s_puntual_fin_cont, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(s_puntual_fin_cont, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(s_puntual_fin_cont, LV_FLEX_ALIGN_CENTER,
+    /* START, no END: el HUECO (el hijo que crece) va PRIMERO, no el grupo
+     * entero. Asi el boton se queda pegado al fondo real, y lo que hay
+     * encima (el texto) no lo acompana -- pedido tras ver que con END el
+     * texto subia y bajaba pegado al boton en vez de quedarse centrado en
+     * su propio hueco. */
+    lv_obj_set_flex_align(s_puntual_fin_cont, LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(s_puntual_fin_cont, 16, 0);
     lv_obj_clear_flag(s_puntual_fin_cont, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_puntual_fin_lbl = lv_label_create(s_puntual_fin_cont);
+    /* El texto vive en su PROPIO hueco, que es el que crece (flex_grow) y lo
+     * centra DENTRO de si mismo -- el boton (fuera de este hueco, hijo
+     * directo de s_puntual_fin_cont) no se mueve con el. */
+    lv_obj_t *txt_hueco = lv_obj_create(s_puntual_fin_cont);
+    lv_obj_remove_style_all(txt_hueco);
+    lv_obj_set_width(txt_hueco, lv_pct(100));
+    lv_obj_set_flex_grow(txt_hueco, 1);
+    lv_obj_set_layout(txt_hueco, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(txt_hueco, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(txt_hueco, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(txt_hueco, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_puntual_fin_lbl = lv_label_create(txt_hueco);
     lv_obj_set_style_text_font(s_puntual_fin_lbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(s_puntual_fin_lbl, lv_color_hex(COL_LABEL), 0);
     lv_obj_set_style_text_align(s_puntual_fin_lbl, LV_TEXT_ALIGN_CENTER, 0);
@@ -5142,8 +5312,15 @@ static void crear_menus(lv_obj_t *parent)
      * el viaje sigue en marcha): en una puntual ya declarada no hay nada
      * mas que hacer en esta pantalla salvo terminar, asi que es ella la
      * accion principal. */
+    /* Ancho completo (regla comun: el boton principal de abajo ocupa todo el
+     * ancho, no un pellizco centrado) -- antes 220 fijo, de la pantalla
+     * vieja de 3,5" sin escalar. Descartado como causa de la caida de
+     * refrescos LVGL: pasa igual con este ancho revertido a 220 (ver
+     * historial), asi que es un problema aparte, intermitente, no ligado a
+     * este cambio. */
     s_puntual_llegada_btn = boton_chico(s_puntual_fin_cont, "Ya he llegado",
-                                        COL_ACCION_OK, 220, puntual_llegada_cb, NULL);
+                                        COL_ACCION_OK, lv_pct(100),
+                                        puntual_llegada_cb, NULL);
     s_puntual_fin_btn = boton_grande(s_puntual_fin_cont, NULL, "Terminar salida", NULL,
                                      COL_ACCION_STOP, puntual_terminar_cb, NULL);
     /* boton_grande trae flex_grow(1): pensado para cuando ES el unico
@@ -5153,6 +5330,7 @@ static void crear_menus(lv_obj_t *parent)
      * grow y se fija un tamano concreto -- mas grande que boton_chico
      * (46 px) pero acotado. */
     lv_obj_set_flex_grow(s_puntual_fin_btn, 0);
+    /* DIAGNOSTICO TEMPORAL: vuelto a ESC(260), mismo motivo que arriba. */
     lv_obj_set_width(s_puntual_fin_btn, ESC(260));
     lv_obj_set_height(s_puntual_fin_btn, ESC(90));
     lv_obj_add_flag(s_puntual_fin_cont, LV_OBJ_FLAG_HIDDEN);

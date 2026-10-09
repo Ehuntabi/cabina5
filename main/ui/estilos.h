@@ -40,6 +40,7 @@
 
 #include "lvgl.h"
 #include "fonts/montserrat_bold.h"
+#include <string.h>
 
 /* ── Escala nueva ─────────────────────────────────────────────────────────── */
 
@@ -94,6 +95,94 @@
  * 192x56, las casillas de 253, los campos de 50...). */
 #define UI_ESCALA   1.8
 #define ESC(v)      ((lv_coord_t)((v) * UI_ESCALA))
+
+
+/* ── REGLA DE DISENO: el selector de moneda (primera de las comunes) ─────────
+ *
+ * Habia 5 desplegables de moneda en view_registro.c, cada uno con un ancho
+ * distinto inventado a mano (90, 36%, 150, flex_grow 2, 20%): ninguno medido
+ * contra el texto mas largo que de verdad puede salir ahi ("RON lei", la unica
+ * opcion de 7 caracteres de MONEDA_OPCIONES). Con letra grande y un ancho
+ * estrecho, esa opcion se recorta.
+ *
+ * LA REGLA: el ancho de CUALQUIER desplegable de moneda se calcula con esta
+ * funcion, nunca a mano. Mide "RON lei" de verdad con la fuente que se vaya a
+ * usar (lv_text_get_width, la misma herramienta que ya usa rotulo_ajustar) y le
+ * suma el relleno interno + la flecha del desplegable (medido en la placa:
+ * sin estos ~44 px la flecha se come la ultima letra). Si algun dia cambia la
+ * lista de monedas, basta con tocar MONEDA_OPCIONES: el ancho se recalcula
+ * solo. */
+#define MONEDA_OPCIONES \
+    "EUR\n" "GBP\n" "CHF Fr\n" "SEK kr\n" \
+    "NOK kr\n" "DKK kr\n" "PLN zl\n" "CZK Kc\n" \
+    "HUF Ft\n" "RON lei"
+#define MONEDA_OPCION_MAS_LARGA  "RON lei"
+#define MONEDA_DD_RELLENO  44
+
+static inline lv_coord_t moneda_dd_ancho(const lv_font_t *fuente)
+{
+    return lv_text_get_width(MONEDA_OPCION_MAS_LARGA,
+                             (uint32_t)strlen(MONEDA_OPCION_MAS_LARGA),
+                             fuente, 0)
+           + MONEDA_DD_RELLENO;
+}
+
+
+/* ── REGLA DE DISENO: contraste del texto en los campos (segunda comun) ──────
+ *
+ * Los textarea (Importe, Litros, Kilometros...) son la "pastilla" blanca del
+ * tema claro de LVGL por defecto (CONFIG_LV_THEME_DEFAULT_DARK no esta
+ * activado): ninguno fijaba el color del valor ni del texto de relleno
+ * ("0.00"/"0"), asi que dependian de lo que trajera el tema. Pedido por el
+ * usuario: que el texto destaque mas sobre ese fondo blanco.
+ *
+ * LA REGLA: todo textarea de dato pasa por esta funcion. Valor en negro
+ * puro (maximo contraste posible sobre blanco) y el texto de relleno en un
+ * gris bien oscuro (no el gris claro de serie, que sobre blanco casi no se
+ * ve) para que se note que es una pista y no un dato ya metido. */
+#define COL_VALOR_CAMPO       0x000000
+#define COL_PLACEHOLDER_CAMPO 0x555555
+
+static inline void campo_texto_contraste(lv_obj_t *ta)
+{
+    /* El VALOR tecleado usa LV_PART_MAIN (el label interno del textarea). El
+     * texto de relleno ("0.00") es una parte DISTINTA de verdad en LVGL 9,
+     * LV_PART_TEXTAREA_PLACEHOLDER (ver draw_placeholder() en
+     * lv_textarea.c) -- sin saber eso, fijar un color "0" los pisaria entre
+     * si y uno de los dos se quedaria con el color que no toca. */
+    lv_obj_set_style_text_color(ta, lv_color_hex(COL_VALOR_CAMPO), LV_PART_MAIN);
+    lv_obj_set_style_text_color(ta, lv_color_hex(COL_PLACEHOLDER_CAMPO),
+                                LV_PART_TEXTAREA_PLACEHOLDER);
+}
+
+
+/* ── REGLA DE DISENO: alto de casilla UNICO, 50 (tercera comun) ───────────────
+ *
+ * Primero se probo un alto proporcional a la fuente de cada campo (ver
+ * historial): arreglaba el hueco de Litros/Kilometros (letra 32, caja a pelo
+ * en 72) pero dejaba su caja mas alta que la de Importe (letra 24, caja 50) --
+ * visto en la placa: "veo diferentes de tamano vertical entre importe y
+ * litros y kilometros". Pedido explicito del usuario: TODAS las casillas
+ * donde se introducen datos miden 50, sea cual sea su fuente. Importe ya
+ * estaba en 50 y se confirmo correcto ("importe esta ok"): es la referencia. */
+#define CAMPO_DATO_ALTO  50
+
+
+/* ── REGLA DE DISENO: color alterno por fila en listas (cuarta comun) ────────
+ *
+ * Listas largas de casilla+importe (Servicios, Aguas): todas las filas en el
+ * mismo blanco no dejaban distinguir una de la siguiente de un vistazo.
+ * Pedido: que la fila de "Agua potable" (o la que toque) se vea de un color
+ * distinto a la de al lado. Dos tonos que alternan por indice -- ni sacan otro
+ * significado (no son categorias) ni compiten con el color de la categoria
+ * del formulario (la del boton Volver/titulo), que se queda igual. */
+#define COL_FILA_PAR    0xFFFFFF  /* blanco: filas 0, 2, 4... */
+#define COL_FILA_IMPAR  0xB0BEC5  /* gris azulado: filas 1, 3, 5... */
+
+static inline uint32_t fila_color_alterna(uint8_t indice)
+{
+    return (indice % 2 == 0) ? COL_FILA_PAR : COL_FILA_IMPAR;
+}
 
 
 /* ── Ajuste automatico del texto de un boton ─────────────────────────────────

@@ -21,7 +21,13 @@
 #define CONF_TITLE_Y   10
 #define CONF_BODY_DY   -26
 #define CONF_BTN_H     84
-#define CONF_BTN_W     240
+/* 340 y no 240: 240 era el ancho de la pantalla vieja de 3,5" sin escalar a
+ * esta (800 de ancho, igual que el resto de la UI -- ver el "SOBRAN 320 px de
+ * ancho" de estilos.h). Con 240, un texto normal como "Continuar igual" solo
+ * cabia en la letra mas pequena de la escala (18, de seguridad) y se veia
+ * diminuto -- visto en la placa. Con 340 entra holgado en una letra bastante
+ * mayor. */
+#define CONF_BTN_W     340
 
 #define COL_FG         0x000000   /* texto sobre los botones claros */
 #define COL_OK         0x66BB6A   /* verde  8,8:1 con el negro */
@@ -175,6 +181,20 @@ void confirm_screen_open(const char *title, const char *body,
     lv_label_set_text(s_body, texto);
     lv_label_set_text(s_ok_lbl, ok_text ? ok_text : "Si");
     lv_label_set_text(s_no_lbl, no_text ? no_text : "No, corregir");
+    /* rotulo_ajustar() se salta el reparto si el ANCHO del boton no cambio
+     * desde la ultima vez (cache barata, ver su comentario) -- pero este
+     * dialogo reutiliza los MISMOS botones en cada apertura y solo cambia el
+     * TEXTO, que la cache no mira. Resultado: un texto largo como "Continuar
+     * igual" se quedaba con la letra elegida para un texto mas corto de la
+     * apertura anterior y se salia del boton (visto en la placa).
+     *
+     * Se invalida la cache a mano, PERO el reajuste se deja al temporizador
+     * de 200 ms (rotulo_timer_cb): llamar a rotulo_ajustar() aqui, a pelo,
+     * colgo la placa (refrescos LVGL cayendo a ~2/s, el mismo sintoma que el
+     * bucle infinito ya documentado mas arriba) -- la funcion esta pensada
+     * para correr SOLO desde ese temporizador, fuera de cualquier evento. */
+    lv_obj_set_user_data(s_ok_lbl, (void *)(lv_intptr_t)-1);
+    lv_obj_set_user_data(s_no_lbl, (void *)(lv_intptr_t)-1);
 
     /* El dialogo se muda a la pantalla que este activa. Nace colgado de la de
      * registros (confirm_screen_init), pero Ajustes vive en OTRA pantalla del

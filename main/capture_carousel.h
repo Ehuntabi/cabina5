@@ -29,8 +29,13 @@
 /* DIAGNOSTICO (8-oct-2026): abre SOLO el formulario de Peaje ocho segundos
  * despues de arrancar, sin tocar la pantalla. Se puso para cazar el "peaje en
  * negro" con el log a mano: pulsar el boton no se puede hacer desde el PC, y el
- * fallo hay que verlo en la traza. Volver a 0 cuando se cierre el diagnostico. */
-#define CAPTURE_PEAJE_DIAG 1
+ * fallo hay que verlo en la traza. Cerrado el 9-oct-2026: el volcado periodico
+ * (subpantallas_medir_cb, cada 3 s) provocaba un panic esporadico
+ * (LoadProhibited, EXCVADDR 0x2c) al chocar con las actualizaciones normales
+ * de la UI -- reinicios en bucle, sin relacion con el propio contenido de las
+ * pantallas. Diagnostico ya cumplido (sirvio para todo el repaso de
+ * submenus); se vuelve a 1 solo si hace falta cazar algo nuevo a mano. */
+#define CAPTURE_PEAJE_DIAG 0
 
 #ifdef __cplusplus
 extern "C" {
