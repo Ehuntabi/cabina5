@@ -1581,11 +1581,41 @@ static void form_rellenar_alto(lv_obj_t *form)
          * flex_grow, peaje acababa en y=333, bombona en 358 y la valoracion en
          * 333, dejando 120-150 px negros abajo. Con el alto automatico la fila
          * mide su contenido y encima crece con el reparto. */
-        lv_obj_set_height(hijo, LV_SIZE_CONTENT);
         /* El ULTIMO (el boton de guardar, o la fila de acciones) NO crece: se
          * queda con su alto y, con el JUSTIFY_CENTER de la columna, cae al
          * fondo como en la referencia. */
         lv_obj_set_flex_grow(hijo, (i == n - 1) ? 0 : 1);
+    }
+
+    /* Y ADEMAS, el alto repartido A MANO.
+     *
+     * POR QUE: con flex_grow puesto y comprobado en el volcado (grow=1, alto
+     * automatico), tres formularios seguian dejando 60 px sin repartir --
+     * medido: peaje, valoracion y pernocta acababan en y=420 de 480. El
+     * flex_grow de LVGL no acaba de repartir ese hueco en estas filas, asi que
+     * el reparto se hace a mano: se calcula el alto disponible (el de la
+     * columna menos sus rellenos y los huecos) y se reparte entre las filas de
+     * contenido. Cada fila mide lo mismo: asi el bloque ocupa el hueco entero
+     * como en la referencia. */
+    const int contenido = n - 1;                 /* sin el ultimo (el boton) */
+    if (contenido <= 0) return;
+    const lv_coord_t alto_col = lv_obj_get_height(col);
+    const lv_coord_t relleno = lv_obj_get_style_pad_top(col, 0) +
+                               lv_obj_get_style_pad_bottom(col, 0);
+    const lv_coord_t huecos = (n - 1) * lv_obj_get_style_pad_row(col, 0);
+    /* Lo que ocupan las filas por su contenido, para no encogerlas por debajo */
+    lv_coord_t ocupado = 0;
+    for (int i = 0; i < n; i++) {
+        ocupado += lv_obj_get_height(lv_obj_get_child(col, i));
+    }
+    lv_coord_t sobra = alto_col - relleno - huecos - ocupado;
+    if (sobra > 0) {
+        /* El hueco se reparte entre las filas de contenido */
+        const lv_coord_t extra = sobra / contenido;
+        for (int i = 0; i < contenido; i++) {
+            lv_obj_t *hijo = lv_obj_get_child(col, i);
+            lv_obj_set_height(hijo, lv_obj_get_height(hijo) + extra);
+        }
     }
     /* Y EL REPARTO VERTICAL COMO EN LA REFERENCIA, que es lo que de verdad
      * hacia falta. Medida la captura de la 3,5" (registro_form_pernocta.png),
