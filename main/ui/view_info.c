@@ -1306,6 +1306,26 @@ static lv_obj_t *make_fila_dato(lv_obj_t *padre, const char *etiqueta,
     return v;
 }
 
+/* DIAGNOSTICO: vuelca el arbol de esta pantalla con posiciones y tamanos. */
+void view_info_diag_arbol(void)
+{
+    lv_obj_t *scr = lv_screen_active();
+    if (!scr) return;
+    ESP_LOGW("diag", "MARCA-INFO: %dx%d", (int)lv_obj_get_width(scr), (int)lv_obj_get_height(scr));
+    for (int i = 0; i < lv_obj_get_child_count(scr); i++) {
+        lv_obj_t *c = lv_obj_get_child(scr, i);
+        ESP_LOGW("diag", "MARCA-INFO [%d] %dx%d en (%d,%d)", i,
+                 (int)lv_obj_get_width(c), (int)lv_obj_get_height(c),
+                 (int)lv_obj_get_x(c), (int)lv_obj_get_y(c));
+        for (int j = 0; j < lv_obj_get_child_count(c); j++) {
+            lv_obj_t *g = lv_obj_get_child(c, j);
+            ESP_LOGW("diag", "MARCA-INFO   [%d.%d] %dx%d en (%d,%d)", i, j,
+                     (int)lv_obj_get_width(g), (int)lv_obj_get_height(g),
+                     (int)lv_obj_get_x(g), (int)lv_obj_get_y(g));
+        }
+    }
+}
+
 void view_info_create(lv_obj_t *parent)
 {
     /* La paleta pinta desde el primer objeto con el modo que toque. */

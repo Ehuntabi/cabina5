@@ -23,6 +23,7 @@
  */
 #include "view_inclinacion.h"
 #include "estilos.h"
+#include "esp_log.h"   /* DIAGNOSTICO: el volcado del arbol */
 #include "../tilt.h"
 #include <stdio.h>
 #include <math.h>
@@ -320,6 +321,26 @@ static lv_obj_t *make_readout(lv_obj_t *padre, const char *etiqueta, uint32_t co
     return fila;
 }
 
+/* DIAGNOSTICO: vuelca el arbol de esta pantalla. */
+void view_inclinacion_diag_arbol(void)
+{
+    lv_obj_t *scr = lv_screen_active();
+    if (!scr) return;
+    ESP_LOGW("diag", "MARCA-INCL: %dx%d", (int)lv_obj_get_width(scr), (int)lv_obj_get_height(scr));
+    for (int i = 0; i < lv_obj_get_child_count(scr); i++) {
+        lv_obj_t *c = lv_obj_get_child(scr, i);
+        ESP_LOGW("diag", "MARCA-INCL [%d] %dx%d en (%d,%d)", i,
+                 (int)lv_obj_get_width(c), (int)lv_obj_get_height(c),
+                 (int)lv_obj_get_x(c), (int)lv_obj_get_y(c));
+        for (int j = 0; j < lv_obj_get_child_count(c); j++) {
+            lv_obj_t *g = lv_obj_get_child(c, j);
+            ESP_LOGW("diag", "MARCA-INCL   [%d.%d] %dx%d en (%d,%d)", i, j,
+                     (int)lv_obj_get_width(g), (int)lv_obj_get_height(g),
+                     (int)lv_obj_get_x(g), (int)lv_obj_get_y(g));
+        }
+    }
+}
+
 void view_inclinacion_create(lv_obj_t *parent)
 {
     lv_obj_set_style_bg_color(parent, lv_color_hex(0x000000), 0);
@@ -421,7 +442,9 @@ void view_inclinacion_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_sin_sensor, lv_color_hex(0xFFD54F), 0);
     lv_obj_set_style_text_font(s_sin_sensor, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_align(s_sin_sensor, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(s_sin_sensor, ESC(400));
+    /* 400 de ancho: con ESC(400)=720 se salia de su columna (436) y su
+     * posicion lo dejaba 142 px fuera de la pantalla. Medido. */
+    lv_obj_set_width(s_sin_sensor, 400);
     lv_obj_align(s_sin_sensor, LV_ALIGN_TOP_MID, 0, 84);
     lv_obj_add_flag(s_sin_sensor, LV_OBJ_FLAG_HIDDEN);
 
@@ -442,7 +465,9 @@ void view_inclinacion_create(lv_obj_t *parent)
     lv_obj_align(s_label_status, LV_ALIGN_TOP_MID, 0, 258);
 
     s_calib_btn = lv_btn_create(right);
-    lv_obj_set_size(s_calib_btn, ESC(300), ESC(68));
+    /* 300x68: con ESC salia de 540x122 y 52 px se quedaban fuera de la
+     * pantalla (medido). Es un boton, no un cartel. */
+    lv_obj_set_size(s_calib_btn, 300, 68);
     lv_obj_set_style_bg_color(s_calib_btn, lv_color_hex(0x333333), 0);
     lv_obj_add_event_cb(s_calib_btn, calib_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_align(s_calib_btn, LV_ALIGN_BOTTOM_MID, 0, -24);

@@ -285,12 +285,22 @@ static int s_diag_paso = 0;
 #define DIAG_PANTALLAS 9    /* PAN_COUNT */
 #define DIAG_FORMULARIOS 9  /* CAT_COUNT */
 
+/* Los volcados de las dos pantallas principales del carrusel (info e
+ * inclinacion), declarados donde se usan. */
+void view_info_diag_arbol(void);
+void view_inclinacion_diag_arbol(void);
+
 static void pernocta_diag_cb(lv_timer_t *t)
 {
     (void)t;
     /* Se MIDE lo que quedo abierto en el tic anterior (su layout ya esta
      * calculado) y despues se abre lo siguiente. Primero las pantallas de menu
      * y luego los formularios, para tener la geometria de todo de una pasada. */
+    /* Primero las tres pantallas principales del carrusel, que son las que mas
+     * se usan y las que no se habian medido nunca. */
+    if (s_diag_paso == 1) { view_info_diag_arbol(); }
+    if (s_diag_paso == 2) { view_inclinacion_diag_arbol(); }
+
     if (s_diag_paso > 0 && s_diag_paso <= DIAG_PANTALLAS) {
         view_registro_diag_pantalla(s_diag_paso - 1);
     } else if (s_diag_paso > DIAG_PANTALLAS &&
@@ -298,7 +308,9 @@ static void pernocta_diag_cb(lv_timer_t *t)
         view_registro_diag_arbol(s_diag_paso - DIAG_PANTALLAS - 1);
     }
 
-    if (s_diag_paso == 0) nav_ir_a_registros();
+    if (s_diag_paso == 0) nav_ir_a_info();
+    if (s_diag_paso == 1) nav_ir_a_inclinacion();
+    if (s_diag_paso == 2) nav_ir_a_registros();
     if (s_diag_paso < DIAG_PANTALLAS) {
         view_registro_mostrar_pantalla(s_diag_paso);
     } else if (s_diag_paso < DIAG_PANTALLAS + DIAG_FORMULARIOS) {
