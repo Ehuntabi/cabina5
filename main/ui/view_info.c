@@ -324,9 +324,9 @@ static lv_color_t color_for_frigo(int16_t centi) {
  * Las letras NO se tocan: el tamano de letra ya estaba calculado para los
  * 181 ppp de esta pantalla, y ese numero no ha cambiado. Lo que cambia es el
  * sitio que hay alrededor. */
-#define BAT_W        190
-#define BAT_H        138
-#define BAT_BORNE_W   32
+#define BAT_W        150
+#define BAT_H        156
+#define BAT_BORNE_W   26
 #define BAT_BORNE_H   11
 
 /* Hueco fijo del numero de tension/corriente, con la unidad justo detras. Ver
@@ -342,8 +342,24 @@ static lv_color_t color_for_frigo(int16_t centi) {
  *
  * 210 (bateria) + 4 de hueco + 246 (aguas y temperaturas) + 8 de margen = 480
  * clavados: la rejilla no depende de que la pantalla mida lo que mide hoy. */
-#define BAT_CARD_H      210
-#define TARJETAS_CARD_H 246
+/* ── REPARTO NUEVO (9-oct-2026): TRES FILAS ─────────────────────────────────
+ *
+ * A peticion del usuario: "trasladar la card bateria abajo y dejar el hueco que
+ * ocupa ahora solo con marco hasta que se llene de contenido gps". O sea:
+ *
+ *     fila 0:  [ MARCO GPS, vacio, todo el ancho ]   <- se llenara con
+ *     fila 1:  [ BATERIA, todo el ancho ]               velocidad, satelites,
+ *     fila 2:  [ AGUAS | TEMPERATURAS ]                 km y tiempo de viaje
+ *
+ * Los 472 utiles (480 menos los 4+4 de margen) se reparten: 116 + 4 + 184 + 4 +
+ * 164. La bateria baja de 210 a 184 -- su dibujo mide 138 y el titulo 33, o sea
+ * 171 + 8 de relleno = 179, asi que 184 es lo justo. */
+#define GPS_CARD_H      116
+#define BAT_CARD_H      184
+/* 246 era el alto fijo de la fila de abajo. Ya no se usa: esa fila es elastica
+ * (LV_GRID_FR(1)) y se lleva todo el alto que sobre, que es lo que quita los
+ * 12 px muertos del fondo. Se deja el numero documentado por si hay que volver. */
+#define TARJETAS_CARD_H 246   /* (ya no se usa: ver row_dsc) */
 
 /* El titulo de la tarjeta ocupa 8 (relleno) + 24 (letra) + 10 de aire = 42 */
 #define BAT_TITULO_H     42
@@ -481,13 +497,26 @@ static void led_set(lv_obj_t *led, uint8_t mode)
  * como un deposito. El de grises es un bloque del alto de dos segmentos y algo
  * mas, para que pese lo mismo que la columna sin ser un puntito. */
 #define LED_SEG_W    84
-/* 22 de alto y no 16: cada segmento lleva a su izquierda su fraccion (1/4,
- * 2/4...) en letra 18, que ocupa 22 px de alto. La fila DEBE medir eso o mas:
- * con menos el texto no cabe y LVGL lo recorta entero -- no se ve ninguna
- * fraccion. */
-#define LED_SEG_H    22
+/* ── LAS FRACCIONES MANDA EL ALTO DE LA FILA, Y ESO FUE UN FALLO (9-oct-2026) ─
+ *
+ * El usuario lo describio asi: "en aguas el 1/4 se ve, 2/4, 3/4 y 4/4 se
+ * recortan". La causa: el comentario de aqui decia que la fraccion se pinta "en
+ * letra 18, que ocupa 22 px de alto", y con eso la fila se fijo en 22. Pero la
+ * letra que se pide de verdad es `lv_font_montserrat_14`, y estilos.h traduce
+ * ese nombre ENCADENANDO las macros (14 -> 20 -> 26): la letra que se pinta es
+ * la 26, cuya linea mide 33 px. Con la fila en 22 el rotulo salia cortado.
+ *
+ * Ahora el alto de la fila NO se escribe a mano: se le pregunta a la fuente
+ * (lv_font_get_line_height) en el sitio donde se crea. Asi, si algun dia cambia
+ * la escala, la fila crece sola en vez de recortar el texto otra vez.
+ *
+ * El segmento sube de 22 a 27 para seguir leyendose como un deposito: con la
+ * fila en 33 y el segmento en 22 quedaba demasiado aire entre barra y barra. */
+#define LED_SEG_H    18
 #define LED_SEG_GAP   3
-#define LED_FRAC_W   38   /* hueco fijo de la fraccion, para que no se recorte */
+/* Hueco de la fraccion: se calcula del texto de verdad (ver el bucle), no a
+ * mano; 38 se queda como el minimo por si la fuente no midiera nada. */
+#define LED_FRAC_W   38
 /* Grises: MISMA forma y ancho que los segmentos de limpia, pero de una pieza en
  * vez de cuatro. Antes era un circulo, y un redondel grande al lado de una
  * columna de rectangulos quedaba raro. Se distingue de sobra por ser un bloque
@@ -589,9 +618,19 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
      * barra queden a la misma altura. El indice 0 es 1/4 y queda ABAJO
      * (COLUMN_REVERSE): el deposito se llena de abajo arriba. */
     static const char *const FRACCION[4] = { "1/4", "2/4", "3/4", "4/4" };
+    /* La fuente de las fracciones y SUS medidas de verdad, preguntadas a la
+     * fuente (ver el comentario de LED_SEG_H: darlas por supuestas es lo que
+     * recortaba el texto). */
+    /* lv_font_montserrat_18 y NO la 14: la 14 es macro en estilos.h y el
+     * preprocesador la encadena hasta la 26 (linea de 33 px), que con la fila
+     * de aguas ya recortada por el reparto de tres filas no cabe. La 18 no es
+     * macro: se queda en 18, con linea de 22. */
+    const lv_font_t *fuente_frac = &lv_font_montserrat_18;
+    const lv_coord_t frac_alto  = lv_font_get_line_height(fuente_frac);
+    const lv_coord_t frac_ancho = texto_ancho(fuente_frac, FRACCION[3]) + 4;
     for (int i = 0; i < 4; i++) {
         lv_obj_t *fila_seg = lv_obj_create(leds);
-        lv_obj_set_size(fila_seg, LED_FRAC_W + 12 + LED_SEG_W, LED_SEG_H);
+        lv_obj_set_size(fila_seg, frac_ancho + 12 + LED_SEG_W, frac_alto);
         lv_obj_set_style_bg_opa(fila_seg, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(fila_seg, 0, 0);
         lv_obj_set_style_pad_all(fila_seg, 0, 0);
@@ -604,8 +643,8 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
         lv_obj_t *frac = lv_label_create(fila_seg);
         lv_label_set_text(frac, FRACCION[i]);
         paleta_texto(frac, 0xCCCCCC, 0xFFFFFF);
-        lv_obj_set_style_text_font(frac, &lv_font_montserrat_14, 0);
-        lv_obj_set_width(frac, LED_FRAC_W);
+        lv_obj_set_style_text_font(frac, fuente_frac, 0);
+        lv_obj_set_width(frac, frac_ancho);
         lv_obj_set_style_text_align(frac, LV_TEXT_ALIGN_RIGHT, 0);
         lv_obj_clear_flag(frac, LV_OBJ_FLAG_CLICKABLE);
 
@@ -1366,8 +1405,21 @@ void view_info_create(lv_obj_t *parent)
      * no depende del ancho. Las de abajo se quedan con lo que sobra (246),
      * tambien fijo, para que el reparto no baile si algun dia cambia el ancho.
      * 210 + 4 + 246 + 8 de margen = 480 exactos. */
-    static lv_coord_t col_dsc[] = {LV_GRID_FR(2), LV_GRID_FR(3), LV_GRID_TEMPLATE_LAST};
-    static lv_coord_t row_dsc[] = {BAT_CARD_H, TARJETAS_CARD_H, LV_GRID_TEMPLATE_LAST};
+    /* COLUMNAS IGUALES Y LA FILA DE ABAJO ELASTICA (9-oct-2026).
+     *
+     * Antes eran FR(2) y FR(3) -- aguas 317 px y temperaturas 475 -- y las dos
+     * filas de alto FIJO: 210 + 4 + 246 = 460 de los 472 utiles, o sea 12 px
+     * MUERTOS al fondo. El usuario lo vio: "el contenido desaprovecha espacio
+     * por debajo".
+     *
+     * Reparto nuevo: la franja de bateria se queda con su alto (es el dibujo,
+     * que no depende del ancho) y la fila de abajo se lleva TODO lo que sobre,
+     * con las dos tarjetas a partes iguales. Aguas es la que sale ganando: con
+     * 317 px la columna de fracciones mas la barra mas el bloque de grises
+     * quedaba apretadisima. */
+    static lv_coord_t col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1),
+                                   LV_GRID_TEMPLATE_LAST};
+    static lv_coord_t row_dsc[] = {GPS_CARD_H, LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
 
     lv_obj_t *grid = lv_obj_create(parent);
     lv_obj_set_size(grid, lv_pct(100), lv_pct(100));
@@ -1389,8 +1441,22 @@ void view_info_create(lv_obj_t *parent)
     /* --- Bateria: toda la franja de arriba -------------------------------- */
     s_bat_card = /* La de bateria manda, y su titulo tambien: 24 contra los 20 de las de
      * abajo. */
-    make_card(grid, COL_BORDER_BAT, "BATERIA", 0, 2, 0, &s_bat_dot, true,
+    make_card(grid, COL_BORDER_BAT, "BATERIA", 1, 1, 1, &s_bat_dot, true,
                            &lv_font_montserrat_24);
+
+    /* --- GPS: de momento SOLO EL MARCO ------------------------------------
+     *
+     * Va vacio a proposito: aqui iran la velocidad real, los satelites, los
+     * kilometros del viaje y el tiempo de conduccion, y esos datos HOY NO
+     * LLEGAN (el protocolo con la P4 solo manda el estado del GPS; ver
+     * mini_proto.h). Se reserva el sitio ya para que el reparto de la pantalla
+     * no haya que rehacerlo cuando lleguen.
+     *
+     * El titulo y el color son provisionales: cuando tenga contenido, este
+     * marco se cambia por una tarjeta de verdad. El gris es a proposito, para
+     * que se vea que esta sin estrenar y no parezca una tarjeta rota. */
+    make_card(grid, lv_color_hex(0x888888), "GPS", 0, 3, 0, NULL, true,
+              &lv_font_montserrat_20);
 
     /* El dibujo va CENTRADO en la tarjeta y es el protagonista: los voltios y
      * amperios a su izquierda, la bateria del motor a su derecha.
@@ -1402,7 +1468,7 @@ void view_info_create(lv_obj_t *parent)
      * junto a la rejilla en view_info_create): el bloque dibujo+bornes se
      * centra en el hueco que queda POR DEBAJO del titulo. */
     lv_obj_t *dib = make_bateria_dibujo(s_bat_card);
-    lv_obj_align(dib, LV_ALIGN_TOP_MID, 0, BAT_DIB_Y);
+    lv_obj_align(dib, LV_ALIGN_TOP_MID, 0, 118);
 
     /* Numero y UNIDAD van en etiquetas separadas, y no en un solo texto, para que
      * la V y la A no se muevan: el numero se alinea a la DERECHA dentro de un
@@ -1416,7 +1482,7 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_width(s_bat_volt, BAT_NUM_W);
     lv_obj_set_style_text_align(s_bat_volt, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_clear_flag(s_bat_volt, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_volt, LV_ALIGN_LEFT_MID, BAT_NUM_X, -BAT_NUM_Y);
+    lv_obj_align(s_bat_volt, LV_ALIGN_TOP_MID, 0, 34);
 
     lv_obj_t *u_v = lv_label_create(s_bat_card);
     lv_label_set_text(u_v, "V");
@@ -1432,7 +1498,7 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_width(s_bat_amp, BAT_NUM_W);
     lv_obj_set_style_text_align(s_bat_amp, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_clear_flag(s_bat_amp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_amp, LV_ALIGN_LEFT_MID, BAT_NUM_X, BAT_NUM_Y);
+    lv_obj_align(s_bat_amp, LV_ALIGN_TOP_MID, 0, 76);
 
     s_bat_amp_u = lv_label_create(s_bat_card);
     lv_label_set_text(s_bat_amp_u, "A");
@@ -1457,7 +1523,7 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_flex_align(col_motor, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(col_motor, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(col_motor, LV_ALIGN_RIGHT_MID, -18, 6);
+    lv_obj_align(col_motor, LV_ALIGN_BOTTOM_MID, 0, -6);
 
     lv_obj_t *aux_tit = lv_label_create(col_motor);
     lv_label_set_text(aux_tit, "MOTOR");
@@ -1489,7 +1555,7 @@ void view_info_create(lv_obj_t *parent)
     make_water_cell(grid, 0, 1, 1);
 
     /* --- Abajo derecha: las dos temperaturas juntas ----------------------- */
-    lv_obj_t *temp_card = make_card(grid, COL_BORDER_COLD, "TEMPERATURAS", 1, 1, 1, NULL, true,
+    lv_obj_t *temp_card = make_card(grid, COL_BORDER_COLD, "TEMPERATURAS", 2, 1, 1, NULL, true,
                                        &lv_font_montserrat_20);
     /* El valor del frigo va en un hueco fijo y la flecha al borde: asi la
      * flecha no se mueve cuando el numero cambia de ancho ("-5.0" contra

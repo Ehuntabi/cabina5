@@ -38,42 +38,53 @@ static int s_paso = BRILLO_NIVELES_N - 1;      /* el maximo */
 
 /* ── La rampa ─────────────────────────────────────────────────────────────── */
 #define RAMPA_PASOS   8
-#define RAMPA_MS      15
+#define RAMPA_MS      20
 
 static esp_timer_handle_t s_rampa = NULL;
-static int s_rampa_desde, s_rampa_hasta, s_rampa_i;
+static volatile int s_rampa_hasta = BRILLO_ALTO;   /* destino; lo lee el callback */
 
+/* Un tic de la rampa: acerca la luz UN paso al destino.
+ *
+ * ── POR QUE NO SE ARRANCA NI SE PARA (9-oct-2026) ───────────────────────────
+ *
+ * El usuario dijo "el cambio de brillo no siempre funciona", y tenia razon.
+ * Antes, cada toque hacia esp_timer_stop() y esp_timer_start_periodic() SIN
+ * MIRAR lo que devolvian: si el temporizador estaba ejecutando este callback en
+ * ese instante, el stop FALLA (ESP_ERR_INVALID_STATE, no espera a que acabe) y
+ * el start de despues tambien, asi que el brillo nuevo no se aplicaba nunca y
+ * el toque se perdia en silencio.
+ *
+ * Ahora el temporizador esta SIEMPRE en marcha (lo arranca brillo_init) y el
+ * callback no arranca ni para nada: mira donde esta la luz, mira el destino, y
+ * da un paso. Sin stop ni start no hay carrera posible, y un toque que llegue
+ * en mal momento solo hace que la rampa cambie de destino a mitad de camino --
+ * que es justo lo que se quiere.
+ *
+ * El coste es un tic cada 20 ms que casi siempre no hace nada (dos enteros y
+ * una comparacion). */
 static void rampa_cb(void *arg)
 {
     (void)arg;
-    s_rampa_i++;
-    if (s_rampa_i >= RAMPA_PASOS) {
-        bsp_display_brightness_set(s_rampa_hasta);
-        esp_timer_stop(s_rampa);
-        return;
-    }
-    bsp_display_brightness_set(s_rampa_desde +
-                               (s_rampa_hasta - s_rampa_desde) * s_rampa_i / RAMPA_PASOS);
+    const int actual = bsp_display_brightness_get();
+    const int hasta  = s_rampa_hasta;
+    if (actual == hasta) return;
+
+    int delta = hasta - actual;
+    int paso  = delta / RAMPA_PASOS;
+    if (paso == 0) paso = (delta > 0) ? 1 : -1;   /* el ultimo tramo, de uno en uno */
+    bsp_display_brightness_set(actual + paso);
 }
 
+/* Deja la luz en 'pct' con una rampa suave. Solo apunta el destino: del resto
+ * se encarga el tic. */
 static void aplicar_con_rampa(int pct)
 {
-    s_rampa_desde = bsp_display_brightness_get();
     s_rampa_hasta = pct;
-    s_rampa_i = 0;
-
     if (!s_rampa) {
-        const esp_timer_create_args_t args = {
-            .callback = rampa_cb,
-            .name = "brillo_rampa",
-        };
-        if (esp_timer_create(&args, &s_rampa) != ESP_OK) {
-            bsp_display_brightness_set(pct);   /* sin rampa, al menos que cambie */
-            return;
-        }
+        /* Solo puede pasar si brillo_init() no llego a crear el temporizador:
+         * mas vale un salto que un toque que no hace nada. */
+        bsp_display_brightness_set(pct);
     }
-    esp_timer_stop(s_rampa);
-    esp_timer_start_periodic(s_rampa, RAMPA_MS * 1000);
 }
 
 /* ── API ──────────────────────────────────────────────────────────────────── */
@@ -104,7 +115,23 @@ void brillo_init(void)
     ESP_LOGI(TAG, "Brillo inicial %u%% (paso %d de %d; en NVS habia %u%%, no se aplica)",
              (unsigned)s_pasos[s_paso], s_paso + 1, BRILLO_NIVELES_N,
              (unsigned)guardado);
+
+    s_rampa_hasta = s_pasos[s_paso];
     bsp_display_brightness_set(s_pasos[s_paso]);
+
+    /* El tic de la rampa, EN MARCHA DESDE AQUI Y PARA SIEMPRE (ver rampa_cb:
+     * arrancarlo y pararlo en cada toque es lo que hacia que el cambio de brillo
+     * no siempre funcionara). Si no se puede crear, se sigue funcionando sin
+     * rampa: aplicar_con_rampa() aplica el valor de golpe. */
+    const esp_timer_create_args_t args = { .callback = rampa_cb, .name = "brillo_rampa" };
+    if (esp_timer_create(&args, &s_rampa) != ESP_OK) {
+        s_rampa = NULL;
+        ESP_LOGW(TAG, "sin temporizador de rampa: el brillo cambiara de golpe");
+    } else if (esp_timer_start_periodic(s_rampa, RAMPA_MS * 1000) != ESP_OK) {
+        ESP_LOGW(TAG, "no arranca el tic de la rampa: el brillo cambiara de golpe");
+        esp_timer_delete(s_rampa);
+        s_rampa = NULL;
+    }
 }
 
 uint8_t brillo_nivel(void) { return s_pasos[s_paso]; }
