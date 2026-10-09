@@ -4905,7 +4905,12 @@ static void crear_menus(lv_obj_t *parent)
 
     /* --- 1. Principal: sin salida en marcha --- */
     body = pantalla_crear(parent, PAN_PRINCIPAL, NULL, -1);
-    lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+    /* El cuerpo, CENTRADO en vertical. En la referencia (480x320) la tarjeta
+     * verde ocupa casi todo el alto y el boton pequeno va debajo, pegados: no
+     * queda banda negra al fondo. Aqui el contenido acababa en y=400 de 480 y
+     * dejaba 80 px vacios abajo. Con JUSTIFY_CENTER el bloque queda centrado en
+     * el hueco, que es como se ve en la captura. */
+    lv_obj_set_flex_align(body, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     boton_grande(body, ICO_MAS, "NUEVA SALIDA", "viaje o gestion suelta",
                  COL_ACCION_OK, ir_a_cb, (void *)(uintptr_t)PAN_TIPO);
