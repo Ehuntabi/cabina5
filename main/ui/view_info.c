@@ -191,6 +191,11 @@ void view_info_set_contraste(bool activo)
 /* Bateria: la tarjeta grande de arriba, con sus piezas sueltas. */
 static lv_obj_t   *s_bat_card;
 static lv_obj_t   *s_bat_dot;
+/* El marco de GPS de arriba: es el que lleva el punto de conexion y el icono
+ * del GPS desde el 9-oct-2026 (pedido: "los iconos gps y el led verde de
+ * comunicacion llevalos arriba"). Antes iban los dos dentro de la tarjeta de
+ * bateria, que ahora es una columna estrecha y no tiene sitio para ellos. */
+static lv_obj_t   *s_gps_card;
 static lv_obj_t   *s_bat_soc;      /* el numero, DENTRO del dibujo */
 static lv_obj_t   *s_bat_volt;     /* solo el numero, alineado a la derecha */
 static lv_obj_t   *s_bat_amp;
@@ -1441,7 +1446,7 @@ void view_info_create(lv_obj_t *parent)
     /* --- Bateria: toda la franja de arriba -------------------------------- */
     s_bat_card = /* La de bateria manda, y su titulo tambien: 24 contra los 20 de las de
      * abajo. */
-    make_card(grid, COL_BORDER_BAT, "BATERIA", 1, 1, 1, &s_bat_dot, true,
+    make_card(grid, COL_BORDER_BAT, "BATERIA", 1, 1, 1, NULL, true,
                            &lv_font_montserrat_24);
 
     /* --- GPS: de momento SOLO EL MARCO ------------------------------------
@@ -1455,8 +1460,8 @@ void view_info_create(lv_obj_t *parent)
      * El titulo y el color son provisionales: cuando tenga contenido, este
      * marco se cambia por una tarjeta de verdad. El gris es a proposito, para
      * que se vea que esta sin estrenar y no parezca una tarjeta rota. */
-    make_card(grid, lv_color_hex(0x888888), "GPS", 0, 3, 0, NULL, true,
-              &lv_font_montserrat_20);
+    s_gps_card = make_card(grid, lv_color_hex(0x888888), "GPS", 0, 3, 0,
+                           &s_bat_dot, true, &lv_font_montserrat_20);
 
     /* El dibujo va CENTRADO en la tarjeta y es el protagonista: los voltios y
      * amperios a su izquierda, la bateria del motor a su derecha.
@@ -1685,7 +1690,7 @@ void view_info_create(lv_obj_t *parent)
      * rejilla; con la tarjeta ocupando los 800 px, ese mismo (14, 11) lo
      * dejaba clavado SOBRE EL BORDE de la tarjeta. Colgado de la tarjeta va
      * donde tiene que ir sin cuentas: su esquina de dentro. */
-    s_gps = lv_label_create(s_bat_card);
+    s_gps = lv_label_create(s_gps_card);
     lv_label_set_text(s_gps, LV_SYMBOL_GPS);
     /* Dentro de la tarjeta, en su esquina de arriba a la izquierda: ahi no hay
      * nada -- el punto de conexion va arriba a la DERECHA (make_card lo alinea
