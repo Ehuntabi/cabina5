@@ -11,7 +11,7 @@
  *   curl -sL -o Montserrat-VF.ttf \
  *     https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/Montserrat%5Bwght%5D.ttf
  *   fonttools varLib.instancer -o Montserrat-Bold.ttf Montserrat-VF.ttf wght=700
- *   for SZ in 26 34 40; do \
+ *   for SZ in 26 34 40 56 64; do \
  *     lv_font_conv --font Montserrat-Bold.ttf --range 0x20-0x7E --bpp 4 \
  *       --format lvgl --lv-include lvgl.h --no-compress \
  *       --size $SZ --lv-font-name lv_font_montserrat_bold_$SZ \
@@ -40,3 +40,9 @@ LV_FONT_DECLARE(lv_font_montserrat_bold_26);
 LV_FONT_DECLARE(lv_font_montserrat_bold_32);
 LV_FONT_DECLARE(lv_font_montserrat_bold_34);
 LV_FONT_DECLARE(lv_font_montserrat_bold_40);
+/* 56 y 64: generadas el 9-oct-2026 para el NUMERO DE LA VELOCIDAD de la
+ * pantalla de datos. La 48 normal es el techo de LVGL y el usuario la queria
+ * "dos tamanos mas grande": la escalera de este proyecto dice que despues de la
+ * 48 va la 56, asi que la 64 son los dos escalones que pedia. */
+LV_FONT_DECLARE(lv_font_montserrat_bold_56);
+LV_FONT_DECLARE(lv_font_montserrat_bold_64);

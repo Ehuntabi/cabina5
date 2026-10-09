@@ -217,6 +217,35 @@ así una pantalla a oscuras nunca se queda grabada y siempre se sale
 desenchufando. El cambio de nivel se aplica con una rampa de 8 tramos de 15 ms
 (antes saltaba de golpe, y eso era el "no funciona bien").
 
+## Credenciales: hacen falta DOS ficheros, y solo uno se versiona
+
+El repositorio es **público**, así que las claves de verdad **no** están en él.
+`main/wifi_credentials.h` va versionado y solo lleva valores de mentira
+(`"CAMBIAR"`), que es con lo que compila el CI. Las de verdad viven en
+`main/wifi_credentials_local.h`, que **no se versiona** y que el primero incluye
+solo si existe.
+
+Para compilar en casa **con las claves buenas** hay que crear
+`main/wifi_credentials_local.h` con los cuatro valores (y sus `#undef`):
+
+```c
+#pragma once
+#undef  WIFI_CRED_SSID
+#define WIFI_CRED_SSID "VictronConfig"   /* el AP de la P4 */
+#undef  WIFI_CRED_PASS
+#define WIFI_CRED_PASS "..."
+#undef  PORTAL_CRED_USER
+#define PORTAL_CRED_USER "victron"       /* el portal de la P4 */
+#undef  PORTAL_CRED_PASS
+#define PORTAL_CRED_PASS "..."
+```
+
+Sin ese fichero el proyecto **compila igual** (con los "CAMBIAR"), pero la placa
+no se asociaría al AP de la P4 ni podría mandarle apuntes. Esto se rompió el
+9-oct-2026: al hacer público el repositorio se quitó el fichero con las claves y
+nadie dejó uno de mentira, así que **el CI estuvo 24 h sin compilar** sin que se
+notara (en el PC de casa sí, porque allí estaba el fichero).
+
 ## Cómo se prueba en la placa
 
 ```bash
