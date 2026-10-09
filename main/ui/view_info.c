@@ -196,6 +196,10 @@ static lv_obj_t   *s_bat_dot;
  * comunicacion llevalos arriba"). Antes iban los dos dentro de la tarjeta de
  * bateria, que ahora es una columna estrecha y no tiene sitio para ellos. */
 static lv_obj_t   *s_gps_card;
+/* La VELOCIDAD, en el centro del marco de GPS y en grande: es el dato que se
+ * mira de un vistazo con el vehiculo en marcha. Sale "--" porque la P4 aun no
+ * la manda (ver el comentario del marco, en view_info_create). */
+static lv_obj_t   *s_gps_vel;
 static lv_obj_t   *s_bat_soc;      /* el numero, DENTRO del dibujo */
 static lv_obj_t   *s_bat_volt;     /* solo el numero, alineado a la derecha */
 static lv_obj_t   *s_bat_amp;
@@ -1433,7 +1437,11 @@ void view_info_create(lv_obj_t *parent)
      * quedaba apretadisima. */
     static lv_coord_t col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1),
                                    LV_GRID_TEMPLATE_LAST};
-    static lv_coord_t row_dsc[] = {GPS_CARD_H, BAT_BAR_H, LV_GRID_FR(1),
+    /* La fila de abajo, con alto FIJO y no elastica: el usuario las veia
+     * "un poco menos altas". Los 23 px que sobran se los queda el palo de la
+     * bateria, que va colocado a mano y baja hasta el borde de la pantalla:
+     * asi la T asoma por debajo de las dos tarjetas. */
+    static lv_coord_t row_dsc[] = {GPS_CARD_H, BAT_BAR_H, 185,
                                    LV_GRID_TEMPLATE_LAST};
 
     lv_obj_t *grid = lv_obj_create(parent);
@@ -1516,6 +1524,24 @@ void view_info_create(lv_obj_t *parent)
      * que se vea que esta sin estrenar y no parezca una tarjeta rota. */
     s_gps_card = make_card(grid, lv_color_hex(0x888888), "GPS", 0, 3, 0,
                            &s_bat_dot, true, &lv_font_montserrat_20);
+
+    /* La velocidad, CENTRADA y en grande (letra 48, la mayor que trae LVGL).
+     * Debajo y en gris, la unidad. Hoy pone "--": la P4 no manda la velocidad
+     * todavia -- su GPS no la saca del NMEA y el protocolo no tiene el campo.
+     * El sitio se reserva ya para que cuando llegue no haya que rehacer nada. */
+    s_gps_vel = lv_label_create(s_gps_card);
+    lv_label_set_text(s_gps_vel, "--");
+    lv_obj_set_style_text_font(s_gps_vel, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_color(s_gps_vel, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_clear_flag(s_gps_vel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(s_gps_vel, LV_ALIGN_CENTER, 0, -10);
+
+    lv_obj_t *gps_u = lv_label_create(s_gps_card);
+    lv_label_set_text(gps_u, "km/h");
+    lv_obj_set_style_text_font(gps_u, &lv_font_montserrat_26, 0);
+    lv_obj_set_style_text_color(gps_u, lv_color_hex(0x888888), 0);
+    lv_obj_clear_flag(gps_u, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(gps_u, LV_ALIGN_CENTER, 0, 40);
 
     /* El dibujo va CENTRADO en la tarjeta y es el protagonista: los voltios y
      * amperios a su izquierda, la bateria del motor a su derecha.
