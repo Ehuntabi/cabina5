@@ -14,7 +14,7 @@
  * ESCALA (un escalon cada uno). Los tamanos nuevos NO son inventados: LVGL trae
  * Montserrat de 2 en 2 hasta 48, asi que el escalon siguiente al 22 es el 26 y
  * al 24 el 30, aunque la UI no los usara nunca antes:
- *     viejo   ->  nuevo
+ *     viejo   ->  nuevo (LO QUE DICE LA IDEA)
  *      14     ->   20
  *      16     ->   22
  *      20     ->   26
@@ -23,6 +23,29 @@
  *      32     ->   40
  *      40     ->   48
  *      48     ->   56   (AQUI NO HAY: LVGL solo llega a 48; se queda en 48)
+ *
+ * ── ⚠ LO QUE PASA DE VERDAD, COMPROBADO EL 9-oct-2026 (gcc -E sobre este mismo
+ *    bloque), porque las macros se ENCADENAN: el nombre nuevo de una linea es a
+ *    su vez una macro de las de arriba, asi que el preprocesador traduce DOS
+ *    VECES. `lv_font_montserrat_16` -> FUENTE_PEQUENA -> lv_font_montserrat_22
+ *    -> (¡macro otra vez!) FUENTE_MEDIA -> lv_font_montserrat_30. Resultado real:
+ *
+ *      14 -> 26      16 -> 30      20 -> 26
+ *      22 -> 30      24 -> 40      32 -> 40
+ *
+ *    O sea: la 14 y la 20 acaban en la MISMA (26), la 16 y la 22 en la MISMA
+ *    (30), y la 24 y la 32 en la MISMA (40). La UI tiene hoy tres tamanos
+ *    efectivos donde el diseno dice cinco.
+ *
+ *    LA PLACA SE VE ASI Y AL USUARIO LE GUSTA, asi que esto NO se toca sin
+ *    medir antes y despues: "arreglarlo" a una sola traduccion ENCOGE la letra
+ *    de media interfaz (14 pasaria de 26 a 20). Pero conviene saberlo, porque
+ *    explica dos cosas que han costado tiempo: por que "subir un escalon" a
+ *    veces no cambia nada o cambia de mas, y por que al pedir "al siguiente
+ *    tamano" hubo que escribir un tamano LITERAL (lv_font_montserrat_28, que no
+ *    es macro y por eso se queda en 28) en vez de subir el nombre viejo.
+ *    La medicion de la linea que se ve en cada widget esta en el volcado del
+ *    arbol (form_volcar imprime el alto real de cada rotulo).
  *
  * LIMITE CONOCIDO: LVGL no trae Montserrat 56 (su fuente mas grande es la 48),
  * asi que el titular de 48 no puede subir. Si algun dia hace falta, hay que

@@ -75,29 +75,33 @@ static void aplicar_con_rampa(int pct)
 }
 
 /* ── API ──────────────────────────────────────────────────────────────────── */
+/* ARRANCA SIEMPRE AL MAXIMO, y el valor guardado NO se aplica al encender.
+ *
+ * POR QUE (9-oct-2026, con la placa delante y el usuario diciendo "la pantalla
+ * esta en negro"): al pasar de dos niveles a cinco, el arranque se puso "el paso
+ * de en medio" (60 %) y con el tema oscuro de esta interfaz eso se ve como una
+ * pantalla apagada -- es el mismo fallo que ya paso el 8-oct con el 30 %, que
+ * esta escrito en el README ("La pantalla esta negra -> mirar el brillo antes
+ * que nada"). Y como el valor se recuerda, un arranque a oscuras se quedaba
+ * grabado y volvia a pasar en el siguiente encendido: la pantalla se apagaba
+ * sola y no habia forma de salir sin saber donde tocar.
+ *
+ * LA REGLA AHORA: la luz NUNCA puede depender de lo que quedo guardado. Al
+ * encender, 100 %. Si te pasas bajando, se desenchufa y vuelve -- siempre hay
+ * una salida. Lo que se guarda sigue sirviendo para recordar por donde ibas
+ * dentro de la sesion (y para el contraste de view_info.c). */
 void brillo_init(void)
 {
-    uint8_t v = 0;
+    /* Se sigue leyendo para dejar constancia en el log de lo que habia
+     * guardado: si el usuario dice "arranco apagada", el log lo dice. */
+    uint8_t guardado = 0;
+    if (load_brightness(&guardado) != ESP_OK) guardado = 0;
 
-    if (load_brightness(&v) == ESP_OK && v >= s_pasos[0] &&
-        v <= s_pasos[BRILLO_NIVELES_N - 1]) {
-        /* El mas parecido a lo guardado (por si la lista de pasos cambio) */
-        int mejor = 0, mejor_dif = 1000;
-        for (int i = 0; i < BRILLO_NIVELES_N; i++) {
-            const int dif = (s_pasos[i] > v) ? (s_pasos[i] - v) : (v - s_pasos[i]);
-            if (dif < mejor_dif) { mejor_dif = dif; mejor = i; }
-        }
-        s_paso = mejor;
-    } else {
-        /* Primera vez (o valor imposible): el de en medio, y se corrige EN
-         * DISCO para que lo guardado no diga una cosa mientras la pantalla hace
-         * otra. */
-        s_paso = BRILLO_NIVELES_N / 2;
-        save_brightness(s_pasos[s_paso]);
-    }
+    s_paso = BRILLO_NIVELES_N - 1;                  /* el maximo */
 
-    ESP_LOGI(TAG, "Brillo inicial %u%% (paso %d de %d)",
-             (unsigned)s_pasos[s_paso], s_paso + 1, BRILLO_NIVELES_N);
+    ESP_LOGI(TAG, "Brillo inicial %u%% (paso %d de %d; en NVS habia %u%%, no se aplica)",
+             (unsigned)s_pasos[s_paso], s_paso + 1, BRILLO_NIVELES_N,
+             (unsigned)guardado);
     bsp_display_brightness_set(s_pasos[s_paso]);
 }
 
@@ -105,7 +109,10 @@ uint8_t brillo_nivel(void) { return s_pasos[s_paso]; }
 
 uint8_t brillo_alternar(void)
 {
-    s_paso = (s_paso + 1) % BRILLO_NIVELES_N;      /* del maximo vuelve al minimo */
+    /* HACIA ABAJO y dando la vuelta: 100 -> 80 -> 60 -> 40 -> 20 -> 100. Al
+     * reves que antes (que subia), porque ahora se arranca arriba: lo primero
+     * que se quiere al tocar es bajar el deslumbramiento, no subirlo. */
+    s_paso = (s_paso + BRILLO_NIVELES_N - 1) % BRILLO_NIVELES_N;
     aplicar_con_rampa(s_pasos[s_paso]);
 
     /* Se escribe solo al cambiarlo, no periodicamente: son dos toques de vez en

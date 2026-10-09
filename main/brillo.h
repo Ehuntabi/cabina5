@@ -29,13 +29,19 @@ extern "C" {
 #define BRILLO_ALTO  100   /* el maximo (lo usa view_info para el contraste) */
 #define BRILLO_BAJO   20   /* el minimo */
 
-/* Aplica el nivel guardado (el de en medio la primera vez). Necesita NVS ya
- * arrancado y el display ya iniciado, porque el PWM de la retroiluminacion se
- * configura dentro de bsp_display_start_with_config(). */
+/* Enciende la retroiluminacion AL MAXIMO, siempre, mire lo que mire la NVS.
+ * Necesita NVS ya arrancado y el display ya iniciado, porque el PWM de la
+ * retroiluminacion se configura dentro de bsp_display_start_with_config().
+ *
+ * NO aplica el valor guardado a proposito: con el tema oscuro de esta interfaz,
+ * arrancar en un paso bajo se ve como "la pantalla esta negra" y, como el valor
+ * se recuerda, el siguiente encendido volvia a salir apagado. Arrancando al
+ * maximo, un desliz bajando el brillo siempre se arregla desenchufando. */
 void brillo_init(void);
 
-/* Sube al siguiente paso (y del maximo vuelve al minimo), lo aplica con una
- * rampa suave, lo guarda y devuelve el nivel nuevo. */
+/* BAJA al siguiente paso (100 -> 80 -> 60 -> 40 -> 20 -> 100), lo aplica con una
+ * rampa suave, lo guarda y devuelve el nivel nuevo. Va hacia abajo porque ahora
+ * se arranca arriba: lo que se quiere al tocar es quitar deslumbramiento. */
 uint8_t brillo_alternar(void);
 
 /* Nivel actual (porcentaje), para pintar acorde al arrancar. */
