@@ -1570,7 +1570,7 @@ void view_info_create(lv_obj_t *parent)
      * Se monta IGUAL que MOTOR: una columna con el rotulo arriba y el valor
      * debajo, para que las dos lean igual. */
     lv_obj_t *col_hab = lv_obj_create(s_bat_card);
-    lv_obj_set_size(col_hab, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_size(col_hab, 270, 92);
     lv_obj_set_style_bg_opa(col_hab, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(col_hab, 0, 0);
     lv_obj_set_style_pad_all(col_hab, 0, 0);
@@ -1579,7 +1579,7 @@ void view_info_create(lv_obj_t *parent)
      * rotulos quedaban a distinta altura ("que este a la misma altura... sea la
      * misma que MOTOR"). Igualando el hueco, los dos bloques miden lo mismo y
      * los rotulos caen en la misma linea. */
-    lv_obj_set_style_pad_row(col_hab, 10, 0);
+    lv_obj_set_style_pad_row(col_hab, 8, 0);
     lv_obj_clear_flag(col_hab, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_flex_flow(col_hab, LV_FLEX_FLOW_COLUMN);
     /* CROSS EN CENTER, como MOTOR: asi el rotulo queda CENTRADO sobre su valor
@@ -1588,7 +1588,7 @@ void view_info_create(lv_obj_t *parent)
      * misma alineacion y por eso se leen igual. */
     lv_obj_set_flex_align(col_hab, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
-    lv_obj_align(col_hab, LV_ALIGN_LEFT_MID, 30, 0);
+    lv_obj_align(col_hab, LV_ALIGN_LEFT_MID, 20, 0);
 
     lv_obj_t *hab_tit = lv_label_create(col_hab);
     lv_label_set_text(hab_tit, "HABITACULO");
@@ -1651,16 +1651,16 @@ void view_info_create(lv_obj_t *parent)
      * es lo mismo "9.99 V" que "12.66 V". A mano habria que reajustarlo cada
      * vez que el valor cruza una decena. */
     lv_obj_t *col_motor = lv_obj_create(s_bat_card);
-    lv_obj_set_size(col_motor, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_size(col_motor, 270, 92);
     lv_obj_set_style_bg_opa(col_motor, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(col_motor, 0, 0);
     lv_obj_set_style_pad_all(col_motor, 0, 0);
-    lv_obj_set_style_pad_row(col_motor, 10, 0);   /* el aire entre los dos */
+    lv_obj_set_style_pad_row(col_motor, 8, 0);   /* el aire entre los dos */
     lv_obj_set_flex_flow(col_motor, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(col_motor, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(col_motor, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(col_motor, LV_ALIGN_RIGHT_MID, -30, 0);
+    lv_obj_align(col_motor, LV_ALIGN_RIGHT_MID, -20, 0);
 
     lv_obj_t *aux_tit = lv_label_create(col_motor);
     lv_label_set_text(aux_tit, "MOTOR");
