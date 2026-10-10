@@ -1574,7 +1574,12 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(col_hab, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(col_hab, 0, 0);
     lv_obj_set_style_pad_all(col_hab, 0, 0);
-    lv_obj_set_style_pad_row(col_hab, 2, 0);
+    /* 10, LOS MISMOS QUE MOTOR: con 2 el bloque de HABITACULO medía 8 px menos
+     * que el de MOTOR y, como los dos van centrados en la barra, los dos
+     * rotulos quedaban a distinta altura ("que este a la misma altura... sea la
+     * misma que MOTOR"). Igualando el hueco, los dos bloques miden lo mismo y
+     * los rotulos caen en la misma linea. */
+    lv_obj_set_style_pad_row(col_hab, 10, 0);
     lv_obj_clear_flag(col_hab, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_flex_flow(col_hab, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(col_hab, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START,
