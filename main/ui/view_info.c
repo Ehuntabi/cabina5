@@ -1565,7 +1565,11 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_bat_volt, COL_TEXT, 0);
     lv_obj_set_style_text_font(s_bat_volt, &lv_font_montserrat_32, 0);
     lv_obj_set_width(s_bat_volt, BAT_NUM_W);
-    lv_obj_set_style_text_align(s_bat_volt, LV_TEXT_ALIGN_LEFT, 0);
+    /* A LA DERECHA DEL HUECO FIJO (y no a la izquierda): asi el numero crece
+     * hacia la izquierda cuando pasa de "9.99" a "13.42" o cuando le sale el
+     * signo, y la "V" -- que es otra etiqueta, clavada detras -- no se mueve
+     * NUNCA. Es el mismo motivo por el que numero y unidad van separados. */
+    lv_obj_set_style_text_align(s_bat_volt, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_clear_flag(s_bat_volt, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(s_bat_volt, LV_ALIGN_LEFT_MID, 30, 0);
 
