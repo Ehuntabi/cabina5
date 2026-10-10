@@ -363,11 +363,11 @@ static lv_color_t color_for_frigo(int16_t centi) {
  * Los 472 utiles (480 menos los 4+4 de margen) se reparten: 116 + 4 + 184 + 4 +
  * 164. La bateria baja de 210 a 184 -- su dibujo mide 138 y el titulo 33, o sea
  * 171 + 8 de relleno = 179, asi que 184 es lo justo. */
-#define GPS_CARD_H      199
+#define GPS_CARD_H      183
 /* La T de la bateria (9-oct-2026): la barra va arriba a todo lo ancho y el palo
  * cuelga del medio, para que aguas y temperaturas se queden a los lados y BAJEN
  * de alto (estaban en 348 px y el usuario las veia "muy muy grandes"). */
-#define BAT_BAR_H     84
+#define BAT_BAR_H    100
 #define BAT_BAR_Y    (4 + GPS_CARD_H + 4)
 #define BAT_STEM_Y   (BAT_BAR_Y + BAT_BAR_H)
 #define BAT_STEM_W   260
@@ -1560,7 +1560,46 @@ void view_info_create(lv_obj_t *parent)
      * hueco fijo, asi que crece hacia la izquierda y la unidad se queda clavada.
      * Juntos, "9.99 V" y "13.43 V" dejaban la V en sitios distintos y bailaba
      * cada vez que la tension cruzaba una decena. */
-    s_bat_volt = lv_label_create(s_bat_card);
+    /* ── HABITACULO ─────────────────────────────────────────────────────────
+     *
+     * El usuario: "el valor -- V que ponga de donde procede, HABITACULO, como
+     * esta en MOTOR". Y tenia razon en que hacia falta: en la barra hay tres
+     * tensiones (la de la bateria de servicio, la del motor) y sin decir de
+     * donde es cada una, el numero no significa nada.
+     *
+     * Se monta IGUAL que MOTOR: una columna con el rotulo arriba y el valor
+     * debajo, para que las dos lean igual. */
+    lv_obj_t *col_hab = lv_obj_create(s_bat_card);
+    lv_obj_set_size(col_hab, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(col_hab, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(col_hab, 0, 0);
+    lv_obj_set_style_pad_all(col_hab, 0, 0);
+    lv_obj_set_style_pad_row(col_hab, 2, 0);
+    lv_obj_clear_flag(col_hab, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_flex_flow(col_hab, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(col_hab, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START);
+    lv_obj_align(col_hab, LV_ALIGN_LEFT_MID, 30, 0);
+
+    lv_obj_t *hab_tit = lv_label_create(col_hab);
+    lv_label_set_text(hab_tit, "HABITACULO");
+    paleta_texto(hab_tit, 0xFF9800, 0xFFFFFF);   /* el naranja de esta tarjeta */
+    lv_obj_set_style_text_font(hab_tit, &lv_font_montserrat_20, 0);
+    lv_obj_clear_flag(hab_tit, LV_OBJ_FLAG_CLICKABLE);
+
+    /* Y debajo, el numero con su unidad, en su fila. */
+    lv_obj_t *fila_hab = lv_obj_create(col_hab);
+    lv_obj_set_size(fila_hab, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(fila_hab, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(fila_hab, 0, 0);
+    lv_obj_set_style_pad_all(fila_hab, 0, 0);
+    lv_obj_set_style_pad_column(fila_hab, 6, 0);
+    lv_obj_clear_flag(fila_hab, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_flex_flow(fila_hab, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(fila_hab, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+
+    s_bat_volt = lv_label_create(fila_hab);
     lv_label_set_text(s_bat_volt, "--");
     lv_obj_set_style_text_color(s_bat_volt, COL_TEXT, 0);
     lv_obj_set_style_text_font(s_bat_volt, &lv_font_montserrat_32, 0);
@@ -1571,14 +1610,14 @@ void view_info_create(lv_obj_t *parent)
      * NUNCA. Es el mismo motivo por el que numero y unidad van separados. */
     lv_obj_set_style_text_align(s_bat_volt, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_clear_flag(s_bat_volt, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_volt, LV_ALIGN_LEFT_MID, 30, 0);
+    lv_obj_set_width(s_bat_volt, BAT_NUM_W);
 
-    lv_obj_t *u_v = lv_label_create(s_bat_card);
+    lv_obj_t *u_v = lv_label_create(fila_hab);
     lv_label_set_text(u_v, "V");
     paleta_texto(u_v, 0xCCCCCC, 0xFFFFFF);
     lv_obj_set_style_text_font(u_v, &lv_font_montserrat_24, 0);
     lv_obj_clear_flag(u_v, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(u_v, LV_ALIGN_LEFT_MID, 30 + BAT_NUM_W + 10, 4);
+    lv_obj_set_style_text_align(u_v, LV_TEXT_ALIGN_LEFT, 0);
 
     s_bat_amp = lv_label_create(s_bat_card);
     lv_label_set_text(s_bat_amp, "");    lv_obj_set_style_text_color(s_bat_amp, COL_TEXT, 0);
