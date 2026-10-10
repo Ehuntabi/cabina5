@@ -1620,13 +1620,37 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(aux_tit, &lv_font_montserrat_20, 0);
     lv_obj_clear_flag(aux_tit, LV_OBJ_FLAG_CLICKABLE);
 
-    s_aux_val = lv_label_create(col_motor);
+    /* El valor del motor va en una FILA con su unidad, para poder ponerle la
+     * "V" al lado (el usuario: "a MOTOR -- le falta la V"). La fila se alinea a
+     * la derecha y el numero vive en un hueco FIJO alineado a la derecha, que es
+     * lo que hace que la "V" no se mueva nunca aunque el valor cambie. */
+    lv_obj_t *fila_motor = lv_obj_create(col_motor);
+    lv_obj_set_size(fila_motor, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(fila_motor, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(fila_motor, 0, 0);
+    lv_obj_set_style_pad_all(fila_motor, 0, 0);
+    lv_obj_set_style_pad_column(fila_motor, 6, 0);
+    lv_obj_clear_flag(fila_motor, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_flex_flow(fila_motor, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(fila_motor, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+
+    s_aux_val = lv_label_create(fila_motor);
     lv_label_set_text(s_aux_val, "--");
     lv_obj_set_style_text_color(s_aux_val, COL_TEXT, 0);
     /* Mismo tamano que los voltios de la principal: es el otro dato de tension
      * de la tarjeta y no tiene por que leerse peor. */
     lv_obj_set_style_text_font(s_aux_val, &lv_font_montserrat_32, 0);
     lv_obj_clear_flag(s_aux_val, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_width(s_aux_val, BAT_NUM_W);
+    lv_obj_set_style_text_align(s_aux_val, LV_TEXT_ALIGN_RIGHT, 0);
+
+    /* Y la unidad, clavada detras. */
+    lv_obj_t *aux_u = lv_label_create(fila_motor);
+    lv_label_set_text(aux_u, "V");
+    paleta_texto(aux_u, 0xCCCCCC, 0xFFFFFF);
+    lv_obj_set_style_text_font(aux_u, &lv_font_montserrat_24, 0);
+    lv_obj_clear_flag(aux_u, LV_OBJ_FLAG_CLICKABLE);
 
     /* Icono del altavoz de la bateria: arriba a la DERECHA, pero corrido a la
      * izquierda porque ahi ya esta el punto de enlace de la tarjeta (12 px de
