@@ -1581,16 +1581,16 @@ void view_info_create(lv_obj_t *parent)
     /* Mismo tamano que los voltios: los dos son el dato principal de su lado. */
     lv_obj_set_style_text_font(s_bat_amp, &lv_font_montserrat_32, 0);
     lv_obj_set_width(s_bat_amp, BAT_NUM_W);
-    lv_obj_set_style_text_align(s_bat_amp, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_set_style_text_align(s_bat_amp, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_clear_flag(s_bat_amp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_amp, LV_ALIGN_LEFT_MID, 30 + BAT_NUM_W + 90, 0);
+    lv_obj_align(s_bat_amp, LV_ALIGN_CENTER, -BAT_NUM_W / 2 - 8, 0);
 
     s_bat_amp_u = lv_label_create(s_bat_card);
     lv_label_set_text(s_bat_amp_u, "A");
     paleta_texto(s_bat_amp_u, 0xCCCCCC, 0xFFFFFF);
     lv_obj_set_style_text_font(s_bat_amp_u, &lv_font_montserrat_24, 0);
     lv_obj_clear_flag(s_bat_amp_u, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, 30 + BAT_NUM_W + 90 + BAT_NUM_W + 10, 4);
+    lv_obj_align(s_bat_amp_u, LV_ALIGN_CENTER, 10, 4);
 
     /* La del motor, a la derecha del todo y mas discreta: es bateria tambien,
      * pero solo se mira cuando el vehiculo no arranca. */
