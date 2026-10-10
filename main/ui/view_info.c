@@ -1582,8 +1582,12 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_style_pad_row(col_hab, 10, 0);
     lv_obj_clear_flag(col_hab, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_flex_flow(col_hab, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(col_hab, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START);
+    /* CROSS EN CENTER, como MOTOR: asi el rotulo queda CENTRADO sobre su valor
+     * en vez de alineado a la izquierda de el ("que queden centrados -- V con
+     * el texto HABITACULO y tambien con MOTOR"). Los dos bloques usan ya la
+     * misma alineacion y por eso se leen igual. */
+    lv_obj_set_flex_align(col_hab, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
     lv_obj_align(col_hab, LV_ALIGN_LEFT_MID, 30, 0);
 
     lv_obj_t *hab_tit = lv_label_create(col_hab);
