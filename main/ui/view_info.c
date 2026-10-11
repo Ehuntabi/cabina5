@@ -1522,7 +1522,7 @@ void view_info_create(lv_obj_t *parent)
      * El titulo y el color son provisionales: cuando tenga contenido, este
      * marco se cambia por una tarjeta de verdad. El gris es a proposito, para
      * que se vea que esta sin estrenar y no parezca una tarjeta rota. */
-    s_gps_card = make_card(grid, lv_color_hex(0x888888), "GPS", 0, 3, 0,
+    s_gps_card = make_card(grid, COL_BORDER_BAT, "BATERIA", 0, 3, 0,
                            &s_bat_dot, true, &lv_font_montserrat_20);
 
     /* La velocidad, CENTRADA y en grande (letra 48, la mayor que trae LVGL).
@@ -1635,6 +1635,50 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_add_flag(s_bat_card, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_bat_card, al_card_cb_alarma, LV_EVENT_CLICKED,
                         (void *)(intptr_t)AL_INFO_BATERIA);
+
+    /* ══ INTERCAMBIO DEL CONTENIDO DE LAS DOS TARJETAS (9-oct-2026) ═════════
+     *
+     * Pedido del usuario: "mantienes la posicion y dimensiones de las cards e
+     * intercambias el contenido de gps y bateria, SOLO el contenido". Y despues:
+     * "la bateria en medio, -- V -- A a la izquierda y MOTOR -- a la derecha".
+     *
+     * O sea: el marco de ARRIBA (que era el de GPS) pasa a llevar la BATERIA
+     * --los numeros a la izquierda, el dibujo en medio y MOTOR a la derecha, la
+     * tarjeta de siempre-- y la barra y el palo se quedan con el GPS (la
+     * velocidad).
+     *
+     * Se hace con lv_obj_set_parent() y no reconstruyendo: los objetos ya estan
+     * creados con sus estilos y sus eventos, y reparentarlos no los toca. Solo
+     * hay que recolocarlos dentro de su caja nueva, que es lo de abajo. */
+    lv_obj_set_parent(s_bat_volt,   s_gps_card);
+    lv_obj_set_parent(u_v,          s_gps_card);
+    lv_obj_set_parent(s_bat_amp,    s_gps_card);
+    lv_obj_set_parent(s_bat_amp_u,  s_gps_card);
+    lv_obj_set_parent(col_motor,    s_gps_card);
+    lv_obj_set_parent(dib,          s_gps_card);
+    lv_obj_set_parent(s_gps_vel,    palo);
+    lv_obj_set_parent(gps_u,        palo);
+
+    /* Ahora, cada uno en su caja nueva. El marco mide 800x183 y va a lo ancho:
+     * numeros a la izquierda, dibujo CENTRADO y MOTOR a la derecha. */
+    lv_obj_align(s_bat_volt,  LV_ALIGN_LEFT_MID, 30, 0);
+    lv_obj_align(u_v,         LV_ALIGN_LEFT_MID, 146, 4);
+    lv_obj_align(s_bat_amp,   LV_ALIGN_LEFT_MID, 200, 0);
+    lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, 316, 4);
+    lv_obj_align(col_motor,   LV_ALIGN_RIGHT_MID, -30, 0);
+    lv_obj_align(dib,         LV_ALIGN_CENTER, 0, 0);
+    /* Y la velocidad, centrada en el palo (260x181). */
+    lv_obj_align(s_gps_vel, LV_ALIGN_CENTER, 0, -12);
+    lv_obj_align(gps_u,     LV_ALIGN_CENTER, 0, 40);
+
+    /* Rotulo de la tarjeta de abajo: el marco de arriba ya dice BATERIA, pero
+     * el palo no tenia titulo. */
+    lv_obj_t *gps_tit = lv_label_create(palo);
+    lv_label_set_text(gps_tit, "GPS");
+    paleta_texto(gps_tit, 0x888888, 0xFFFFFF);
+    lv_obj_set_style_text_font(gps_tit, &lv_font_montserrat_20, 0);
+    lv_obj_clear_flag(gps_tit, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(gps_tit, LV_ALIGN_TOP_MID, 0, 0);
 
     /* --- Abajo izquierda: aguas ------------------------------------------- */
     make_water_cell(grid, 0, 1, 2);

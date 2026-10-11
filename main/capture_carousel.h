@@ -46,7 +46,7 @@
  * serie (1 de cada 2 pixeles) para poder VERLA en el PC con
  * tools/decodifica_capturas.py. Se pone a 1 para revisar pantallas a ojo y se
  * vuelve a 0: mientras esta encendida la pantalla se congela ~17 s por foto. */
-#define CAPTURA_PANTALLA 0
+#define CAPTURA_PANTALLA 1
 
 #ifdef __cplusplus
 extern "C" {
