@@ -1458,7 +1458,7 @@ void view_info_create(lv_obj_t *parent)
      * "un poco menos altas". Los 23 px que sobran se los queda el palo de la
      * bateria, que va colocado a mano y baja hasta el borde de la pantalla:
      * asi la T asoma por debajo de las dos tarjetas. */
-    static lv_coord_t row_dsc[] = {GPS_CARD_H, BAT_BAR_H, LV_GRID_FR(1),
+    static lv_coord_t row_dsc[] = {GPS_CARD_H, 0, LV_GRID_FR(1),
                                    LV_GRID_TEMPLATE_LAST};
 
     lv_obj_t *grid = lv_obj_create(parent);
@@ -1510,6 +1510,7 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_style_pad_all(barra, 4, 0);
     lv_obj_clear_flag(barra, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(barra, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_flag(barra, LV_OBJ_FLAG_HIDDEN);   /* la barra ya no se usa: su alto se lo queda el GPS */
     s_bat_card = barra;
 
     /* Y el palo, debajo y en el medio. */
@@ -1557,7 +1558,7 @@ void view_info_create(lv_obj_t *parent)
 #if VELOCIDAD_DEMO
     lv_timer_create(vel_demo_cb, 600, NULL);
 #endif
-    lv_obj_set_style_text_font(s_gps_vel, &lv_font_montserrat_bold_112, 0);
+    lv_obj_set_style_text_font(s_gps_vel, &lv_font_montserrat_bold_144, 0);
     lv_obj_set_style_text_color(s_gps_vel, lv_color_hex(0xFFFFFF), 0);
     lv_obj_clear_flag(s_gps_vel, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(s_gps_vel, LV_ALIGN_CENTER, 0, -10);
@@ -1697,17 +1698,14 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_align(col_motor,   LV_ALIGN_RIGHT_MID, -30, 0);
     lv_obj_align(dib,         LV_ALIGN_CENTER, 0, 10);
     /* Y la velocidad, centrada en el palo (260x181). */
-    lv_obj_align(s_gps_vel, LV_ALIGN_CENTER, -26, 6);
-    lv_obj_align(gps_u,     LV_ALIGN_CENTER, 74, 34);
+    lv_obj_align(s_gps_vel, LV_ALIGN_CENTER, 0, -28);
+    lv_obj_align(gps_u,     LV_ALIGN_CENTER, 0, 74);
 
     /* Rotulo de la tarjeta de abajo: el marco de arriba ya dice BATERIA, pero
      * el palo no tenia titulo. */
-    lv_obj_t *gps_tit = lv_label_create(palo);
-    lv_label_set_text(gps_tit, "GPS");
-    paleta_texto(gps_tit, 0x888888, 0xFFFFFF);
-    lv_obj_set_style_text_font(gps_tit, &lv_font_montserrat_20, 0);
-    lv_obj_clear_flag(gps_tit, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(gps_tit, LV_ALIGN_TOP_MID, 0, 0);
+    /* El rotulo 'GPS' se quita: con la letra a 144 el numero se come el alto
+     * de la tarjeta y el titulo no cabe (pedido del usuario). */
+
 
     /* --- Abajo izquierda: aguas ------------------------------------------- */
     make_water_cell(grid, 0, 1, 2);
