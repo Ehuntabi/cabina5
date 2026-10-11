@@ -1661,10 +1661,13 @@ void view_info_create(lv_obj_t *parent)
 
     /* Ahora, cada uno en su caja nueva. El marco mide 800x183 y va a lo ancho:
      * numeros a la izquierda, dibujo CENTRADO y MOTOR a la derecha. */
-    lv_obj_align(s_bat_volt,  LV_ALIGN_LEFT_MID, 30, 0);
-    lv_obj_align(u_v,         LV_ALIGN_LEFT_MID, 146, 4);
-    lv_obj_align(s_bat_amp,   LV_ALIGN_LEFT_MID, 200, 0);
-    lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, 316, 4);
+    /* LOS DOS EN DOS LINEAS, a la izquierda: -- V arriba y -- A debajo
+     * (el usuario: "falta poner a la izda en dos lineas -- V y debajo -- A").
+     * Los dos empiezan en la misma x, cada uno con su unidad pegada detras. */
+    lv_obj_align(s_bat_volt,  LV_ALIGN_LEFT_MID, 30, -25);
+    lv_obj_align(u_v,         LV_ALIGN_LEFT_MID, 146, -21);
+    lv_obj_align(s_bat_amp,   LV_ALIGN_LEFT_MID, 30, 25);
+    lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, 146, 29);
     lv_obj_align(col_motor,   LV_ALIGN_RIGHT_MID, -30, 0);
     lv_obj_align(dib,         LV_ALIGN_CENTER, 0, 0);
     /* Y la velocidad, centrada en el palo (260x181). */
