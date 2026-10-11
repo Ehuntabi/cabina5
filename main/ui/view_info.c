@@ -23,6 +23,7 @@
  * aguas encoge: antes ocupaba un cuarto de la pantalla para mostrar cinco
  * lucecitas.
  */
+#define VELOCIDAD_DEMO 1   /* ver el comentario en view_info_create */
 #include "estilos.h"   /* ESC(): la escala de la pantalla */
 #include "view_info.h"
 #include "brillo.h"
@@ -1406,6 +1407,22 @@ void view_info_diag_arbol(void)
     }
 }
 
+#if VELOCIDAD_DEMO
+/* Sube la velocidad de 0 a 118, de uno en uno, cada 600 ms. Se para sola al
+ * llegar. DIAGNOSTICO: ver el comentario donde se arranca. */
+#define VEL_DEMO_TOPE 118
+static int s_vel_demo;
+static void vel_demo_cb(lv_timer_t *t)
+{
+    if (s_vel_demo >= VEL_DEMO_TOPE || !s_gps_vel) {
+        lv_timer_del(t);
+        return;
+    }
+    s_vel_demo++;
+    lv_label_set_text_fmt(s_gps_vel, "%d", s_vel_demo);
+}
+#endif
+
 void view_info_create(lv_obj_t *parent)
 {
     /* SIEMPRE EN COLOR (9-oct-2026): ver el comentario de view_info_set_contraste.
@@ -1530,10 +1547,17 @@ void view_info_create(lv_obj_t *parent)
      * todavia -- su GPS no la saca del NMEA y el protocolo no tiene el campo.
      * El sitio se reserva ya para que cuando llegue no haya que rehacer nada. */
     s_gps_vel = lv_label_create(s_gps_card);
-    /* VALOR DE PRUEBA: la velocidad no llega todavia (la P4 no la manda),
-     * asi que se pone a mano para poder ver como queda el numero. */
-    lv_label_set_text(s_gps_vel, "118");
-    lv_obj_set_style_text_font(s_gps_vel, &lv_font_montserrat_bold_64, 0);
+    /* DEMO DE LA VELOCIDAD (9-oct-2026): la velocidad no llega todavia (la P4
+     * no la manda: su GPS no la saca del NMEA y el protocolo no tiene el
+     * campo), asi que se simula una subida de 0 a 118 para poder juzgar el
+     * tamano de la letra y el sitio del numero con un valor que se mueve.
+     * Poner VELOCIDAD_DEMO a 0 y borrar el temporizador cuando llegue el dato
+     * de verdad. */
+    lv_label_set_text(s_gps_vel, "0");
+#if VELOCIDAD_DEMO
+    lv_timer_create(vel_demo_cb, 600, NULL);
+#endif
+    lv_obj_set_style_text_font(s_gps_vel, &lv_font_montserrat_bold_80, 0);
     lv_obj_set_style_text_color(s_gps_vel, lv_color_hex(0xFFFFFF), 0);
     lv_obj_clear_flag(s_gps_vel, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(s_gps_vel, LV_ALIGN_CENTER, 0, -10);
