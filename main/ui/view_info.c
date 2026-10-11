@@ -1530,8 +1530,10 @@ void view_info_create(lv_obj_t *parent)
      * todavia -- su GPS no la saca del NMEA y el protocolo no tiene el campo.
      * El sitio se reserva ya para que cuando llegue no haya que rehacer nada. */
     s_gps_vel = lv_label_create(s_gps_card);
-    lv_label_set_text(s_gps_vel, "--");
-    lv_obj_set_style_text_font(s_gps_vel, &lv_font_montserrat_48, 0);
+    /* VALOR DE PRUEBA: la velocidad no llega todavia (la P4 no la manda),
+     * asi que se pone a mano para poder ver como queda el numero. */
+    lv_label_set_text(s_gps_vel, "118");
+    lv_obj_set_style_text_font(s_gps_vel, &lv_font_montserrat_bold_64, 0);
     lv_obj_set_style_text_color(s_gps_vel, lv_color_hex(0xFFFFFF), 0);
     lv_obj_clear_flag(s_gps_vel, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(s_gps_vel, LV_ALIGN_CENTER, 0, -10);
