@@ -372,7 +372,7 @@ static lv_color_t color_for_frigo(int16_t centi) {
 #define BAT_STEM_Y   (BAT_BAR_Y + BAT_BAR_H + 4)
 #define BAT_STEM_W   260
 #define BAT_STEM_X   (UI_ANCHO / 2 - BAT_STEM_W / 2)
-#define BAT_STEM_H   185
+#define BAT_STEM_H   181
 #define BAT_CARD_H      184
 /* 246 era el alto fijo de la fila de abajo. Ya no se usa: esa fila es elastica
  * (LV_GRID_FR(1)) y se lleva todo el alto que sobre, que es lo que quita los
@@ -1445,7 +1445,7 @@ void view_info_create(lv_obj_t *parent)
      * manteniendo el reparto. La T (barra + palo) sube a la primera fila y el
      * marco de GPS baja al fondo; aguas y temperaturas se quedan en medio, a
      * los lados del palo. */
-    static lv_coord_t row_dsc[] = {BAT_BAR_H, 185, LV_GRID_FR(1),
+    static lv_coord_t row_dsc[] = {BAT_BAR_H, 181, GPS_CARD_H,
                                    LV_GRID_TEMPLATE_LAST};
 
     lv_obj_t *grid = lv_obj_create(parent);
