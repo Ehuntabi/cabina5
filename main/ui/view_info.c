@@ -1458,7 +1458,7 @@ void view_info_create(lv_obj_t *parent)
      * "un poco menos altas". Los 23 px que sobran se los queda el palo de la
      * bateria, que va colocado a mano y baja hasta el borde de la pantalla:
      * asi la T asoma por debajo de las dos tarjetas. */
-    static lv_coord_t row_dsc[] = {GPS_CARD_H, 0, LV_GRID_FR(1),
+    static lv_coord_t row_dsc[] = {GPS_CARD_H, 181, LV_GRID_FR(1),
                                    LV_GRID_TEMPLATE_LAST};
 
     lv_obj_t *grid = lv_obj_create(parent);
@@ -1708,10 +1708,10 @@ void view_info_create(lv_obj_t *parent)
 
 
     /* --- Abajo izquierda: aguas ------------------------------------------- */
-    make_water_cell(grid, 0, 1, 2);
+    make_water_cell(grid, 0, 1, 1);
 
     /* --- Abajo derecha: las dos temperaturas juntas ----------------------- */
-    lv_obj_t *temp_card = make_card(grid, COL_BORDER_COLD, "TEMPERATURAS", 2, 1, 2, NULL, true,
+    lv_obj_t *temp_card = make_card(grid, COL_BORDER_COLD, "TEMPERATURAS", 2, 1, 1, NULL, true,
                                        &lv_font_montserrat_20);
     /* El valor del frigo va en un hueco fijo y la flecha al borde: asi la
      * flecha no se mueve cuando el numero cambia de ancho ("-5.0" contra
