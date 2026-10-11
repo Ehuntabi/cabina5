@@ -1522,8 +1522,12 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(palo, LV_OPA_COVER, 0);
     paleta_borde_auto(palo, COL_BORDER_BAT);
     lv_obj_set_style_border_width(palo, 2, 0);
-    lv_obj_set_style_border_side(palo, LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_LEFT |
-                                       LV_BORDER_SIDE_RIGHT, 0);
+    /* BORDE COMPLETO. Estaba abierto por arriba para que la junta con la barra
+     * de la T no se viera; al desaparecer la barra (su alto se lo quedo el GPS)
+     * ese hueco se quedaba abierto y la tarjeta se veia como una U -- el
+     * usuario: "falta el marco de la T, solo sale en la parte inferior con
+     * forma de U". Ahora es una tarjeta cerrada. */
+    lv_obj_set_style_border_side(palo, LV_BORDER_SIDE_FULL, 0);
     lv_obj_set_style_radius(palo, 10, 0);
     lv_obj_set_style_pad_all(palo, 4, 0);
     lv_obj_clear_flag(palo, LV_OBJ_FLAG_SCROLLABLE);
