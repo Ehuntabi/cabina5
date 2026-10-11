@@ -368,11 +368,11 @@ static lv_color_t color_for_frigo(int16_t centi) {
  * cuelga del medio, para que aguas y temperaturas se queden a los lados y BAJEN
  * de alto (estaban en 348 px y el usuario las veia "muy muy grandes"). */
 #define BAT_BAR_H    100
-#define BAT_BAR_Y    (4 + GPS_CARD_H + 4)
-#define BAT_STEM_Y   (BAT_BAR_Y + BAT_BAR_H)
+#define BAT_BAR_Y    4
+#define BAT_STEM_Y   (BAT_BAR_Y + BAT_BAR_H + 4)
 #define BAT_STEM_W   260
 #define BAT_STEM_X   (UI_ANCHO / 2 - BAT_STEM_W / 2)
-#define BAT_STEM_H   (UI_ALTO - 4 - BAT_STEM_Y)
+#define BAT_STEM_H   185
 #define BAT_CARD_H      184
 /* 246 era el alto fijo de la fila de abajo. Ya no se usa: esa fila es elastica
  * (LV_GRID_FR(1)) y se lleva todo el alto que sobre, que es lo que quita los
@@ -1441,7 +1441,11 @@ void view_info_create(lv_obj_t *parent)
      * "un poco menos altas". Los 23 px que sobran se los queda el palo de la
      * bateria, que va colocado a mano y baja hasta el borde de la pantalla:
      * asi la T asoma por debajo de las dos tarjetas. */
-    static lv_coord_t row_dsc[] = {GPS_CARD_H, BAT_BAR_H, LV_GRID_FR(1),
+    /* El usuario: "devuelve todo lo de bateria arriba y lo de gps abajo",
+     * manteniendo el reparto. La T (barra + palo) sube a la primera fila y el
+     * marco de GPS baja al fondo; aguas y temperaturas se quedan en medio, a
+     * los lados del palo. */
+    static lv_coord_t row_dsc[] = {BAT_BAR_H, 185, LV_GRID_FR(1),
                                    LV_GRID_TEMPLATE_LAST};
 
     lv_obj_t *grid = lv_obj_create(parent);
@@ -1522,7 +1526,7 @@ void view_info_create(lv_obj_t *parent)
      * El titulo y el color son provisionales: cuando tenga contenido, este
      * marco se cambia por una tarjeta de verdad. El gris es a proposito, para
      * que se vea que esta sin estrenar y no parezca una tarjeta rota. */
-    s_gps_card = make_card(grid, lv_color_hex(0x888888), "GPS", 0, 3, 0,
+    s_gps_card = make_card(grid, lv_color_hex(0x888888), "GPS", 0, 3, 2,
                            &s_bat_dot, true, &lv_font_montserrat_20);
 
     /* La velocidad, CENTRADA y en grande (letra 48, la mayor que trae LVGL).
