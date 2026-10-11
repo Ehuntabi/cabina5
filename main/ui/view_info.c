@@ -1557,7 +1557,7 @@ void view_info_create(lv_obj_t *parent)
 #if VELOCIDAD_DEMO
     lv_timer_create(vel_demo_cb, 600, NULL);
 #endif
-    lv_obj_set_style_text_font(s_gps_vel, &lv_font_montserrat_bold_80, 0);
+    lv_obj_set_style_text_font(s_gps_vel, &lv_font_montserrat_bold_112, 0);
     lv_obj_set_style_text_color(s_gps_vel, lv_color_hex(0xFFFFFF), 0);
     lv_obj_clear_flag(s_gps_vel, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(s_gps_vel, LV_ALIGN_CENTER, 0, -10);
@@ -1697,8 +1697,8 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_align(col_motor,   LV_ALIGN_RIGHT_MID, -30, 0);
     lv_obj_align(dib,         LV_ALIGN_CENTER, 0, 10);
     /* Y la velocidad, centrada en el palo (260x181). */
-    lv_obj_align(s_gps_vel, LV_ALIGN_CENTER, 0, -12);
-    lv_obj_align(gps_u,     LV_ALIGN_CENTER, 0, 40);
+    lv_obj_align(s_gps_vel, LV_ALIGN_CENTER, -26, 6);
+    lv_obj_align(gps_u,     LV_ALIGN_CENTER, 74, 34);
 
     /* Rotulo de la tarjeta de abajo: el marco de arriba ya dice BATERIA, pero
      * el palo no tenia titulo. */

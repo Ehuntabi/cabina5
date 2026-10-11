@@ -11,7 +11,7 @@
  *   curl -sL -o Montserrat-VF.ttf \
  *     https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/Montserrat%5Bwght%5D.ttf
  *   fonttools varLib.instancer -o Montserrat-Bold.ttf Montserrat-VF.ttf wght=700
- *   for SZ in 26 34 40 56 64 80; do \
+ *   for SZ in 26 34 40 56 64 80 112; do \
  *     lv_font_conv --font Montserrat-Bold.ttf --range 0x20-0x7E --bpp 4 \
  *       --format lvgl --lv-include lvgl.h --no-compress \
  *       --size $SZ --lv-font-name lv_font_montserrat_bold_$SZ \
@@ -49,3 +49,7 @@ LV_FONT_DECLARE(lv_font_montserrat_bold_64);
 /* 80: para el NUMERO DE LA VELOCIDAD. La 64 se quedo corta para lo que el
  * usuario quiere ("se puede agrandar la fuente usada?"). */
 LV_FONT_DECLARE(lv_font_montserrat_bold_80);
+/* 112: el numero de la velocidad, mas grande todavia (el usuario: "una fuente
+ * mayor?"). Es la que manda el ancho de la tarjeta: "118" mide ~168 px y la
+ * columna del medio tiene 260. */
+LV_FONT_DECLARE(lv_font_montserrat_bold_112);
