@@ -334,7 +334,7 @@ static lv_color_t color_for_frigo(int16_t centi) {
  * 181 ppp de esta pantalla, y ese numero no ha cambiado. Lo que cambia es el
  * sitio que hay alrededor. */
 #define BAT_W        150
-#define BAT_H        156
+#define BAT_H        120
 #define BAT_BORNE_W   26
 #define BAT_BORNE_H   11
 
@@ -1669,7 +1669,7 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_align(s_bat_amp,   LV_ALIGN_LEFT_MID, 30, 25);
     lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, 146, 29);
     lv_obj_align(col_motor,   LV_ALIGN_RIGHT_MID, -30, 0);
-    lv_obj_align(dib,         LV_ALIGN_CENTER, 0, 0);
+    lv_obj_align(dib,         LV_ALIGN_CENTER, 0, 10);
     /* Y la velocidad, centrada en el palo (260x181). */
     lv_obj_align(s_gps_vel, LV_ALIGN_CENTER, 0, -12);
     lv_obj_align(gps_u,     LV_ALIGN_CENTER, 0, 40);
