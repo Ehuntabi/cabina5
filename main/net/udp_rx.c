@@ -56,6 +56,11 @@ static uint32_t s_msgs_bad = 0;
  * adivinar por que. 30-sep-2026. */
 static _Atomic bool s_asociado = false;
 static volatile int64_t s_ultimo_rx_us = 0;
+
+/* Diagnostico del ultimo descarte: ver udp_rx_diagnostico(). */
+static volatile udp_rx_drop_t s_drop_motivo = UDP_RX_DROP_NO;
+static volatile int s_drop_version = -1;
+static volatile int s_drop_tam = -1;
 /* Senal medida por ESTA tarea, no por la de dibujo: preguntarle al Wi-Fi desde
  * la tarea de LVGL puede bloquearla (la API coge su cerrojo) y con el vigilante
  * de tareas encima eso es un reinicio. Paso el 30-sep-2026: la pantalla de
@@ -590,17 +595,34 @@ static void rx_task(void *arg)
         if (src.sin_addr.s_addr != p4_addr) {
             ESP_LOGW(TAG, "drop: origen %s no es la P4",
                      inet_ntoa(src.sin_addr));
+            s_drop_motivo = UDP_RX_DROP_ORIGEN;
+            s_drop_version = -1;
+            s_drop_tam = n;
             s_msgs_bad++;
             continue;
         }
         if (n != (int)sizeof(mini_msg_t)) {
-            ESP_LOGW(TAG, "drop: tam %d != %u", n, (unsigned)sizeof(mini_msg_t));
+            /* LA VERSION SE MIRA TAMBIEN AQUI (auditoria del 14-oct-2026): el
+             * campo va en el byte 1 y el chequeo de tamano iba ANTES que el de
+             * version, asi que con un firmware de otro tamano el log (y la
+             * pantalla) solo decian "tam 38 != 40" y nunca se enteraba nadie de
+             * QUE version hablaba el otro. Un byte, si es que llego. */
+            int v = (n >= 2) ? (int)((const uint8_t *)buf)[1] : -1;
+            ESP_LOGW(TAG, "drop: tam %d != %u (version %d)", n,
+                     (unsigned)sizeof(mini_msg_t), v);
+            s_drop_motivo = UDP_RX_DROP_TAM;
+            s_drop_version = v;
+            s_drop_tam = n;
             s_msgs_bad++;
             continue;
         }
         const mini_msg_t *msg = (const mini_msg_t *)buf;
         if (msg->version != MINI_PROTO_VERSION) {
-            ESP_LOGW(TAG, "drop: version %u", msg->version);
+            ESP_LOGW(TAG, "drop: version %u (esta pantalla habla la %u)",
+                     msg->version, (unsigned)MINI_PROTO_VERSION);
+            s_drop_motivo = UDP_RX_DROP_VERSION;
+            s_drop_version = (int)msg->version;
+            s_drop_tam = n;
             s_msgs_bad++;
             continue;
         }
@@ -608,6 +630,9 @@ static void rx_task(void *arg)
         if (expected != msg->crc32) {
             ESP_LOGW(TAG, "drop: crc 0x%08lx != 0x%08lx",
                      (unsigned long)msg->crc32, (unsigned long)expected);
+            s_drop_motivo = UDP_RX_DROP_CRC;
+            s_drop_version = (int)msg->version;
+            s_drop_tam = n;
             s_msgs_bad++;
             continue;
         }
@@ -737,3 +762,11 @@ void udp_rx_enlace(char *ssid, size_t ssid_len, bool *asociado,
         *seg_sin_datos = (t == 0) ? -1 : (int)((esp_timer_get_time() - t) / 1000000);
     }
 }
+
+void udp_rx_diagnostico(udp_rx_drop_t *motivo, int *version_vista, int *tam_visto)
+{
+    if (motivo)       *motivo = s_drop_motivo;
+    if (version_vista) *version_vista = s_drop_version;
+    if (tam_visto)     *tam_visto = s_drop_tam;
+}
+

@@ -16,6 +16,7 @@
 #include "view_info.h"
 #include "nav.h"       /* nav_ir_a_paseo(): el indice de todas las pantallas */
 #include "../net/udp_rx.h"
+#include "../net/mini_proto.h"   /* MINI_PROTO_VERSION: el diagnostico del enlace */
 #include "confirm_screen.h"
 #include "config_storage.h"
 #include "diag_reset.h"
@@ -124,6 +125,35 @@ static void mostrar_menu(bool menu)
 
 /* El Volver del formulario de Wi-Fi no sale de Configuracion: vuelve al menu,
  * que es de donde se entro. */
+/* POR QUE NO LLEGAN DATOS (auditoria del 14-oct-2026): desde aqui, "la P4 no
+ * esta" y "la P4 habla otro idioma" (firmware mezclado) se veian IGUAL -- un
+ * guion y el punto gris -- y no se arreglan igual: una se arregla encendiendo
+ * la P4, la otra grabando la placa que se quedo atras. Corto, que es una linea
+ * de la pantalla de Ajustes. */
+static void enlace_diag_sufijo(char *out, size_t n)
+{
+    udp_rx_drop_t motivo = UDP_RX_DROP_NO;
+    int ver = -1, tam = -1;
+    udp_rx_diagnostico(&motivo, &ver, &tam);
+    out[0] = 0;
+    switch (motivo) {
+        case UDP_RX_DROP_TAM:
+            snprintf(out, n, " (otro firmware: %dB v%d)", tam, ver);
+            break;
+        case UDP_RX_DROP_VERSION:
+            snprintf(out, n, " (firmware v%d, no v%d)", ver, (int)MINI_PROTO_VERSION);
+            break;
+        case UDP_RX_DROP_CRC:
+            snprintf(out, n, " (llega corrupto)");
+            break;
+        case UDP_RX_DROP_ORIGEN:
+            snprintf(out, n, " (habla otro aparato)");
+            break;
+        default:
+            break;
+    }
+}
+
 /* Pinta el estado del enlace con la P4. Calla si la pantalla no se ve. */
 static void enlace_timer_cb(lv_timer_t *t)
 {
@@ -143,10 +173,14 @@ static void enlace_timer_cb(lv_timer_t *t)
          * Antes esto se pintaba como "sin datos 0s", que se lee justo al reves
          * ("acaba de llegar un dato") cuando significa "nunca ha llegado nada":
          * el usuario lo vio el 2-oct-2026 y no habia quien lo entendiera. */
-        lv_label_set_text_fmt(s_enlace, "P4: %d dBm, sin datos todavia", rssi);
+        char diag[48];
+        enlace_diag_sufijo(diag, sizeof(diag));
+        lv_label_set_text_fmt(s_enlace, "P4: %d dBm, sin datos todavia%s", rssi, diag);
         lv_obj_set_style_text_color(s_enlace, lv_color_hex(0xFF9800), 0);
     } else if (sin_datos > 5) {
-        lv_label_set_text_fmt(s_enlace, "P4: %d dBm, sin datos %ds", rssi, sin_datos);
+        char diag[48];
+        enlace_diag_sufijo(diag, sizeof(diag));
+        lv_label_set_text_fmt(s_enlace, "P4: %d dBm, sin datos %ds%s", rssi, sin_datos, diag);
         lv_obj_set_style_text_color(s_enlace, lv_color_hex(0xFF9800), 0);
     } else {
         lv_label_set_text_fmt(s_enlace, "P4: %d dBm", rssi);
