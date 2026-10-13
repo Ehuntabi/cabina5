@@ -306,8 +306,12 @@ static void tarea(void *arg)
      * devuelve 0, el canal sigue roto. */
     ESP_LOGI(TAG, "paso: POST /api/viaje (camino real de los apuntes)");
     int est = 0;
-    bool ok = p4_api_post("{\"op\":\"autotest\",\"id\":1}", &est);
-    if (est >= 400 && est < 500) {
+    bool ok = p4_api_post("{\"op\":\"autotest\",\"id\":4294967295}", &est);
+    /* 400 EXACTO, y no "cualquier 4xx": un 404 (ruta ausente), un 413 (cuerpo
+     * demasiado grande) o un 401 (claves mal) tambien son 4xx y el test los daba
+     * por buenos diciendo "CANAL DE VIAJES OK" (revision del 13-oct-2026). El
+     * 400 tiene que ser POR LA OPERACION DESCONOCIDA, que es lo que se manda. */
+    if (est == 400) {
         ESP_LOGI(TAG, "3) CANAL DE VIAJES OK: la P4 ha contestado HTTP %d al apunte de prueba "
                       "(rechazado a proposito, no se ha creado nada)", est);
     } else if (ok) {

@@ -258,8 +258,12 @@ static void reconciliar_viaje_al_arrancar(void)
      * save_trip_fin() -- cerrando el viaje en la cabina mientras la P4 lo
      * mantenia abierto, justo lo contrario de lo que esto viene a arreglar. Se
      * reintenta en la siguiente vuelta (revision del 13-oct-2026). */
-    uint32_t ahora = 0;
-    if (!reloj_ahora(&ahora)) {
+    if (!reloj_ahora(NULL)) {
+        /* SIN HORA SE REINTENTA: hay que ARMAR el flag, que si no el
+         * temporizador lo ve a false, se autoborra en su primer disparo y la
+         * reconciliacion no corre NUNCA (lo cazo la revision del 13-oct-2026: el
+         * arreglo anterior ponia el flag a false en los dos caminos). */
+        s_recon_pendiente = true;
         ESP_LOGW(TAG, "reconciliacion del viaje: aun no hay hora, lo intento luego");
         return;
     }
@@ -281,9 +285,14 @@ static void reconciliar_viaje_al_arrancar(void)
         ESP_LOGW(TAG, "corte al EMPEZAR el viaje '%s': abro la salida que faltaba",
                  destino);
         if (!salida_abrir_viaje(destino)) {
-            ESP_LOGE(TAG, "no he podido abrir la salida de '%s': cierro el viaje",
-                     destino);
-            save_trip_fin();
+            /* NO se cierra el viaje por no poder abrir la salida: cerrarlo aqui
+             * dejaria a la P4 con el viaje abierto y a esta pantalla creyendo que
+             * termino (el mismo fallo que esto viene a arreglar). Se deja
+             * pendiente y se reintenta; si de verdad no se puede, el usuario lo
+             * vera al intentar anotar algo (do_save se niega sin salida). */
+            ESP_LOGE(TAG, "no he podido abrir la salida de '%s': lo dejo pendiente "
+                          "y lo reintento", destino);
+            s_recon_pendiente = true;
         }
         return;
     }
@@ -410,10 +419,19 @@ void setup(void) {
      * corte de corriente a mitad de empezar o terminar. Se arregla aqui, y si
      * todavia no hay hora (el primer paquete de la P4 tarda unos segundos) se
      * reintenta cada 3 s hasta que la haya. */
-    reconciliar_viaje_al_arrancar();
-    {
+    /* La llamada directa tambien va bajo el cerrojo de LVGL: esta funcion toca
+     * el estado de la salida, que la tarea de LVGL lee para pintar (el resto de
+     * la reconciliacion corre en el temporizador, que ya va con cerrojo). */
+    if (lvgl_port_lock(2000)) {
+        reconciliar_viaje_al_arrancar();
+        lvgl_port_unlock();
+    }
+    if (lvgl_port_lock(2000)) {
         lv_timer_t *recon = lv_timer_create(recon_timer_cb, 3000, NULL);
-        (void)recon;
+        if (!recon) ESP_LOGE(TAG, "no he podido crear el reintento de la reconciliacion");
+        lvgl_port_unlock();
+    } else {
+        ESP_LOGW(TAG, "sin cerrojo de LVGL: la reconciliacion se queda sin reintento");
     }
 
     /* Y en cuanto la UI lleve un rato en pie, si se perdio algo se dice. */

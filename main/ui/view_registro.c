@@ -393,6 +393,8 @@ static const char *const CURRENCY_CODES[] = {
 
 /* Definidos abajo, junto a los widgets que tocan. */
 static void clear_forms(void);
+/* El aviso de VIAJE EN LA P4 se repinta al abrir (ver su comentario). */
+static void viaje_p4_aviso_actualizar(void);
 static void filtros_sincroniza(void);
 static void filtros_screen_close(void);
 static void precio_marca_cb(lv_event_t *e);
@@ -2641,6 +2643,7 @@ static void inicio_resultado_cb(bool ok, int estado, void *user_data)
      * la carpeta de un viaje de verdad que sigue grabando. */
     if (!ok && (estado == 409 || estado == 412)) {
         s_viaje_p4_ajeno = (estado == 412);
+        viaje_p4_aviso_actualizar();   /* el aviso depende de POR QUE es el 409 */
         mostrar_menu(PAN_VIAJE_P4);
         return;
     }
@@ -4297,6 +4300,7 @@ static void inicio_puntual_resultado_cb(bool ok, int estado, void *user_data)
      * la carpeta de un viaje de verdad que sigue grabando. */
     if (!ok && (estado == 409 || estado == 412)) {
         s_viaje_p4_ajeno = (estado == 412);
+        viaje_p4_aviso_actualizar();   /* el aviso depende de POR QUE es el 409 */
         mostrar_menu(PAN_VIAJE_P4);
         return;
     }
@@ -5364,6 +5368,34 @@ static void paseo_salir_cb(lv_event_t *e)
     view_registro_paseo_salir();
 }
 
+/* El aviso de la pantalla "VIAJE EN LA P4", EN UNA FUNCION PROPIA, porque tiene
+ * que repintarse CADA VEZ que se abre: antes se decidia al arrancar (crear_menus
+ * corre en view_registro_create) y ahi s_viaje_p4_ajeno siempre es false y la
+ * cola vale lo que valia al encender, asi que la rama del 412 -- "lo empezo la
+ * OTRA pantalla" -- no se veia NUNCA y el usuario podia "apartar" el viaje real
+ * de la otra pantalla. Lo cazo la revision adversarial del 13-oct-2026. */
+static lv_obj_t *s_viaje_p4_aviso;
+
+static void viaje_p4_aviso_actualizar(void)
+{
+    if (!s_viaje_p4_aviso) return;
+    if (s_viaje_p4_ajeno) {
+        lv_label_set_text(s_viaje_p4_aviso,
+            "Ese viaje lo empezo la OTRA\npantalla y puede seguir en\nmarcha.\n\n"
+            "Cierralo desde ella. Si de\nverdad quieres cerrarlo desde\naqui, GUARDARLO.");
+    } else if (viaje_cola_pendientes() > 0) {
+        lv_label_set_text_fmt(s_viaje_p4_aviso,
+            "La P4 tiene un viaje abierto.\n\n"
+            "Tienes %u apunte(s) sin enviar:\n"
+            "puede ser el cierre del anterior.\n"
+            "Prueba GUARDARLO antes de\napartar nada.",
+            (unsigned)viaje_cola_pendientes());
+    } else {
+        lv_label_set_text(s_viaje_p4_aviso,
+            "La P4 tiene un viaje abierto.\nHay que cerrarlo antes de\nempezar otro.");
+    }
+}
+
 static void crear_menus(lv_obj_t *parent)
 {
     lv_obj_t *body, *f;
@@ -5653,7 +5685,7 @@ static void crear_menus(lv_obj_t *parent)
      * DESDE AQUI porque la P4 esta en la parte de atras: levantarse del asiento
      * del conductor para pulsar un boton no es una opcion. */
     body = pantalla_crear(parent, PAN_VIAJE_P4, "VIAJE EN LA P4", PAN_VOLVER);
-    lv_obj_t *aviso = lv_label_create(body);
+    lv_obj_t *aviso = s_viaje_p4_aviso = lv_label_create(body);
     /* CON CUANTOS APUNTES HAY SIN ENVIAR (auditoria del 13-oct-2026).
      *
      * La P4 contesta 409 y (desde hoy) dice el nombre del viaje que tiene
@@ -5663,25 +5695,7 @@ static void crear_menus(lv_obj_t *parent)
      * viaje de verdad, y el boton de abajo -- "Apartarlo (era una prueba)" --
      * renombra su carpeta y lo deja sin resumen. Sabiendo que hay apuntes
      * esperando, se entiende que lo que toca es GUARDARLO. */
-    if (s_viaje_p4_ajeno) {
-        /* 412: lo empezo la OTRA pantalla. Se dice claro, porque aqui al lado
-         * esta "Apartarlo (era una prueba)" y eso renombraria la carpeta de un
-         * viaje de verdad que la otra pantalla sigue grabando (auditoria de
-         * comunicacion del 13-oct-2026). */
-        lv_label_set_text(aviso,
-            "Ese viaje lo empezo la OTRA\npantalla y puede seguir en\nmarcha.\n\n"
-            "Cierralo desde ella. Si de\nverdad quieres cerrarlo desde\naqui, "
-            "GUARDARLO.");
-    } else if (viaje_cola_pendientes() > 0) {
-        lv_label_set_text_fmt(aviso,
-            "La P4 tiene un viaje abierto.\n\n"
-            "Tienes %u apunte(s) sin enviar:\n"
-            "puede ser el cierre del anterior.\n"
-            "Prueba GUARDARLO antes de\napartar nada.",
-            (unsigned)viaje_cola_pendientes());
-    } else {
-        lv_label_set_text(aviso, "La P4 tiene un viaje abierto.\nHay que cerrarlo antes de\nempezar otro.");
-    }
+    viaje_p4_aviso_actualizar();
     lv_obj_set_style_text_font(aviso, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(aviso, lv_color_hex(COL_LABEL), 0);
     boton_grande(body, ICO_GUARDAR, "GUARDARLO", "lo cierra con su resumen",
