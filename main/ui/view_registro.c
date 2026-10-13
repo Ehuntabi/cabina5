@@ -2735,8 +2735,11 @@ static void destino_nuevo_listo_cb(lv_event_t *e)
     if (lv_event_get_code(e) != LV_EVENT_READY) return;
     const char *txt = lv_textarea_get_text(s_destino_nuevo_ta);
     snprintf(s_destino_nuevo, sizeof(s_destino_nuevo), "%s", txt);
-    ESP_LOGI(TAG, "destino cambiado a '%s' (la carpeta se renombra al terminar)",
-             s_destino_nuevo);
+    /* A NVS YA, no al cerrar: si se va la luz a mitad de viaje el nombre nuevo
+     * tiene que seguir ahi (el usuario: "que perdure si se apaga"). */
+    save_trip_destino_nuevo(s_destino_nuevo);
+    ESP_LOGI(TAG, "destino cambiado a '%s' y guardado (la carpeta se renombra "
+                  "al terminar)", s_destino_nuevo);
     salida_tira_refresh();
 }
 
@@ -5790,6 +5793,11 @@ void view_registro_create(lv_obj_t *parent)
      * llegaba a dispararse. Detectado auditando el 07-sep-2026. El dialogo se
      * muda solo a la pantalla que este activa (ver confirm_screen.c). Cada
      * 2 s: la fecha llega a 1 Hz y no hay prisa. */
+    /* Y el destino nuevo pendiente, si quedo uno de antes de apagar. */
+    load_trip_destino_nuevo(s_destino_nuevo, sizeof(s_destino_nuevo));
+    if (s_destino_nuevo[0])
+        ESP_LOGI(TAG, "destino pendiente recuperado de NVS: '%s'", s_destino_nuevo);
+
     lv_timer_create(parada_boot_timer_cb, 2000, NULL);
 
     /* --- Editor de campo --- */

@@ -176,6 +176,14 @@ typedef struct {
     uint8_t  activo;
     char     destino[24];
     uint32_t n_eventos;
+    /* DESTINO NUEVO, pedido A MITAD DE VIAJE (13-oct-2026). Vacio = no se ha
+     * cambiado. Va en el MISMO blob a proposito: asi se guarda y se lee con el
+     * resto del estado del viaje y no puede quedar descuadrado con el.
+     *
+     * OJO AL AMPLIAR EL BLOB: un blob viejo (mas corto) se lee bien porque
+     * trip_blob_load() pone a cero antes y NVS devuelve el tamano guardado; el
+     * campo nuevo sale vacio, que es justo lo que significa "sin cambio". */
+    char     destino_nuevo[24];
 } trip_blob_t;
 
 static esp_err_t trip_blob_load(trip_blob_t *out)
@@ -215,11 +223,31 @@ esp_err_t load_trip_destino(char *out, size_t *len)
     return ESP_OK;
 }
 
+/* Destino nuevo pedido a mitad de viaje. Se guarda en cuanto se teclea, para
+ * que un apagon (de la cabina o de la P4) no se lleve el nombre por delante. */
+esp_err_t save_trip_destino_nuevo(const char *destino)
+{
+    trip_blob_t b;
+    trip_blob_load(&b);
+    snprintf(b.destino_nuevo, sizeof(b.destino_nuevo), "%s", destino ? destino : "");
+    return trip_blob_save(&b);
+}
+
+esp_err_t load_trip_destino_nuevo(char *out, size_t len)
+{
+    if (!out || !len) return ESP_ERR_INVALID_ARG;
+    trip_blob_t b;
+    trip_blob_load(&b);
+    snprintf(out, len, "%s", b.destino_nuevo);
+    return ESP_OK;
+}
+
 esp_err_t save_trip_inicio(const char *destino)
 {
     trip_blob_t b = {0};
     b.activo = 1;
     snprintf(b.destino, sizeof(b.destino), "%s", destino ? destino : "");
+    b.destino_nuevo[0] = 0;   /* el cambio de destino es del viaje que empieza */
     b.n_eventos = 1;   /* el inicio ya cuenta */
     return trip_blob_save(&b);
 }

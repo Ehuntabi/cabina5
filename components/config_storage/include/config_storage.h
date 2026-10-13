@@ -37,6 +37,12 @@ esp_err_t save_wifi_config(const char *ssid, const char *pass);
 /* Destino del viaje en curso (da nombre a la carpeta en la SD de la P4). */
 esp_err_t load_trip_destino(char *out, size_t *len);
 
+/* Destino nuevo pedido A MITAD DE VIAJE (vacio = no se ha cambiado). Se guarda
+ * al teclearlo, para que un apagon no se lleve el nombre; la P4 lo aplica al
+ * cerrar el viaje. */
+esp_err_t save_trip_destino_nuevo(const char *destino);
+esp_err_t load_trip_destino_nuevo(char *out, size_t len);
+
 /* Arranca el viaje de un tiron: activo=true, destino y n_eventos=1 (el
  * inicio ya cuenta) en un solo commit. Sustituye a llamar por separado
  * save_trip_destino + trip_eventos_reset + save_trip_active. */
