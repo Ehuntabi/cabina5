@@ -272,7 +272,14 @@ bool salida_abrir_viaje(const char *nombre)
     s_st.tipo      = SALIDA_VIAJE;
     s_st.epoch_ini = ahora;
     snprintf(s_st.nombre,  sizeof(s_st.nombre),  "%s", nombre ? nombre : "");
-    snprintf(s_st.carpeta, sizeof(s_st.carpeta), "%s_%s", limpio, fecha);
+    /* MISMO ORDEN QUE LA P4: "fecha_destino", no "destino_fecha".
+     *
+     * Este campo solo se usa en logs (nadie lo lee como ruta), pero estaba al
+     * reves que la carpeta de verdad -- la P4 la crea como VIAJES_DIR
+     * "/<fecha>_<destino>" (ver op_inicio en config_server_viaje.c) --, asi que
+     * el dia que alguien lo use como ruta (o compare nombres) miente. Auditoria
+     * del 13-oct-2026, hallazgo B1. */
+    snprintf(s_st.carpeta, sizeof(s_st.carpeta), "%s_%s", fecha, limpio);
 
     guardar();
     refrescar_vista();
@@ -301,7 +308,14 @@ bool salida_abrir_puntual(const char *nombre)
     s_st.tipo      = SALIDA_PUNTUAL;
     s_st.epoch_ini = ahora;
     snprintf(s_st.nombre,  sizeof(s_st.nombre),  "%s", nombre ? nombre : "");
-    snprintf(s_st.carpeta, sizeof(s_st.carpeta), "%s_%s", limpio, fecha);
+    /* MISMO ORDEN QUE LA P4: "fecha_destino", no "destino_fecha".
+     *
+     * Este campo solo se usa en logs (nadie lo lee como ruta), pero estaba al
+     * reves que la carpeta de verdad -- la P4 la crea como VIAJES_DIR
+     * "/<fecha>_<destino>" (ver op_inicio en config_server_viaje.c) --, asi que
+     * el dia que alguien lo use como ruta (o compare nombres) miente. Auditoria
+     * del 13-oct-2026, hallazgo B1. */
+    snprintf(s_st.carpeta, sizeof(s_st.carpeta), "%s_%s", fecha, limpio);
 
     guardar();
     refrescar_vista();
