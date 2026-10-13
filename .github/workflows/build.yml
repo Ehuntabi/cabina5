@@ -112,7 +112,8 @@ jobs:
                    main/salida.c \
                    main/salida.h \
                    components/config_storage/config_storage.c \
-                   components/config_storage/include/config_storage.h ; do
+                   components/config_storage/include/config_storage.h \
+                   test/viaje_cola_control_arnes.c test/viaje_cola_control.sh ; do
             if [ ! -f "cabina5/$f" ] || [ ! -f "35cabina/$f" ]; then
               echo "FALTA $f en alguno de los dos repos"; fallo=1; continue
             fi
@@ -129,6 +130,11 @@ jobs:
           done
           [ "$fallo" = 0 ] || { echo "Las dos cabinas tienen que llevar el MISMO ciclo de viaje"; exit 1; }
           echo "ciclo del viaje identico en las dos cabinas"
+
+      # Y la clasificacion de la que depende la garantia del cierre se PRUEBA
+      # (saca la funcion real de viaje_cola.c y la compila).
+      - name: El cierre del viaje siempre cabe en la cola
+        run: bash 35cabina/test/viaje_cola_control.sh
 
       - name: El contrato del canal de viaje, contra la P4
         run: bash victron/test/protocolo_cabina.sh victron cabina5

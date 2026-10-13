@@ -2275,7 +2275,12 @@ static const char *cola_fallo_texto(viaje_cola_error_t motivo)
 {
     switch (motivo) {
         case VIAJE_COLA_ERR_LLENA:
-            return "La cola de pendientes esta\nllena y la P4 no la vacia.\nMira si tiene corriente.";
+            /* Se dice QUE no cabe y QUE hacer: el cierre del viaje si entra
+             * (huecos reservados), y para seguir anotando hay que apartar el
+             * apunte mas antiguo desde la pastilla (auditoria del 14-oct-2026). */
+            return "La cola esta llena: la P4 no\nla vacia desde hace rato.\n\n"
+                   "El cierre del viaje SI entra.\nToca la pastilla naranja para\n"
+                   "apartar el mas antiguo.";
         case VIAJE_COLA_ERR_NVS:
             return "No he podido guardarlo en la\nmemoria del aparato (puede estar\nllena o dando fallos). Avisa de esto.";
         default:
@@ -4848,7 +4853,10 @@ static void parada_terminar(void *ud)
          * temporizador ni nada que la cierre sola. */
         const char *razon = (motivo_cola == VIAJE_COLA_ERR_NVS)
             ? "La parada NO se ha guardado\ny sigue abierta: fallo al escribir\nen la memoria del aparato."
-            : "La parada NO se ha guardado\ny sigue abierta. Enciende la\nP4 para vaciar la cola.";
+            : (motivo_cola == VIAJE_COLA_ERR_LLENA)
+              ? "La parada NO se ha guardado\ny sigue abierta: la cola esta\nllena.\n\n"
+                "Toca la pastilla naranja y\naparta el apunte mas antiguo\npara hacer sitio."
+              : "La parada NO se ha guardado\ny sigue abierta. Enciende la\nP4 para vaciar la cola.";
         confirm_screen_aviso("No he podido apuntarlo", razon,
                              COL_ACCION_STOP, "Entendido");
         return;

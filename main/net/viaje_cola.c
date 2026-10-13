@@ -131,9 +131,36 @@ size_t viaje_cola_pendientes(void)
     return (size_t)(cola - cabeza);
 }
 
+size_t viaje_cola_apuntes_libres(void)
+{
+    size_t n = viaje_cola_pendientes();
+    size_t tope = (size_t)(CAPACIDAD - VIAJE_COLA_RESERVA_CONTROL);
+    return (n >= tope) ? 0 : (tope - n);
+}
+
 static void avisar_cambio(void)
 {
     if (s_cambio_cb) s_cambio_cb(viaje_cola_pendientes());
+}
+
+/* ¿Este cuerpo es una operacion de CONTROL (el cierre del viaje o el descarte)?
+ *
+ * Se busca el needle completo ("\"op\":\"fin\"") y no la palabra suelta: el
+ * apunte de una parada lleva dentro un campo "fin":<hora>, y un strstr(cuerpo,
+ * "fin") pelado lo tomaria por el cierre del viaje. Los textos del usuario van
+ * con las comillas escapadas, asi que tampoco pueden fabricar el needle. */
+static bool es_op_de_control(const char *cuerpo)
+{
+    if (!cuerpo) return false;
+    /* strstr y no un prefijo: esto NO depende de que "op" sea la primera clave
+     * del cuerpo (hoy lo es, pero reordenarlas compilaria y pasaria el CI), que
+     * es la misma convencion de es_advisory() y viaje_cola_tiene_op_pendiente().
+     * El needle lleva "op" a proposito: el apunte de una parada tiene un campo
+     * "fin":<hora> dentro, y un strstr(cuerpo,"fin") pelado lo confundiria con
+     * el cierre del viaje. Las comillas de los textos del usuario van escapadas
+     * (json_str en apunte.c, p4_api.c), asi que no pueden fabricar este needle. */
+    return strstr(cuerpo, "\"op\":\"fin\"") != NULL ||
+           strstr(cuerpo, "\"op\":\"descartar\"") != NULL;
 }
 
 bool viaje_cola_push(const char *cuerpo, viaje_cola_error_t *motivo_out)
@@ -152,9 +179,21 @@ bool viaje_cola_push(const char *cuerpo, viaje_cola_error_t *motivo_out)
     uint32_t cabeza, cola;
     indices_leer(&cabeza, &cola);
 
-    if (cola - cabeza >= CAPACIDAD) {
+    /* El tope depende de QUE se esta encolando: un apunte normal no puede
+     * comerse los huecos reservados al cierre (ver VIAJE_COLA_RESERVA_CONTROL). */
+    uint32_t tope = es_op_de_control(cuerpo)
+                  ? (uint32_t)CAPACIDAD
+                  : (uint32_t)(CAPACIDAD - VIAJE_COLA_RESERVA_CONTROL);
+    /* El tope NUNCA puede pasar de CAPACIDAD: migrar_cola() da la cola por
+     * corrupta y la BORRA ENTERA si (cola - cabeza) > CAPACIDAD al arrancar
+     * (viaje_cola.c, "no_cuadra"), asi que un off-by-one aqui se paga con los
+     * apuntes del usuario. */
+    if (tope > (uint32_t)CAPACIDAD) tope = (uint32_t)CAPACIDAD;
+    if (cola - cabeza >= tope) {
         xSemaphoreGive(s_mutex);
-        ESP_LOGE(TAG, "cola LLENA (%d): no se encola nada mas", CAPACIDAD);
+        ESP_LOGE(TAG, "cola LLENA (%lu de %u, tope %lu para este cuerpo): no se "
+                      "encola nada mas", (unsigned long)(cola - cabeza),
+                 (unsigned)CAPACIDAD, (unsigned long)tope);
         if (motivo_out) *motivo_out = VIAJE_COLA_ERR_LLENA;
         return false;
     }
@@ -350,6 +389,15 @@ bool viaje_cola_credenciales_mal(void)
  * no hace falta el margen de minutos que si tiene el 409 (que puede ser
  * normal mientras el inicio del viaje termina de procesarse).
  * Detectado auditando el 07-sep-2026. */
+/* Intentos seguidos SIN RESPUESTA (estado == 0: no se pudo ni conectar) antes
+ * de marcarlo como atasco. La P4 apagada con el vehiculo parado es LO NORMAL y
+ * se arregla sola al dar el contacto, asi que no puede marcarse al primer
+ * intento; pero con la cola llenandose y sin ninguna marca visible, el usuario
+ * no tenia forma de saber por que no cabe otro apunte -- ni salida, porque el
+ * descarte solo se ofrece con atasco (auditoria del 14-oct-2026). Tres intentos
+ * son ~45 s. */
+#define INTENTOS_SIN_RESPUESTA_ATASCO 3
+
 #define INTENTOS_401_ATASCO 3
 
 /* Un 5xx sostenido (507 sobre todo) significa que la P4 esta viva y contesta,
@@ -458,6 +506,13 @@ bool viaje_cola_descartar_cabeza(void)
         xSemaphoreGive(s_mutex);
         return false;
     }
+    /* SOLO SI SIGUE ATASCADA. Se probo a añadir "o si esta llena" y es un
+     * proxy peligroso: una cola que drena A MEDIAS (una entrega lenta, o un
+     * aviso de destino que se suelta solo) sigue pareciendo llena, y el
+     * descarte se llevaria por delante la cabeza NUEVA, que si se iba a
+     * entregar. El caso "llena porque la P4 no contesta" tiene su propio
+     * motivo de atasco (VIAJE_COLA_ATASCO_SIN_RESPUESTA), que se marca solo y
+     * se limpia solo en cuanto la P4 vuelve a contestar. */
     if (s_atasco == VIAJE_COLA_ATASCO_NO) {
         xSemaphoreGive(s_mutex);
         ESP_LOGW(TAG, "el apunte de cabeza ya no esta atascado: no descarto nada");
@@ -486,6 +541,7 @@ static void reparto_task(void *arg)
     int intentos_409 = 0;
     int intentos_401 = 0;   /* no distingue apunte: una clave mal puesta falla con cualquiera */
     int intentos_5xx = 0;   /* idem: si la P4 no puede escribir, falla con todos */
+    int intentos_sin_resp = 0;   /* idem con "no contesta" (estado == 0) */
 
     while (1) {
         /* LA GENERACION SE LEE ANTES DE LEER LA CABEZA, no antes de enviar.
@@ -528,6 +584,7 @@ static void reparto_task(void *arg)
             intentos_409 = 0;
             intentos_401 = 0;
             intentos_5xx = 0;
+            intentos_sin_resp = 0;
             s_atasco = VIAJE_COLA_ATASCO_NO;
             if (s_generacion == gen) {
                 descartar_cabeza();
@@ -671,6 +728,25 @@ static void reparto_task(void *arg)
             }
             vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
             continue;
+        }
+
+        /* SIN RESPUESTA (estado == 0): no se pudo ni conectar. Es lo normal con
+         * la P4 apagada y se arregla solo al dar el contacto, asi que no se
+         * marca al primer intento -- pero si sigue asi, el usuario tiene que
+         * poder verlo y hacer sitio: con la cola llena no cabe otro apunte y
+         * hasta ahora no habia ninguna salida desde la pantalla. */
+        if (estado == 0) {
+            if (++intentos_sin_resp >= INTENTOS_SIN_RESPUESTA_ATASCO &&
+                s_atasco == VIAJE_COLA_ATASCO_NO) {
+                s_atasco = VIAJE_COLA_ATASCO_SIN_RESPUESTA;
+                ESP_LOGE(TAG, "la P4 no contesta (%d intentos seguidos): %lu apunte(s) "
+                              "esperando. La cola se llena y no se puede anotar mas "
+                              "hasta que vuelva o se aparte el mas antiguo",
+                         intentos_sin_resp, (unsigned long)viaje_cola_pendientes());
+                avisar_cambio();
+            }
+        } else {
+            intentos_sin_resp = 0;
         }
 
         /* 5xx: la P4 esta VIVA y contesta, pero no puede escribir (507: tarjeta

@@ -7,6 +7,21 @@
  * ANTES de llegar al tope; el porque de este numero esta en viaje_cola.c. */
 #define VIAJE_COLA_CAPACIDAD  16
 
+/* HUECOS RESERVADOS PARA LAS OPERACIONES DE CONTROL (auditoria del 14-oct-2026).
+ *
+ * El cierre del viaje (y el descarte) NO pueden competir por sitio con los
+ * apuntes: con la cola llena, el `fin` se rechazaba y el viaje no se podia
+ * cerrar desde la pantalla hasta hacer sitio o descartar a mano -- y la P4
+ * apagada (que es lo normal con el vehiculo parado) es justo cuando la cola se
+ * llena. Con esto los apuntes se limitan a APUNTES_MAX y el cierre siempre
+ * entra. Coste: dos apuntes menos de capacidad, que con 2-6 apuntes por viaje
+ * no se nota. */
+#define VIAJE_COLA_RESERVA_CONTROL 2
+
+/* Los apuntes que caben de verdad: lo que la pantalla usa para el aviso de
+ * "casi llena" y para el de "llena". */
+#define VIAJE_COLA_APUNTES_MAX (VIAJE_COLA_CAPACIDAD - VIAJE_COLA_RESERVA_CONTROL)
+
 /* Tamano maximo de un cuerpo JSON de apunte. Publica (y no en viaje_cola.c)
  * porque view_registro.c necesita el MISMO numero para el buffer local de
  * apunte_encolar() -- un solo #define en vez de dos copias a mano evita que
@@ -58,6 +73,11 @@ typedef enum {
     VIAJE_COLA_ATASCO_NUMERACION,    /* 409 sostenido: choque de numeracion */
     VIAJE_COLA_ATASCO_RECHAZO,       /* la P4 rechaza el apunte (400 y otros 4xx) */
     VIAJE_COLA_ATASCO_P4_ESCRITURA,  /* 5xx: la P4 vive pero no puede escribir */
+    VIAJE_COLA_ATASCO_SIN_RESPUESTA, /* estado 0 sostenido: la P4 no contesta (apagada
+                                      * o fuera de su Wi-Fi). Se marca solo tras 3
+                                      * intentos y se limpia solo cuando vuelve. Existe
+                                      * para que con la cola llena el usuario vea POR QUE
+                                      * y tenga la salida de apartar el mas antiguo. */
 } viaje_cola_atasco_t;
 
 viaje_cola_atasco_t viaje_cola_atasco(void);
@@ -86,6 +106,9 @@ bool viaje_cola_credenciales_mal(void);
  * pantalla, CON confirmacion: lo decide el usuario, no un codigo de respuesta.
  * Auditoria del 13-oct-2026. */
 bool viaje_cola_descartar_cabeza(void);
+
+/* Huecos de apunte libres ahora mismo (los de control no cuentan). */
+size_t viaje_cola_apuntes_libres(void);
 
 /* true si hay encolado algun apunte de esa operacion ("fin", "inicio"...).
  * Se usa AL ARRANCAR para reconciliar el estado del viaje: ver el comentario

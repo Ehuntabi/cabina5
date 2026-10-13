@@ -1935,7 +1935,10 @@ static void pendientes_aplicar(void *arg)
      * Wi-Fi -- y conviene enterarse ANTES de que no quepa el siguiente, que ahi
      * ya no se puede anotar. Tres de margen: da tiempo a reaccionar sin dar la
      * lata por uno o dos. */
-    bool casi = s_pend_valor + 3 >= VIAJE_COLA_CAPACIDAD;
+    /* El tope que importa es el de APUNTES, no el de la cola: dos huecos estan
+     * reservados al cierre del viaje (ver VIAJE_COLA_RESERVA_CONTROL), asi que
+     * el aviso tiene que saltar contra ESE tope, no contra 16. */
+    bool casi = s_pend_valor + 3 >= VIAJE_COLA_APUNTES_MAX;
     /* Un 409 sostenido no se arregla solo aunque la P4 este encendida y
      * respondiendo (es un choque de numeracion, no que este apagada) -- por
      * eso lleva su propio aviso, distinto de "casi llena". Ver el comentario
@@ -1953,16 +1956,25 @@ static void pendientes_aplicar(void *arg)
      * indistinguible de "la P4 esta apagada" y mandaba a mirar la corriente,
      * que no arregla nada: lo que hay que hacer es sitio en su tarjeta. */
     bool p4_no_escribe = (atasco == VIAJE_COLA_ATASCO_P4_ESCRITURA);
+    /* "No contesta" (estado 0 sostenido): la P4 apagada o fuera de alcance. Se
+     * marca solo tras 3 intentos y se limpia solo cuando vuelve. */
+    bool sin_resp = (atasco == VIAJE_COLA_ATASCO_SIN_RESPUESTA);
     if (cred_mal) {
         lv_label_ins_text(s_pendientes, LV_LABEL_POS_LAST, "  -  CLAVE MAL, AJUSTES");
     } else if (p4_no_escribe) {
         lv_label_ins_text(s_pendientes, LV_LABEL_POS_LAST, "  -  LA P4 NO PUEDE ESCRIBIR");
     } else if (atascada) {
         lv_label_ins_text(s_pendientes, LV_LABEL_POS_LAST, "  -  ATASCADO, TOCA AQUI");
+    } else if (sin_resp) {
+        /* La P4 lleva un rato sin contestar (apagada, o esta pantalla fuera de
+         * su Wi-Fi): los apuntes se acumulan y el usuario tiene que poder ver
+         * POR QUE y hacer sitio. Antes esto no marcaba nada ("ya volvera") y con
+         * la cola llena no habia ninguna salida desde la pantalla. */
+        lv_label_ins_text(s_pendientes, LV_LABEL_POS_LAST, "  -  NO CONTESTA, TOCA AQUI");
     } else if (casi) {
         lv_label_ins_text(s_pendientes, LV_LABEL_POS_LAST, "  -  CASI LLENA");
     }
-    bool rojo = (casi || atascada || cred_mal || p4_no_escribe);
+    bool rojo = (casi || atascada || cred_mal || p4_no_escribe || sin_resp);
     lv_obj_set_style_bg_color(s_pendientes, lv_color_hex(rojo ? 0xFF4444 : 0xFF9800), 0);
     lv_obj_set_style_text_color(s_pendientes, lv_color_hex(rojo ? 0xFFFFFF : 0x000000), 0);
 
@@ -1997,8 +2009,8 @@ static void pendientes_click_cb(lv_event_t *e)
     if (s_puntual_pendiente) { view_registro_puntual_declarar_llegada(); return; }
 
     /* La cola atascada va ANTES que "sin cerrar": es la que puede dejarte sin
-     * poder anotar nada mas (a los 16 apuntes ya no cabe ninguno, ni el fin del
-     * viaje), y hasta el 13-oct-2026 la pastilla no llevaba a ningun sitio
+     * poder anotar nada mas (a los 14 apuntes ya no cabe ninguno), y hasta el
+     * 13-oct-2026 la pastilla no llevaba a ningun sitio
      * cuando no habia nada "sin cerrar". La lista de "sin cerrar" son los
      * eventos de la SALIDA, no la cola: no servia para desatascarla. */
     viaje_cola_atasco_t atasco = viaje_cola_atasco();
@@ -2028,6 +2040,21 @@ static void pendientes_click_cb(lv_event_t *e)
                                 "La P4 y esta pantalla han\nperdido la numeracion del\nviaje.\n\n"
                                 "Descartar el apunte mas\nantiguo deja seguir con los\ndemas.",
                                 0xFF4444, "Descartarlo", "Cancelar",
+                                descartar_apunte_cb, NULL);
+            confirm_screen_ok_destructivo();
+            return;
+        }
+        if (atasco == VIAJE_COLA_ATASCO_SIN_RESPUESTA) {
+            /* La P4 no contesta (apagada, o esta pantalla fuera de su Wi-Fi).
+             * Se llega aqui con los apuntes acumulandose: el cierre del viaje SI
+             * entra (huecos reservados al control), pero para SEGUIR anotando
+             * hay que hacer sitio, y el unico que puede es el usuario. Se dice
+             * cual se pierde y que, si la P4 solo estaba apagada, habrian
+             * entrado solos al volver (auditoria del 14-oct-2026). */
+            confirm_screen_open("LA P4 NO CONTESTA",
+                                "Lleva un rato sin recoger los\napuntes. Si solo estaba\napagada, entraran solos\ncuando vuelva.\n\n"
+                                "Para seguir anotando hay que\napartar el mas antiguo:\nse perdera ESE.",
+                                0xFF4444, "Apartarlo", "Esperar",
                                 descartar_apunte_cb, NULL);
             confirm_screen_ok_destructivo();
             return;
