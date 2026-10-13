@@ -15,6 +15,7 @@
 #include "data_model.h"
 #include "tilt.h"
 #include "salida.h"
+#include "reloj.h"   /* reloj_ahora(): la reconciliacion no decide sin hora */
 #include "ui/confirm_screen.h"   /* aviso de apuntes perdidos */
 #include "config_storage.h"   /* load_trip_activo/destino: reconciliacion M5 */
 #include "diag_reset.h"
@@ -206,6 +207,17 @@ static bool s_nvs_borrada_al_arrancar;
  * Se hace con lv_timer de un solo uso: la UI ya esta construida (nav_init crea
  * las tres pantallas y con ellas el dialogo de confirmacion) y el splash ya se
  * ha ido. */
+/* Reintento de la reconciliacion hasta que haya hora (ver su comentario). */
+static bool s_recon_pendiente;
+static void reconciliar_viaje_al_arrancar(void);
+
+static void recon_timer_cb(lv_timer_t *t)
+{
+    if (!s_recon_pendiente) { lv_timer_del(t); return; }
+    reconciliar_viaje_al_arrancar();
+    if (!s_recon_pendiente) lv_timer_del(t);
+}
+
 static void aviso_perdidas_cb(lv_timer_t *t)
 {
     lv_timer_del(t);
@@ -239,7 +251,19 @@ static void reconciliar_viaje_al_arrancar(void)
 {
     bool activo     = load_trip_activo();
     bool hay_salida = salida_hay();
-    if (activo == hay_salida) return;               /* coherente: nada que hacer */
+    if (activo == hay_salida) { s_recon_pendiente = false; return; }
+
+    /* SIN HORA NO SE DECIDE NADA: salida_abrir_viaje() necesita el reloj (fechan
+     * y sellan la salida), asi que sin hora fallaba y el codigo caia en
+     * save_trip_fin() -- cerrando el viaje en la cabina mientras la P4 lo
+     * mantenia abierto, justo lo contrario de lo que esto viene a arreglar. Se
+     * reintenta en la siguiente vuelta (revision del 13-oct-2026). */
+    uint32_t ahora = 0;
+    if (!reloj_ahora(&ahora)) {
+        ESP_LOGW(TAG, "reconciliacion del viaje: aun no hay hora, lo intento luego");
+        return;
+    }
+    s_recon_pendiente = false;
 
     if (activo && !hay_salida) {
         /* Corte AL EMPEZAR: el viaje existe (la P4 lo tiene abierto y esta NVS
@@ -383,8 +407,14 @@ void setup(void) {
     viaje_cola_init(view_info_set_pendientes);
 
     /* M5: los dos blobs del viaje pueden haber quedado descuadrados por un
-     * corte de corriente a mitad de empezar o terminar. Se arregla aqui. */
+     * corte de corriente a mitad de empezar o terminar. Se arregla aqui, y si
+     * todavia no hay hora (el primer paquete de la P4 tarda unos segundos) se
+     * reintenta cada 3 s hasta que la haya. */
     reconciliar_viaje_al_arrancar();
+    {
+        lv_timer_t *recon = lv_timer_create(recon_timer_cb, 3000, NULL);
+        (void)recon;
+    }
 
     /* Y en cuanto la UI lleve un rato en pie, si se perdio algo se dice. */
     lv_timer_t *aviso = lv_timer_create(aviso_perdidas_cb, 12000, NULL);

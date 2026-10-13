@@ -49,3 +49,45 @@ jobs:
           esp_idf_version: v5.5.5
           target: esp32s3
           path: '.'
+
+  # El contrato con la P4 y con la 3,5" (auditoria de comunicacion del
+  # 13-oct-2026): los jobs de victron y de 35cabina ya miran esta repo, pero si
+  # el push toca SOLO cabina5 no se disparan -- y este es el repo que puede
+  # romper el protocolo sin que nadie se entere hasta la placa.
+  contrato:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cabina5
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: cabina5
+
+      - name: Checkout 35cabina
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: Ehuntabi/35cabina
+          path: 35cabina
+
+      - name: Checkout victron
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: Ehuntabi/victron-jc1060p470c-esp32p4
+          path: victron
+
+      - name: mini_proto.h igual en los tres
+        run: |
+          diff cabina5/main/net/mini_proto.h 35cabina/main/net/mini_proto.h
+          diff cabina5/main/net/mini_proto.h victron/main/net/mini_proto.h
+
+      - name: CUERPO_MAX de las dos cabinas, y que quepa en la P4
+        run: |
+          propio=$(grep -oP '#define\s+CUERPO_MAX\s+\K[0-9]+' cabina5/main/net/viaje_cola.h)
+          otro=$(grep -oP '#define\s+CUERPO_MAX\s+\K[0-9]+' 35cabina/main/net/viaje_cola.h)
+          body=$(grep -oP '#define\s+VIAJE_BODY_MAX\s+\K[0-9]+' victron/main/portal/config_server_viaje.c)
+          echo "CUERPO_MAX cabina5=$propio 35cabina=$otro VIAJE_BODY_MAX=$body"
+          [ -n "$propio" ] && [ -n "$otro" ] && [ -n "$body" ] || exit 1
+          [ "$propio" = "$otro" ] || { echo "CUERPO_MAX distinto entre cabinas"; exit 1; }
+          [ "$propio" -lt "$body" ] || { echo "CUERPO_MAX no cabe en la P4"; exit 1; }
+
+      - name: El contrato del canal de viaje, contra la P4
+        run: bash victron/test/protocolo_cabina.sh victron cabina5

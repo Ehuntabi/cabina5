@@ -306,7 +306,7 @@ static void tarea(void *arg)
      * devuelve 0, el canal sigue roto. */
     ESP_LOGI(TAG, "paso: POST /api/viaje (camino real de los apuntes)");
     int est = 0;
-    bool ok = p4_api_post("{\"op\":\"autotest\",\"id\":0}", &est);
+    bool ok = p4_api_post("{\"op\":\"autotest\",\"id\":1}", &est);
     if (est >= 400 && est < 500) {
         ESP_LOGI(TAG, "3) CANAL DE VIAJES OK: la P4 ha contestado HTTP %d al apunte de prueba "
                       "(rechazado a proposito, no se ha creado nada)", est);

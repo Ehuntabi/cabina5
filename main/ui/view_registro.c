@@ -2721,7 +2721,12 @@ static void viaje_do_finalizar(void *ud)
      * despues que contar, y con _inc cada reintento fallido subia el contador.
      * Tres intentos con la cola llena y la P4 daba el viaje por incompleto sin
      * faltarle nada. El +1 es este mismo mensaje. */
-    char cuerpo[80];
+    /* 160 y NO 80: el cuerpo del fin lleva id + eventos + destino + el "dev"
+     * (la MAC de esta pantalla, 21 caracteres mas). Con 80 se TRUNCAba el JSON
+     * en cuanto hubiera destino y la P4 contestaba 400 "json invalido", asi que
+     * el cierre se quedaba en la cola y el viaje no se cerraba (lo cazo la
+     * revision adversarial del 13-oct-2026, el mismo dia que se anadio 'dev'). */
+    char cuerpo[160];
     p4_api_cuerpo_fin(cuerpo, sizeof(cuerpo), next_trip_seq(), trip_eventos_get() + 1,
                       s_destino_nuevo);
 
@@ -4455,7 +4460,11 @@ static void puntual_llegada_cb(lv_event_t *e)
 static void puntual_do_terminar(void *ud)
 {
     (void)ud;
-    char cuerpo[80];
+    /* 160 y NO 80: el fin lleva id + eventos + el "dev" (la MAC, 21 caracteres
+     * mas). Con 80 se truncaba el JSON en cuanto el id crecia y la P4 contestaba
+     * 400 "json invalido": el cierre se quedaba en la cola para siempre.
+     * Revision adversarial del 13-oct-2026. */
+    char cuerpo[160];
     /* trip_eventos_get()+1, NO un "3" fijo: una puntual SIEMPRE tiene como
      * mucho una parada, pero no siempre la tiene DE VERDAD mandada -- si se
      * descarta con eventos abiertos (avisa_de_lo_abierto ya lo permite,
@@ -4607,7 +4616,7 @@ static void viaje_p4_manda(const char *cuerpo, const char *titulo)
 static void viaje_p4_guardar(void *ud)
 {
     (void)ud;
-    char cuerpo[80];
+    char cuerpo[160];   /* ver el comentario del fin: id + dev */
     p4_api_cuerpo_fin_ajeno(cuerpo, sizeof(cuerpo), next_trip_seq());
     viaje_p4_manda(cuerpo, "Viaje guardado");
 }
@@ -4615,7 +4624,7 @@ static void viaje_p4_guardar(void *ud)
 static void viaje_p4_descartar(void *ud)
 {
     (void)ud;
-    char cuerpo[80];
+    char cuerpo[160];   /* id + dev, igual que el fin */
     p4_api_cuerpo_descartar(cuerpo, sizeof(cuerpo), next_trip_seq());
     viaje_p4_manda(cuerpo, "Viaje apartado");
 }
