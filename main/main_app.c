@@ -15,6 +15,7 @@
 #include "data_model.h"
 #include "tilt.h"
 #include "salida.h"
+#include "ui/confirm_screen.h"   /* aviso de apuntes perdidos */
 #include "config_storage.h"   /* load_trip_activo/destino: reconciliacion M5 */
 #include "diag_reset.h"
 #include "ui/nav.h"
@@ -187,6 +188,53 @@ void setup(void);
  *
  * Se hace una sola vez, al arrancar, y no borra nada: o abre la salida que
  * falta (con el destino guardado) o la cierra, segun lo que diga la cola. */
+/* true si en ESTE arranque hubo que borrar la NVS (corrupta o de otra version):
+ * se perdio lo guardado y hay que decirlo en pantalla, no solo en el log. */
+static bool s_nvs_borrada_al_arrancar;
+
+/* ── AVISO DE LO QUE SE PERDIO AL ARRANCAR (B2, 13-oct-2026) ─────────────────
+ *
+ * Hay dos caminos por los que esta pantalla puede perder apuntes que el usuario
+ * VIO guardados, y los dos eran mudos (solo quedaba una linea en el log):
+ *   - la NVS estaba corrupta o era de otra version y hubo que borrarla entera
+ *     (se lleva la cola de apuntes, el estado de la salida y el del viaje);
+ *   - la cola se reinicio al arrancar porque los indices no cuadraban.
+ * Ahora se avisa UNA vez, en pantalla, en cuanto la UI esta lista. Que se
+ * entere quien lo puede arreglar (volver a apuntar lo que falte) y no un log
+ * que nadie lee.
+ *
+ * Se hace con lv_timer de un solo uso: la UI ya esta construida (nav_init crea
+ * las tres pantallas y con ellas el dialogo de confirmacion) y el splash ya se
+ * ha ido. */
+static void aviso_perdidas_cb(lv_timer_t *t)
+{
+    lv_timer_del(t);
+    int cola = viaje_cola_perdidos_al_arrancar();
+    if (!s_nvs_borrada_al_arrancar && cola <= 0) return;   /* no se perdio nada */
+
+    char cuerpo[320];
+    if (s_nvs_borrada_al_arrancar) {
+        snprintf(cuerpo, sizeof(cuerpo),
+                 "La memoria del aparato estaba\n"
+                 "estropeada o era de otra version y\n"
+                 "ha habido que borrarla.\n\n"
+                 "Se han perdido los apuntes sin\n"
+                 "enviar%s. Mira en Ajustes y vuelve\n"
+                 "a apuntar lo que falte.",
+                 cola > 0 ? " (y los de la cola)" : "");
+    } else {
+        snprintf(cuerpo, sizeof(cuerpo),
+                 "Se han perdido %d apunte(s) sin\n"
+                 "enviar: la cola de pendientes no\n"
+                 "cuadraba al arrancar.\n\n"
+                 "Vuelve a apuntar lo que falte.",
+                 cola);
+    }
+    confirm_screen_aviso("SE HAN PERDIDO APUNTES", cuerpo, 0xFF4444, "Entendido");
+    ESP_LOGW(TAG, "aviso de perdidas mostrado (nvs_borrada=%d, cola=%d)",
+             (int)s_nvs_borrada_al_arrancar, cola);
+}
+
 static void reconciliar_viaje_al_arrancar(void)
 {
     bool activo     = load_trip_activo();
@@ -236,6 +284,7 @@ static void reconciliar_viaje_al_arrancar(void)
     }
 }
 
+
 void app_main(void) {
     setup();
 }
@@ -263,6 +312,16 @@ void setup(void) {
      * tarde, que de noche se ve como un fogonazo. */
     esp_err_t nvs_err = nvs_flash_init();
     if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        /* ESTO SE LLEVA POR DELANTE TODO lo que hubiera guardado: la cola de
+         * apuntes sin enviar (vcola), el estado de la salida y el del viaje. No
+         * hay nada que hacer -- la particion esta corrupta o es de otra version
+         * --, pero NO puede pasar en silencio: se apunta para avisarlo en
+         * pantalla en cuanto la UI este lista (auditoria del 13-oct-2026,
+         * hallazgo B2). */
+        s_nvs_borrada_al_arrancar = true;
+        ESP_LOGE(TAG, "NVS corrupta o de otra version (%s): se borra ENTERA -- se "
+                      "pierden los apuntes sin enviar y el estado del viaje",
+                 esp_err_to_name(nvs_err));
         ESP_ERROR_CHECK(nvs_flash_erase());
         nvs_err = nvs_flash_init();
     }
@@ -326,6 +385,10 @@ void setup(void) {
     /* M5: los dos blobs del viaje pueden haber quedado descuadrados por un
      * corte de corriente a mitad de empezar o terminar. Se arregla aqui. */
     reconciliar_viaje_al_arrancar();
+
+    /* Y en cuanto la UI lleve un rato en pie, si se perdio algo se dice. */
+    lv_timer_t *aviso = lv_timer_create(aviso_perdidas_cb, 12000, NULL);
+    if (aviso) lv_timer_set_repeat_count(aviso, 1);
 
     /* Auto-test del canal de subida (cabina -> P4 por HTTP): deja en el log si
      * la ruta existe, si las credenciales del portal valen y si acepta POST.

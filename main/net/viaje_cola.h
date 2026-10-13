@@ -92,6 +92,12 @@ bool viaje_cola_descartar_cabeza(void);
  * del .c (hallazgo M5 de la auditoria del 13-oct-2026). */
 bool viaje_cola_tiene_op_pendiente(const char *op);
 
+/* Cuantos apuntes se han tenido que tirar AL ARRANCAR (la cola se reinicio
+ * porque los indices no cuadraban o cambio la capacidad). La pantalla lo avisa
+ * una vez: los apuntes que el usuario vio guardados ya no estan y hay que
+ * decirlo (auditoria del 13-oct-2026, hallazgo B2). */
+int viaje_cola_perdidos_al_arrancar(void);
+
 #ifdef __cplusplus
 }
 #endif

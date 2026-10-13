@@ -634,6 +634,15 @@ static void reparto_task(void *arg)
  *   equivocado. */
 #define CAPACIDAD_ANTERIOR  64
 
+/* Cuantos apuntes se han perdido AL ARRANCAR (la cola se reinicio porque los
+ * indices no cuadraban o porque cambio la capacidad). Se enseña en pantalla una
+ * vez: antes solo quedaba una linea en el log y el usuario no tenia forma de
+ * saber que los apuntes que vio guardados ya no estaban (auditoria del
+ * 13-oct-2026, hallazgo B2). */
+static int s_perdidos_arranque;
+
+int viaje_cola_perdidos_al_arrancar(void) { return s_perdidos_arranque; }
+
 static void migrar_cola(void)
 {
     nvs_handle_t h;
@@ -681,6 +690,9 @@ static void migrar_cola(void)
                           "una capacidad de %d): la reinicio",
                      (unsigned long)(cola - cabeza), CAPACIDAD);
         }
+        s_perdidos_arranque += (int)(cola - cabeza);
+        ESP_LOGE(TAG, "se pierden %d apunte(s) sin entregar al reiniciar la cola",
+                 (int)(cola - cabeza));
         for (uint32_t i = 0; i < CAPACIDAD; i++) {
             char clave[16];
             snprintf(clave, sizeof(clave), "q%lu", (unsigned long)i);
