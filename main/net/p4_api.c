@@ -255,6 +255,26 @@ void p4_api_cuerpo_fin(char *out, size_t n, uint32_t id, uint32_t eventos,
              (unsigned long)id, (unsigned long)eventos);
 }
 
+/* AVISO A LA P4 DEL DESTINO NUEVO, SIN renombrar nada (13-oct-2026).
+ *
+ * Se manda EN CUANTO se cambia el nombre, no al cerrar: asi el nombre queda a
+ * salvo en las TRES placas a la vez (la cabina lo guarda en su NVS y la P4 en
+ * la suya). Si la cabina se queda sin NVS o se cambia por otra, la P4 lo aplica
+ * igual al cerrar el viaje.
+ *
+ * Lleva "id" como las demas del satelite (ver contrato_app.c). */
+void p4_api_cuerpo_destino(char *out, size_t n, uint32_t id, const char *destino)
+{
+    char limpio[80]; size_t j = 0;
+    for (size_t i = 0; destino && destino[i] && j + 2 < sizeof(limpio); i++) {
+        if (destino[i] == '"' || destino[i] == '\\') limpio[j++] = '\\';
+        limpio[j++] = destino[i];
+    }
+    limpio[j] = 0;
+    snprintf(out, n, "{\"op\":\"destino\",\"id\":%lu,\"destino\":\"%s\"}",
+             (unsigned long)id, limpio);
+}
+
 void p4_api_cuerpo_fin_ajeno(char *out, size_t n, uint32_t id)
 {
     snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu}", (unsigned long)id);

@@ -2738,6 +2738,21 @@ static void destino_nuevo_listo_cb(lv_event_t *e)
     /* A NVS YA, no al cerrar: si se va la luz a mitad de viaje el nombre nuevo
      * tiene que seguir ahi (el usuario: "que perdure si se apaga"). */
     save_trip_destino_nuevo(s_destino_nuevo);
+
+    /* Y se lo decimos a la P4 YA, aunque ella no renombre nada todavia: asi el
+     * nombre queda a salvo en las TRES placas. Si esta cabina se queda sin su
+     * NVS (o se cambia por otra), la P4 lo aplica igual al cerrar el viaje.
+     * Va por la cola, que reintenta: si ahora no hay enlace, llegara luego. */
+    char cuerpo[128];
+    p4_api_cuerpo_destino(cuerpo, sizeof(cuerpo), next_trip_seq(), s_destino_nuevo);
+    viaje_cola_error_t motivo;
+    if (!viaje_cola_push(cuerpo, &motivo)) {
+        /* No se avisa en pantalla a proposito: el cambio YA esta guardado
+         * aqui, el fin lleva el destino de todas formas, y sacar un cartel de
+         * error por esto alarmaria sin motivo. */
+        ESP_LOGW(TAG, "no he podido avisar a la P4 del destino nuevo (%s)",
+                 cola_fallo_texto(motivo));
+    }
     ESP_LOGI(TAG, "destino cambiado a '%s' y guardado (la carpeta se renombra "
                   "al terminar)", s_destino_nuevo);
     salida_tira_refresh();
