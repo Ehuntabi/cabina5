@@ -601,18 +601,29 @@ static void reparto_task(void *arg)
             continue;
         }
 
-        if (estado == 401) {
+        /* 429 CUENTA COMO 401 (auditoria del 14-oct-2026): el freno por IP de la
+         * P4 se aplica DESPUES de fallar la comprobacion de la clave
+         * (config_server_auth.c: el 429 sale por el mismo camino que el 401), asi
+         * que un 429 tambien significa "la clave no vale", solo que la P4 pide
+         * esperar. Antes reseteaba este contador y ADEMAS borraba el aviso, de
+         * modo que una clave mal intercalada con frenos no llegaba NUNCA a los 3
+         * fallos: la pantalla se quedaba sin decir "CLAVE MAL, AJUSTES" y el
+         * usuario miraba la corriente de la P4 en vez de Ajustes. */
+        if (estado == 401 || estado == 429) {
             intentos_401++;
             if (intentos_401 >= INTENTOS_401_ATASCO && !viaje_cola_credenciales_mal()) {
                 s_atasco = VIAJE_COLA_ATASCO_CLAVE;
-                ESP_LOGE(TAG, "401 sostenido %d veces: usuario/clave del portal "
+                ESP_LOGE(TAG, "%d respuestas %s seguidas: usuario/clave del portal "
                               "mal en Ajustes, no se van a arreglar solos",
-                         intentos_401);
+                         intentos_401, estado == 429 ? "429 (freno de la P4)" : "401");
                 avisar_cambio();   /* mismo motivo que el aviso de 409 atascado */
             }
             vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
             continue;
         }
+        /* Cualquier OTRA respuesta dice que esta peticion si paso la clave (o que
+         * el problema es otro), asi que el contador de credenciales vuelve a
+         * cero. Ojo: un 2xx ya lo ha hecho mas arriba. */
         intentos_401 = 0;
         if (viaje_cola_credenciales_mal()) s_atasco = VIAJE_COLA_ATASCO_NO;
 
