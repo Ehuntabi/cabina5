@@ -136,6 +136,10 @@ int viaje_cola_perdidos_al_arrancar(void);
  * cuando lo sabe, y NUNCA decide con el si un apunte se guardo. */
 int viaje_cola_libre_mb(void);
 
+/* true si el ultimo 507 dijo que lo que se ha llenado es la MEMORIA de la P4 y
+ * no su tarjeta. El aviso de la pantalla tiene que decir cual de las dos. */
+bool viaje_cola_p4_nvs_llena(void);
+
 #ifdef __cplusplus
 }
 #endif

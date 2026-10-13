@@ -485,11 +485,29 @@ static int parsea_libre_mb(const char *respuesta)
     return (int)v;
 }
 
-/* Lo ultimo que dijo la P4, y cuando lo dijo. -1 = no se sabe. */
-static volatile int     s_sd_libre_mb = -1;
-static volatile int64_t s_sd_libre_us = 0;
+/* ¿Dice la P4 que lo que se le ha llenado es SU MEMORIA (no la tarjeta)? Los
+ * 507 de NVS llevan " sin_sitio=nvs": sin eso, el aviso de "no puede escribir"
+ * mandaria a hacer sitio en la tarjeta cuando el problema es otro. */
+static bool parsea_sin_sitio_nvs(const char *respuesta)
+{
+    return respuesta && strstr(respuesta, "sin_sitio=nvs") != NULL;
+}
+
+/* Lo ultimo que dijo la P4, y cuando lo dijo. -1 = no se sabe.
+ *
+ * _Atomic y no volatile: el escritor es la tarea de reparto y el lector la de
+ * LVGL, en otra CPU (esto es un S3 de dos nucleos), y el par valor+fecha tiene
+ * que leerse coherente -- es la misma regla que sigue s_atasco en este fichero. */
+static _Atomic int     s_sd_libre_mb = -1;
+static _Atomic int64_t s_sd_libre_us = 0;
+static _Atomic bool    s_nvs_sin_sitio = false;
 
 #define LIBRE_MB_VALIDEZ_US  (30LL * 60LL * 1000000LL)   /* 30 min */
+
+bool viaje_cola_p4_nvs_llena(void)
+{
+    return s_nvs_sin_sitio;
+}
 
 int viaje_cola_libre_mb(void)
 {
@@ -625,6 +643,15 @@ static void reparto_task(void *arg)
             if (libre >= 0) {
                 s_sd_libre_mb = libre;
                 s_sd_libre_us = esp_timer_get_time();
+                s_nvs_sin_sitio = false;
+            } else {
+                /* SIN SUFIJO NO SE CONSERVA LO VIEJO (revision adversarial del
+                 * 14-oct-2026): si la tarjeta se llena despues de un 'inicio'
+                 * (que si trae el dato), quedarse con la cifra anterior hacia
+                 * que el aviso dijera "le quedan 29000 MB" con la tarjeta llena
+                 * -- una mentira con pinta de dato fresco. Se olvida y punto. */
+                s_sd_libre_mb = -1;
+                s_nvs_sin_sitio = parsea_sin_sitio_nvs(resp);
             }
         }
 

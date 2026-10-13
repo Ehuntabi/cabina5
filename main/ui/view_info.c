@@ -2034,7 +2034,14 @@ static void pendientes_click_cb(lv_event_t *e)
              * Es un aviso, no un dato para decidir: si no lo sabe (P4 vieja, o
              * el ultimo apunte fue hace mucho) se calla en vez de inventar. */
             int libre = viaje_cola_libre_mb();
-            if (libre >= 0) {
+            if (viaje_cola_p4_nvs_llena()) {
+                /* El 507 era de SU memoria interna, no de la tarjeta: decir
+                 * "haz sitio en la tarjeta" mandaria a mirar donde no es. */
+                confirm_screen_aviso("LA P4 NO PUEDE GUARDAR",
+                                     "No es su tarjeta: es su\nmemoria interna, que se ha\nllenado.\n\n"
+                                     "Los apuntes NO se pierden:\nsiguen aqui. Avisa de esto\nsi vuelve a pasar.",
+                                     0xFF4444, "Entendido");
+            } else if (libre >= 0) {
                 char cuerpo[192];
                 snprintf(cuerpo, sizeof(cuerpo),
                          "Esta encendida y contesta,\npero su tarjeta esta llena\no fallando.\n\n"
