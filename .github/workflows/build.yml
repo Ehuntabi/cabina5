@@ -99,19 +99,31 @@ jobs:
       - name: El ciclo del viaje, identico en las dos cabinas
         run: |
           fallo=0
-          for f in main/net/viaje_cola.c main/net/viaje_cola.h \
-                   main/net/p4_api.c main/net/p4_api.h \
-                   main/net/apunte.c main/net/apunte.h \
-                   main/net/udp_rx.c main/net/reloj.c main/net/mini_proto.h \
-                   main/salida.c main/salida.h \
+          for f in main/net/viaje_cola.c \
+                   main/net/viaje_cola.h \
+                   main/net/p4_api.c \
+                   main/net/p4_api.h \
+                   main/net/apunte.c \
+                   main/net/apunte.h \
+                   main/net/udp_rx.c \
+                   main/reloj.c \
+                   main/reloj.h \
+                   main/net/mini_proto.h \
+                   main/salida.c \
+                   main/salida.h \
                    components/config_storage/config_storage.c \
                    components/config_storage/include/config_storage.h ; do
             if [ ! -f "cabina5/$f" ] || [ ! -f "35cabina/$f" ]; then
               echo "FALTA $f en alguno de los dos repos"; fallo=1; continue
             fi
-            if ! diff -q "cabina5/$f" "35cabina/$f" >/dev/null; then
+            # Se comparan SIN las lineas de #include: la 5" es LVGL 9 y la 3,5"
+            # LVGL 8, asi que el include de compatibilidad difiere y no es
+            # deriva. El resto del fichero tiene que ser identico.
+            if ! diff -q <(grep -v '^#include' "cabina5/$f") \
+                         <(grep -v '^#include' "35cabina/$f") >/dev/null; then
               echo "DISTINTO: $f"
-              diff -u "cabina5/$f" "35cabina/$f" | head -40
+              diff -u <(grep -v '^#include' "cabina5/$f") \
+                      <(grep -v '^#include' "35cabina/$f") | head -40
               fallo=1
             fi
           done
