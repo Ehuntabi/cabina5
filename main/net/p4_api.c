@@ -287,13 +287,33 @@ void p4_api_cuerpo_descartar(char *out, size_t n, uint32_t id)
 
 void p4_api_cuerpo_alarma(char *out, size_t n, uint8_t mask)
 {
-    snprintf(out, n, "{\"alarmas\":%u}", (unsigned)mask);
+    p4_api_cuerpo_alarma_sentido(out, n, mask, 1);
+}
+
+/* Manda TAMBIEN el sentido: 1 = callar, 0 = volver a sonar.
+ *
+ * Antes solo iba la mascara, y la P4 entendia "callar" SIEMPRE: apagar el
+ * altavoz desde la cabina no volvia a encender nada, el icono se quedaba
+ * diciendo "sonido puesto" y la P4 seguia callada (auditoria del 13-oct-2026).
+ * El campo es opcional en el otro lado, asi que una P4 con firmware viejo lo
+ * ignora y se comporta como antes. */
+void p4_api_cuerpo_alarma_sentido(char *out, size_t n, uint8_t mask, int silenciar)
+{
+    snprintf(out, n, "{\"alarmas\":%u,\"silencio\":%d}", (unsigned)mask,
+             silenciar ? 1 : 0);
 }
 
 bool p4_api_silenciar_alarma(uint8_t mask, p4_api_done_cb cb, void *user_data)
 {
-    char cuerpo[48];
-    p4_api_cuerpo_alarma(cuerpo, sizeof(cuerpo), mask);
+    /* Compatibilidad: callar. Para volver a sonar, p4_api_alarma_sentido(). */
+    return p4_api_alarma_sentido(mask, 1, cb, user_data);
+}
+
+bool p4_api_alarma_sentido(uint8_t mask, int silenciar, p4_api_done_cb cb,
+                           void *user_data)
+{
+    char cuerpo[64];
+    p4_api_cuerpo_alarma_sentido(cuerpo, sizeof(cuerpo), mask, silenciar);
     return lanzar_a(P4_URL_ALARMA, cuerpo, cb, user_data);
 }
 

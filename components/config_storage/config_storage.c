@@ -1,6 +1,8 @@
 // config_storage.c
 #include "config_storage.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 
 static const char *TAG = "config_storage";
@@ -184,18 +186,52 @@ typedef struct {
      * trip_blob_load() pone a cero antes y NVS devuelve el tamano guardado; el
      * campo nuevo sale vacio, que es justo lo que significa "sin cambio". */
     char     destino_nuevo[24];
+    /* VERSION AL FINAL, y no al principio, a proposito: un blob de antes de
+     * hoy empieza por 'activo' (0 o 1), asi que un campo de version delante se
+     * leeria como una version inventada. Al final, un blob viejo (mas corto) se
+     * lee con la version a 0 = "de antes de que hubiera version", que es la
+     * verdad. Ver save_trip_destino_nuevo() para el otro cabo. */
+    uint8_t  version;
 } trip_blob_t;
 
+#define TRIP_BLOB_VERSION 1
+
+/* Devuelve si se ha podido LEER el estado de verdad.
+ *
+ * Antes esto se tragaba cualquier error y devolvia ESP_OK con todo a cero, y
+ * eso era peligroso: un blob ilegible (p.ej. INVALID_LENGTH por bajar de
+ * firmware, que deja un blob mas largo del que cabe en esta struct) se
+ * traducia en "no hay viaje, cero eventos", y el siguiente
+ * save_trip_destino_nuevo() GRABABA esos ceros encima -- con el blob de
+ * 'salida' diciendo que el viaje sigue en marcha. Entonces el fin mandaba
+ * eventos:1 y la P4 daba el viaje por COMPLETO sin serlo (auditoria del
+ * 13-oct-2026, hallazgo M7). */
 static esp_err_t trip_blob_load(trip_blob_t *out)
 {
     memset(out, 0, sizeof(*out));
+    out->version = TRIP_BLOB_VERSION;
     nvs_handle_t h;
     esp_err_t err = nvs_open(TRIP_NAMESPACE, NVS_READONLY, &h);
-    if (err != ESP_OK) return ESP_OK;   /* namespace vacio = sin viaje, no es error */
+    if (err == ESP_ERR_NVS_NOT_FOUND) return ESP_OK;   /* sin viaje: todo a cero */
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "trip_blob: no puedo abrir la NVS (%s)", esp_err_to_name(err));
+        return err;
+    }
     size_t len = sizeof(*out);
     esp_err_t g = nvs_get_blob(h, TRIP_BLOB_KEY, out, &len);
     nvs_close(h);
-    if (g != ESP_OK) memset(out, 0, sizeof(*out));
+    if (g == ESP_ERR_NVS_NOT_FOUND) {                  /* primera vez: sin viaje */
+        memset(out, 0, sizeof(*out));
+        out->version = TRIP_BLOB_VERSION;
+        return ESP_OK;
+    }
+    if (g != ESP_OK) {
+        ESP_LOGE(TAG, "trip_blob: no puedo leer el estado del viaje (%s): NO lo "
+                      "tomo por vacio, que grabarlo encima perderia la cuenta de "
+                      "eventos", esp_err_to_name(g));
+        memset(out, 0, sizeof(*out));
+        return g;
+    }
     return ESP_OK;
 }
 
@@ -228,8 +264,17 @@ esp_err_t load_trip_destino(char *out, size_t *len)
 esp_err_t save_trip_destino_nuevo(const char *destino)
 {
     trip_blob_t b;
-    trip_blob_load(&b);
+    /* SI NO SE HA PODIDO LEER, NO SE GRABA: guardar aqui seria escribir ceros
+     * (activo=0, n_eventos=0) sobre un viaje que sigue abierto, y la P4 daria
+     * el viaje por completo con eventos:1. Antes se hacia justo eso. */
+    esp_err_t e = trip_blob_load(&b);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "no guardo el destino nuevo: el estado del viaje no se ha "
+                      "podido leer");
+        return e;
+    }
     snprintf(b.destino_nuevo, sizeof(b.destino_nuevo), "%s", destino ? destino : "");
+    b.version = TRIP_BLOB_VERSION;
     return trip_blob_save(&b);
 }
 
@@ -269,7 +314,22 @@ uint32_t next_trip_seq(void)
 {
     nvs_handle_t h;
     uint32_t v = 0;
-    if (nvs_open(TRIP_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) return 0;
+    /* REINTENTO, y el 0 deja de ser un id valido (auditoria del 13-oct-2026).
+     * Un fallo puntual de nvs_open devolvia 0, y con id 0 la P4 se SALTABA la
+     * comprobacion de duplicados (id_ya_aplicado solo mira ids != 0): si se
+     * perdia el 200, el reintento volvia a aplicarse y el importe se sumaba
+     * DOS veces. Los ids de verdad empiezan en 1. */
+    esp_err_t abierto = ESP_FAIL;
+    for (int i = 0; i < 3 && abierto != ESP_OK; i++) {
+        abierto = nvs_open(TRIP_NAMESPACE, NVS_READWRITE, &h);
+        if (abierto != ESP_OK) vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    if (abierto != ESP_OK) {
+        ESP_LOGE(TAG, "next_trip_seq: no puedo abrir la NVS (%s): devuelvo 0, "
+                      "que NO es un id valido y la P4 rechazara",
+                 esp_err_to_name(abierto));
+        return 0;
+    }
     nvs_get_u32(h, TRIP_SEQ_KEY, &v);
     v++;
     esp_err_t err = nvs_set_u32(h, TRIP_SEQ_KEY, v);

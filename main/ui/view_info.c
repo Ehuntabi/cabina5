@@ -1054,9 +1054,13 @@ static bool al_info_alternar(al_info_t i, uint32_t ahora_ms)
      * estado actual. */
     s_al[i].orden_seq++;
 
-    bool ok = p4_api_silenciar_alarma(AL_INFO_BIT[i], orden_done_cb,
-                                      (void *)(intptr_t)(((uintptr_t)i << 16) |
-                                                         (s_al[i].orden_seq & 0xFFFF)));
+    /* CON EL SENTIDO: si se acaba de apagar el altavoz hay que decirle a la P4
+     * que vuelva a sonar. Antes se mandaba la misma mascara en los dos
+     * sentidos, y la P4 solo sabia callar (auditoria del 13-oct-2026). */
+    bool ok = p4_api_alarma_sentido(AL_INFO_BIT[i], s_al[i].silenciada ? 1 : 0,
+                                    orden_done_cb,
+                                    (void *)(intptr_t)(((uintptr_t)i << 16) |
+                                                       (s_al[i].orden_seq & 0xFFFF)));
     if (!ok) {
         /* Ni siquiera se pudo lanzar el envio (sin memoria): no dejamos la
          * pantalla mintiendo. */

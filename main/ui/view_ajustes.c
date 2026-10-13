@@ -75,7 +75,12 @@ static void ta_click_cb(lv_event_t *e)
  * respeta lv_textarea_get_max_length() del campo origen (entry_screen.c:113),
  * asi que el editor a pantalla completa hereda el tope sin tocar nada mas
  * alli. Detectado por el usuario el 09-sep-2026. */
-static lv_obj_t *make_field(lv_obj_t *parent, const char *label_text, uint32_t max_len)
+/* 'oculto': el campo se enseña con puntitos y solo se ve al abrirlo en el
+ * editor. Lo llevan las DOS claves (la del Wi-Fi y la del portal) desde la
+ * auditoria de seguridad del 13-oct-2026: estaban a la vista, y de pie junto a
+ * la pantalla se leian de un vistazo. En el P4 ya se hacia asi. */
+static lv_obj_t *make_field(lv_obj_t *parent, const char *label_text, uint32_t max_len,
+                            bool oculto)
 {
     lv_obj_t *cont = lv_obj_create(parent);
     lv_obj_set_size(cont, lv_pct(100), 56);
@@ -93,6 +98,7 @@ static lv_obj_t *make_field(lv_obj_t *parent, const char *label_text, uint32_t m
     lv_obj_t *ta = lv_textarea_create(cont);
     lv_textarea_set_one_line(ta, true);
     lv_textarea_set_max_length(ta, max_len);
+    if (oculto) lv_textarea_set_password_mode(ta, true);
     lv_obj_set_size(ta, lv_pct(100), 34);
     lv_obj_align(ta, LV_ALIGN_TOP_LEFT, 0, 18);
     /* En CLICKED y no en FOCUSED: al volver del editor el campo conserva el
@@ -486,8 +492,8 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_set_width(hint, lv_pct(100));
 
-    s_ssid_ta = make_field(s_wifi, "SSID", 32);          /* s_ssid[33] en udp_rx.c */
-    s_pass_ta = make_field(s_wifi, "Password", 64);      /* s_pass[65] en udp_rx.c */
+    s_ssid_ta = make_field(s_wifi, "SSID", 32, false);          /* s_ssid[33] en udp_rx.c */
+    s_pass_ta = make_field(s_wifi, "Password", 64, true);      /* s_pass[65] en udp_rx.c */
 
     lv_obj_t *hint2 = lv_label_create(s_wifi);
     lv_label_set_text(hint2, "Usuario y clave del PORTAL de la P4 (no del wifi),\npara mandarle los apuntes del viaje");
@@ -495,8 +501,8 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(hint2, &lv_font_montserrat_14, 0);
     lv_obj_set_width(hint2, lv_pct(100));
 
-    s_http_user_ta = make_field(s_wifi, "Usuario del portal", 32);   /* hu[33] en view_ajustes_refresh */
-    s_http_pass_ta = make_field(s_wifi, "Clave del portal", 64);     /* hp[65] en view_ajustes_refresh */
+    s_http_user_ta = make_field(s_wifi, "Usuario del portal", 32, false);   /* hu[33] en view_ajustes_refresh */
+    s_http_pass_ta = make_field(s_wifi, "Clave del portal", 64, true);     /* hp[65] en view_ajustes_refresh */
 
     lv_obj_t *btn = lv_btn_create(s_wifi);
     lv_obj_set_width(btn, lv_pct(100));

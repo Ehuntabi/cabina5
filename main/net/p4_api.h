@@ -77,8 +77,17 @@ void p4_api_cuerpo_descartar(char *out, size_t n, uint32_t id);
  * envio (sin memoria). */
 bool p4_api_silenciar_alarma(uint8_t mask, p4_api_done_cb cb, void *user_data);
 
+/* Manda el estado DESEADO del altavoz: silenciar=0 vuelve a habilitar el sonido,
+ * que antes era imposible desde la pantalla (la P4 solo sabia callar). */
+bool p4_api_alarma_sentido(uint8_t mask, int silenciar, p4_api_done_cb cb,
+                           void *user_data);
+
 /* Monta el cuerpo JSON, expuesto aparte para poder comprobarlo sin red. */
 void p4_api_cuerpo_alarma(char *out, size_t n, uint8_t mask);
+
+/* Igual, pero diciendo si se quiere CALLAR (silenciar=1) o VOLVER A SONAR (0).
+ * p4_api_cuerpo_alarma() es esta misma con 1. */
+void p4_api_cuerpo_alarma_sentido(char *out, size_t n, uint8_t mask, int silenciar);
 
 #ifdef __cplusplus
 }

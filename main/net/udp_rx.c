@@ -294,6 +294,29 @@ static void reconnect_timer_cb(void *arg)
  * a veces si y otras no no me gusta". */
 #define IP_FIJA_CABINA   "192.168.4.200"
 
+/* PERO NO LA MISMA PARA LAS DOS PANTALLAS (auditoria del 13-oct-2026).
+ *
+ * La .200 fija vale mientras haya UNA cabina. Con las dos encendidas (la 3,5" y
+ * la de 5", que es justo lo que se quiere poder hacer), si el DHCP de la P4
+ * calla -- el fallo que esta IP fija existe para tapar -- las DOS se ponen la
+ * .200 a la vez: conflicto ARP garantizado, y los dos enlaces se cruzan
+ * precisamente cuando hay que repararlos. Ademas la P4 ya no puede distinguir
+ * cual es cual en su tabla de latidos.
+ *
+ * Ahora la IP se deriva de la MAC: 192.168.4.200 + (ultimo octeto & 0x1F), o
+ * sea de la .200 a la .219, todas FUERA del rango del DHCP de la IDF (.2-.101).
+ * Son 32 direcciones para dos pantallas: la probabilidad de choque entre dos
+ * MAC consecutivas cualesquiera es 1/32, y como mucho conviven dos. */
+static void ip_fija_de_esta_placa(char *out, size_t n)
+{
+    uint8_t mac[6] = {0};
+    if (esp_wifi_get_mac(WIFI_IF_STA, mac) != ESP_OK) {
+        snprintf(out, n, IP_FIJA_CABINA);   /* sin MAC, la de siempre */
+        return;
+    }
+    snprintf(out, n, "192.168.4.%u", 200u + (unsigned)(mac[5] & 0x1F));
+}
+
 /* Espera para el DHCP: 20 s la primera vez (la P4 puede estar arrancando), y
  * solo 5 s cuando venimos de la IP fija. El reintento de DHCP de una reconexion
  * BORRA la IP (esp_netif_dhcpc_start hace esp_netif_reset_ip_info), asi que son
@@ -310,18 +333,24 @@ static void dhcp_timer_cb(void *arg)
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (!netif) return;
 
+    char ip_txt[16];
+    ip_fija_de_esta_placa(ip_txt, sizeof(ip_txt));
     esp_netif_ip_info_t ip = { 0 };
-    ip.ip.addr = esp_ip4addr_aton(IP_FIJA_CABINA);
+    ip.ip.addr = esp_ip4addr_aton(ip_txt);
     ip.netmask.addr = esp_ip4addr_aton("255.255.255.0");
     ip.gw.addr = esp_ip4addr_aton("192.168.4.1");
 
     esp_netif_dhcpc_stop(netif);                   /* no-op si no estaba andando */
     if (esp_netif_set_ip_info(netif, &ip) != ESP_OK) {
-        ESP_LOGE(TAG, "no he podido ponerme la IP fija " IP_FIJA_CABINA);
+        ESP_LOGE(TAG, "no he podido ponerme la IP fija %s", ip_txt);
         return;
     }
-    ESP_LOGW(TAG, "el DHCP no contesta: me pongo la IP fija " IP_FIJA_CABINA
-                  " y sigo (la P4 esta en 192.168.4.1)");
+    ESP_LOGW(TAG, "el DHCP no contesta: me pongo la IP fija %s"
+                  " y sigo (la P4 esta en 192.168.4.1)", ip_txt);
+    /* Que la IP quede en el log tambien cuando va bien: es lo que hace falta
+     * para saber si las dos pantallas se han pisado alguna vez. */
+    ESP_LOGI(TAG, "IP de esta cabina: %s%s", ip_txt,
+             s_ip_fija ? " (fija)" : "");
     s_ip_fija = true;
     s_dhcp_espera_us = DHCP_REINTENTO_US;   /* la proxima vez, ventana corta */
     /* La tarea de recepcion espera esta bandera para abrir el socket. */
@@ -459,7 +488,13 @@ static void manda_latido(int sock)
     l.magic   = MINI_LATIDO_MAGIC;
     l.version = MINI_PROTO_VERSION;
     int64_t ref = s_ultimo_rx_us ? s_ultimo_rx_us : s_escucha_desde_us;
-    l.seg_sin_datos = (ref == 0) ? -1 : (int16_t)((ahora - ref) / 1000000);
+    /* El campo es int16 en el protocolo: se SATURA en vez de dar la vuelta.
+     * A las 9 h 6 min de silencio el valor se volvia negativo y la P4 dejaba de
+     * creerse el latido justo cuando mas falta hacia (auditoria del
+     * 13-oct-2026). 32000 cabe de sobra en int16 y la P4 lo lee como "mudo". */
+    int64_t seg = (ref == 0) ? -1 : (ahora - ref) / 1000000;
+    if (seg > 32000) seg = 32000;
+    l.seg_sin_datos = (int16_t)seg;
     l.ip_fija = s_ip_fija ? 1 : 0;
     l.crc32 = esp_crc32_le(0, (const uint8_t *)&l, sizeof(l) - sizeof(uint32_t));
 

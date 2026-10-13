@@ -5627,7 +5627,25 @@ static void crear_menus(lv_obj_t *parent)
      * del conductor para pulsar un boton no es una opcion. */
     body = pantalla_crear(parent, PAN_VIAJE_P4, "VIAJE EN LA P4", PAN_VOLVER);
     lv_obj_t *aviso = lv_label_create(body);
-    lv_label_set_text(aviso, "La P4 tiene un viaje abierto.\nHay que cerrarlo antes de\nempezar otro.");
+    /* CON CUANTOS APUNTES HAY SIN ENVIAR (auditoria del 13-oct-2026).
+     *
+     * La P4 contesta 409 y (desde hoy) dice el nombre del viaje que tiene
+     * abierto, pero el caso que de verdad se da es otro: acabas de terminar un
+     * viaje, su "fin" esta en la cola esperando a que la P4 arranque, y tu
+     * empiezas otro antes de que se entregue. Entonces el "viaje abierto" es TU
+     * viaje de verdad, y el boton de abajo -- "Apartarlo (era una prueba)" --
+     * renombra su carpeta y lo deja sin resumen. Sabiendo que hay apuntes
+     * esperando, se entiende que lo que toca es GUARDARLO. */
+    if (viaje_cola_pendientes() > 0) {
+        lv_label_set_text_fmt(aviso,
+            "La P4 tiene un viaje abierto.\n\n"
+            "Tienes %u apunte(s) sin enviar:\n"
+            "puede ser el cierre del anterior.\n"
+            "Prueba GUARDARLO antes de\napartar nada.",
+            (unsigned)viaje_cola_pendientes());
+    } else {
+        lv_label_set_text(aviso, "La P4 tiene un viaje abierto.\nHay que cerrarlo antes de\nempezar otro.");
+    }
     lv_obj_set_style_text_font(aviso, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(aviso, lv_color_hex(COL_LABEL), 0);
     boton_grande(body, ICO_GUARDAR, "GUARDARLO", "lo cierra con su resumen",

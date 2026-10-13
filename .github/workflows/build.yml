@@ -15,6 +15,10 @@ on:
   push:
   pull_request:
 
+# Este job solo lee el repo; el token por defecto puede escribir.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest

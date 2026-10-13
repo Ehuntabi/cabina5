@@ -149,13 +149,28 @@ const salida_vista_t *salida_get(void)
 
 /* ── Utilidades de fecha ─────────────────────────────────────────────────── */
 
+/* Tope de cordura. Una parada puede durar semanas, pero no anos: si salen mas
+ * de 30 dias es que el RELOJ ha dado un salto entre la apertura y el cierre (la
+ * P4 restaura la hora de un respaldo en NVS y el GPS la corrige despues, ver la
+ * auditoria del 13-oct-2026). Sin tope, eso se manda como "noches" y la P4
+ * multiplica el precio por decenas. Se acota y se avisa. */
+#define SALIDA_NOCHES_MAX 30
+
 uint32_t salida_noches(uint32_t epoch_ini, uint32_t epoch_fin)
 {
     if (epoch_fin <= epoch_ini) return 0;
     /* Cambios de dia de calendario, no periodos de 24 h: llegas el viernes por
      * la tarde y te vas el sabado por la manana y eso es UNA noche. Los epoch
      * ya vienen desplazados a hora local, asi que el dia es una division. */
-    return (epoch_fin / 86400) - (epoch_ini / 86400);
+    uint32_t n = (epoch_fin / 86400) - (epoch_ini / 86400);
+    if (n > SALIDA_NOCHES_MAX) {
+        ESP_LOGW("salida", "noches fuera de lo creible (%lu): el reloj ha dado un "
+                           "salto entre %lu y %lu. Se mandan %d",
+                 (unsigned long)n, (unsigned long)epoch_ini,
+                 (unsigned long)epoch_fin, SALIDA_NOCHES_MAX);
+        n = SALIDA_NOCHES_MAX;
+    }
+    return n;
 }
 
 void salida_fecha_compacta(uint32_t epoch_local, char *buf, size_t n)
