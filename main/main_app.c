@@ -15,6 +15,7 @@
 #include "data_model.h"
 #include "tilt.h"
 #include "salida.h"
+#include "config_storage.h"   /* load_trip_activo/destino: reconciliacion M5 */
 #include "diag_reset.h"
 #include "ui/nav.h"
 #include "net/udp_rx.h"
@@ -166,6 +167,75 @@ static void lvgl_wdog_task(void *arg) {
 
 void setup(void);
 
+/* ── RECONCILIACION DEL ESTADO DEL VIAJE AL ARRANCAR (M5, 13-oct-2026) ───────
+ *
+ * El estado del viaje vive en DOS blobs de NVS que se comiten por separado: el
+ * del viaje (activo/destino/n_eventos, en config_storage) y el de la salida (en
+ * salida.c). Y al empezar y al terminar se tocan en DOS sitios:
+ *
+ *   empezar:  save_trip_inicio()        + salida_abrir_viaje()
+ *   terminar: viaje_marcar_terminado()  + salida_cerrar()
+ *
+ * Un corte de corriente entre los dos commits (el contacto se corta a menudo
+ * con la pantalla en marcha: es su forma normal de apagarse) deja a la cabina
+ * creyendo una cosa y a la P4 otra. Hasta hoy eso se descubria por el 409 al
+ * intentar empezar otro viaje, y no habia forma de saber que habia pasado.
+ *
+ * Lo que DESEMPATA es la cola de pendientes: si el cierre del viaje ya se
+ * encolo, es que se llego a pulsar "terminar" -- el fin se entregara solo y la
+ * P4 cerrara el viaje; si NO hay fin encolado, el corte fue al empezar.
+ *
+ * Se hace una sola vez, al arrancar, y no borra nada: o abre la salida que
+ * falta (con el destino guardado) o la cierra, segun lo que diga la cola. */
+static void reconciliar_viaje_al_arrancar(void)
+{
+    bool activo     = load_trip_activo();
+    bool hay_salida = salida_hay();
+    if (activo == hay_salida) return;               /* coherente: nada que hacer */
+
+    if (activo && !hay_salida) {
+        /* Corte AL EMPEZAR: el viaje existe (la P4 lo tiene abierto y esta NVS
+         * lo dice) pero aqui no hay salida con la que anotar. Se abre con el
+         * destino guardado, que es recuperar el viaje en vez de perderlo. */
+        char destino[24] = {0};
+        size_t n = sizeof(destino);
+        if (load_trip_destino(destino, &n) != ESP_OK || !destino[0]) {
+            ESP_LOGE(TAG, "viaje activo sin salida y sin destino guardado: lo "
+                          "cierro aqui (la P4 lo tendra abierto: al empezar otro "
+                          "dara 409 y habra que cerrarlo desde ahi)");
+            save_trip_fin();
+            return;
+        }
+        ESP_LOGW(TAG, "corte al EMPEZAR el viaje '%s': abro la salida que faltaba",
+                 destino);
+        if (!salida_abrir_viaje(destino)) {
+            ESP_LOGE(TAG, "no he podido abrir la salida de '%s': cierro el viaje",
+                     destino);
+            save_trip_fin();
+        }
+        return;
+    }
+
+    /* Salida abierta y el viaje NO consta como activo. Hay dos historias
+     * posibles y la cola dice cual:
+     *   - hay un "fin" encolado: se pulso terminar y el corte fue antes de
+     *     cerrar aqui -> se cierra la salida (el fin hara su trabajo).
+     *   - no hay fin: el corte fue al empezar una PUNTUAL, entre abrir la
+     *     salida y marcar el contador -> se marca, que es lo que falta. */
+    if (viaje_cola_tiene_op_pendiente("fin")) {
+        ESP_LOGW(TAG, "salida abierta y el viaje ya no consta activo, con el "
+                      "cierre encolado: cierro la salida");
+        salida_cerrar();
+    } else {
+        const salida_vista_t *s = salida_get();
+        ESP_LOGW(TAG, "salida '%s' abierta sin el viaje marcado (corte al "
+                      "empezar): la marco", s->nombre);
+        if (save_trip_inicio(s->nombre) != ESP_OK)
+            ESP_LOGE(TAG, "no he podido marcarla: el contador de apuntes puede "
+                          "quedar corto");
+    }
+}
+
 void app_main(void) {
     setup();
 }
@@ -252,6 +322,10 @@ void setup(void) {
      * quede algo del encendido anterior (esta pantalla se apaga con el
      * contacto, y los apuntes se hacen justo antes). */
     viaje_cola_init(view_info_set_pendientes);
+
+    /* M5: los dos blobs del viaje pueden haber quedado descuadrados por un
+     * corte de corriente a mitad de empezar o terminar. Se arregla aqui. */
+    reconciliar_viaje_al_arrancar();
 
     /* Auto-test del canal de subida (cabina -> P4 por HTTP): deja en el log si
      * la ruta existe, si las credenciales del portal valen y si acepta POST.

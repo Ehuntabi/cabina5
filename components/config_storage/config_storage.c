@@ -253,6 +253,16 @@ static esp_err_t trip_blob_save(const trip_blob_t *in)
     return err;
 }
 
+/* ¿Hay un viaje en marcha segun ESTA pantalla? Lo usa la reconciliacion del
+ * arranque (hallazgo M5): el blob del viaje y el de la salida se comiten por
+ * separado y un corte entre los dos los deja descuadrados. */
+bool load_trip_activo(void)
+{
+    trip_blob_t b;
+    if (trip_blob_load(&b) != ESP_OK) return false;   /* ilegible: no se inventa */
+    return b.activo != 0;
+}
+
 /* Destino del viaje en curso. Es lo que da nombre a la carpeta en la SD de la
  * P4, asi que se guarda aqui tambien: si la 3.5" se reinicia a media entrega,
  * tiene que poder repetir el mismo nombre y no crear una carpeta nueva. */

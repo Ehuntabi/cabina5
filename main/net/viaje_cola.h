@@ -87,6 +87,11 @@ bool viaje_cola_credenciales_mal(void);
  * Auditoria del 13-oct-2026. */
 bool viaje_cola_descartar_cabeza(void);
 
+/* true si hay encolado algun apunte de esa operacion ("fin", "inicio"...).
+ * Se usa AL ARRANCAR para reconciliar el estado del viaje: ver el comentario
+ * del .c (hallazgo M5 de la auditoria del 13-oct-2026). */
+bool viaje_cola_tiene_op_pendiente(const char *op);
+
 #ifdef __cplusplus
 }
 #endif

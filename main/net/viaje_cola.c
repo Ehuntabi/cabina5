@@ -340,6 +340,43 @@ bool viaje_cola_credenciales_mal(void)
  * (lo decide el usuario, no un codigo de respuesta).
  *
  * Devuelve si habia algo que descartar. */
+/* ¿Hay en la cola algun apunte pendiente de la operacion 'op'?
+ *
+ * Existe para RECONCILIAR al arrancar (auditoria de integridad del 13-oct-2026,
+ * hallazgo M5): el estado del viaje vive en DOS blobs de NVS -- el del viaje
+ * (activo/destino) y el de la salida --, y un corte de corriente entre los dos
+ * commits deja a la cabina creyendo una cosa y a la P4 otra. Lo que desempata
+ * es la COLA: si el cierre del viaje ya se encolo, es que se llego a pulsar
+ * "terminar" (y el fin se entregara solo); si no hay fin encolado, el corte fue
+ * al EMPEZAR. Sin esto habia que elegir a ciegas entre cerrar algo que sigue
+ * vivo o dejar abierto algo ya cerrado.
+ *
+ * Solo se usa al arrancar: recorre hasta 16 entradas de NVS una vez. */
+bool viaje_cola_tiene_op_pendiente(const char *op)
+{
+    if (!op || !op[0]) return false;
+    char busca[24];
+    snprintf(busca, sizeof(busca), "\"op\":\"%s\"", op);
+
+    bool hay = false;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    uint32_t cabeza, cola;
+    indices_leer(&cabeza, &cola);
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READONLY, &h) == ESP_OK) {
+        for (uint32_t i = cabeza; i < cola; i++) {
+            char clave[16], cuerpo[CUERPO_MAX];
+            clave_de(i, clave, sizeof(clave));
+            size_t len = sizeof(cuerpo);
+            if (nvs_get_str(h, clave, cuerpo, &len) == ESP_OK &&
+                strstr(cuerpo, busca)) { hay = true; break; }
+        }
+        nvs_close(h);
+    }
+    xSemaphoreGive(s_mutex);
+    return hay;
+}
+
 bool viaje_cola_descartar_cabeza(void)
 {
     /* SOLO SI SIGUE ATASCADA, y todo dentro del MISMO cerrojo.
