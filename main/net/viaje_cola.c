@@ -267,35 +267,96 @@ static bool leer_cabeza(char *out, size_t n)
  * el protocolo entre dispositivos: solo se avisa mejor de lo que ya pasaba
  * en silencio. Detectado auditando el 07-sep-2026. */
 #define INTENTOS_409_ATASCO 20
-/* _Atomic y no volatile: lo escribe reparto_task y lo lee la UI (LVGL) --
- * volatile evita que el compilador cachee el valor en un registro, pero NO
- * da ninguna garantia formal de visibilidad entre nucleos (esto es un
- * esp32s3 dual-core). Con un bool de un writer y un reader no habia
+/* POR QUE ESTA ATASCADA LA COLA.
+ *
+ * Hasta el 13-oct-2026 solo habia dos banderas -- 409 y 401 -- y todo lo demas
+ * caia en el mismo saco mudo: un 400 (la P4 rechaza el cuerpo: firmware mas
+ * viejo que esta pantalla), un 507 (la P4 no puede escribir en su tarjeta) y
+ * "la P4 esta apagada" se veian IGUAL en la pantalla, y el unico texto que
+ * salia era "mira si tiene corriente", que es un diagnostico falso para los
+ * tres primeros. Ahora hay un estado con motivo, y la pantalla puede decir que
+ * pasa y ofrecer la salida.
+ *
+ * _Atomic y no volatile: lo escribe reparto_task y lo lee la UI (LVGL) --
+ * volatile evita que el compilador cachee el valor en un registro, pero NO da
+ * ninguna garantia formal de visibilidad entre nucleos (esto es un esp32s3
+ * dual-core). Con un entero alineado de un writer y un reader no habia
  * corrupcion real posible en la practica, pero era una carrera de datos en
- * sentido formal. _Atomic cuesta lo mismo en el binario para un bool
- * alineado (misma carga/almacen de un byte) y cierra el hueco de verdad.
- * Detectado auditando el 08-sep-2026. */
-static _Atomic bool s_atascada_409 = false;
+ * sentido formal. Detectado auditando el 08-sep-2026. */
+static _Atomic int s_atasco = VIAJE_COLA_ATASCO_NO;
+
+/* Sube cada vez que la UI descarta una entrada A MANO. El repartidor se queda
+ * con el valor ANTES de enviar: si al volver no coincide, la cabeza que creia
+ * estar enviando ya no es esa y NO debe sacarla -- sacaria la siguiente, que no
+ * ha entregado nadie. Ver viaje_cola_descartar_cabeza(). */
+static _Atomic uint32_t s_generacion = 0;
+
+viaje_cola_atasco_t viaje_cola_atasco(void)
+{
+    return (viaje_cola_atasco_t)s_atasco;
+}
 
 bool viaje_cola_bloqueada(void)
 {
-    return s_atascada_409;
+    viaje_cola_atasco_t a = (viaje_cola_atasco_t)s_atasco;
+    return a == VIAJE_COLA_ATASCO_NUMERACION || a == VIAJE_COLA_ATASCO_RECHAZO;
+}
+
+bool viaje_cola_credenciales_mal(void)
+{
+    return (viaje_cola_atasco_t)s_atasco == VIAJE_COLA_ATASCO_CLAVE;
 }
 
 /* Un 401 sostenido significa credenciales mal puestas en Ajustes -- a
  * diferencia de "la P4 esta apagada" (mismo sintoma en pantalla: nada entra),
  * esto NO se arregla solo con encenderla, hace falta que el usuario corrija
- * usuario/clave. Antes las dos cosas ensenaban el mismo "N pendientes" sin
- * distincion. 3 intentos (~45s) basta: una clave mal puesta falla siempre,
+ * usuario/clave. 3 intentos (~45s) basta: una clave mal puesta falla siempre,
  * no hace falta el margen de minutos que si tiene el 409 (que puede ser
  * normal mientras el inicio del viaje termina de procesarse).
  * Detectado auditando el 07-sep-2026. */
 #define INTENTOS_401_ATASCO 3
-static _Atomic bool s_atascada_401 = false;   /* ver el porque de _Atomic arriba */
 
-bool viaje_cola_credenciales_mal(void)
+/* Un 5xx sostenido (507 sobre todo) significa que la P4 esta viva y contesta,
+ * pero NO PUEDE ESCRIBIR: su tarjeta esta llena o fallando. Antes esto era
+ * indistinguible de "la P4 esta apagada" -- mismo silencio y mismo cartel de
+ * "mira si tiene corriente" --, y encenderla mas o vaciar la cola no arregla
+ * nada: lo que hay que hacer es hacer sitio en la tarjeta de la P4. 3 intentos
+ * (~45 s): un 503 de "tarjeta ocupada" suelto es normal y no debe encender este
+ * aviso. */
+#define INTENTOS_5XX_ATASCO 3
+
+/* Descarta a mano la entrada de cabeza (el apunte que la P4 no acepta) y deja
+ * seguir a los de detras.
+ *
+ * POR QUE HACE FALTA (auditoria del 13-oct-2026): la cola NO descarta nunca una
+ * entrada por un codigo de respuesta -- a proposito, porque un 400 casi siempre
+ * es "la P4 es mas vieja" y el apunte entra solo en cuanto se actualice --,
+ * pero eso significaba que un apunte que la P4 NUNCA va a aceptar atasca la
+ * cola ENTERA para siempre: los siguientes se apilan detras y a los 16
+ * (VIAJE_COLA_CAPACIDAD) ya no se puede ni anotar ni cerrar el viaje. La salida
+ * que habia era "borralo desde la pantalla" ("sin cerrar" lleva a esa lista),
+ * pero esa lista son los eventos de la SALIDA, no la cola: no habia NINGUNA
+ * forma de quitar un apunte encolado. Esto la da, con confirmacion en pantalla
+ * (lo decide el usuario, no un codigo de respuesta).
+ *
+ * Devuelve si habia algo que descartar. */
+bool viaje_cola_descartar_cabeza(void)
 {
-    return s_atascada_401;
+    bool habia;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    uint32_t cabeza, cola;
+    indices_leer(&cabeza, &cola);
+    habia = (cabeza < cola);
+    xSemaphoreGive(s_mutex);
+    if (!habia) return false;
+
+    s_generacion++;                 /* el repartidor no debe sacar la siguiente */
+    descartar_cabeza();             /* coge el mutex y avisa del cambio el solo */
+    /* El atasco era de ESA entrada: la marca se va con ella. Si la siguiente
+     * vuelve a fallar, se volvera a marcar sola en unos segundos. */
+    s_atasco = VIAJE_COLA_ATASCO_NO;
+    ESP_LOGW(TAG, "apunte de cabeza DESCARTADO A MANO desde la pantalla");
+    return true;
 }
 
 static void reparto_task(void *arg)
@@ -307,6 +368,7 @@ static void reparto_task(void *arg)
     uint32_t idx_409 = UINT32_MAX;   /* indice de cola del ultimo 409 visto */
     int intentos_409 = 0;
     int intentos_401 = 0;   /* no distingue apunte: una clave mal puesta falla con cualquiera */
+    int intentos_5xx = 0;   /* idem: si la P4 no puede escribir, falla con todos */
 
     while (1) {
         if (!leer_cabeza(cuerpo, sizeof(cuerpo))) {
@@ -330,6 +392,11 @@ static void reparto_task(void *arg)
         }
 
         int estado = 0;
+        /* La generacion se lee ANTES de enviar: si mientras tanto la UI ha
+         * descartado esta misma entrada a mano, al volver no hay que sacar nada
+         * (la cabeza ya es otra y sacarla seria perder un apunte que nadie ha
+         * entregado). Ver viaje_cola_descartar_cabeza(). */
+        uint32_t gen = s_generacion;
         bool ok = p4_api_post(cuerpo, &estado);
 
         if (ok) {
@@ -337,9 +404,18 @@ static void reparto_task(void *arg)
             idx_409 = UINT32_MAX;
             intentos_409 = 0;
             intentos_401 = 0;
-            s_atascada_409 = false;
-            s_atascada_401 = false;
-            descartar_cabeza();
+            intentos_5xx = 0;
+            s_atasco = VIAJE_COLA_ATASCO_NO;
+            if (s_generacion == gen) {
+                descartar_cabeza();
+            } else {
+                /* Se entrego, pero la entrada que se envio ya no esta en la
+                 * cola: no se toca. Se quedara (o no) y, como mucho, se
+                 * reenviara; la P4 la reconoce por el id y contesta
+                 * "duplicado". */
+                ESP_LOGW(TAG, "entregado, pero la cola cambio mientras tanto: "
+                              "no saco nada (la P4 lo vera como duplicado)");
+            }
             /* Sin espera: si hay mas, se sigue vaciando de seguido. Que la P4
              * este respondiendo es justo el momento de aprovechar. */
             continue;
@@ -347,8 +423,8 @@ static void reparto_task(void *arg)
 
         if (estado == 401) {
             intentos_401++;
-            if (intentos_401 >= INTENTOS_401_ATASCO && !s_atascada_401) {
-                s_atascada_401 = true;
+            if (intentos_401 >= INTENTOS_401_ATASCO && !viaje_cola_credenciales_mal()) {
+                s_atasco = VIAJE_COLA_ATASCO_CLAVE;
                 ESP_LOGE(TAG, "401 sostenido %d veces: usuario/clave del portal "
                               "mal en Ajustes, no se van a arreglar solos",
                          intentos_401);
@@ -358,7 +434,7 @@ static void reparto_task(void *arg)
             continue;
         }
         intentos_401 = 0;
-        s_atascada_401 = false;
+        if (viaje_cola_credenciales_mal()) s_atasco = VIAJE_COLA_ATASCO_NO;
 
         if (estado == 409) {
             uint32_t cabeza, cola;
@@ -368,10 +444,11 @@ static void reparto_task(void *arg)
             } else {
                 idx_409 = cabeza;
                 intentos_409 = 1;
-                s_atascada_409 = false;   /* apunte distinto: cuenta desde cero */
+                s_atasco = VIAJE_COLA_ATASCO_NO;   /* apunte distinto: cuenta desde cero */
             }
-            if (intentos_409 >= INTENTOS_409_ATASCO && !s_atascada_409) {
-                s_atascada_409 = true;
+            if (intentos_409 >= INTENTOS_409_ATASCO &&
+                viaje_cola_atasco() != VIAJE_COLA_ATASCO_NUMERACION) {
+                s_atasco = VIAJE_COLA_ATASCO_NUMERACION;
                 ESP_LOGE(TAG, "409 sostenido %d veces sobre el mismo apunte: "
                               "probable choque de numeracion con la P4 (se "
                               "borro la NVS a mitad de viaje?). No se pierde "
@@ -411,11 +488,14 @@ static void reparto_task(void *arg)
              * la autocaravana iba por la v2.33). Tirarlo era perder un
              * repostaje o el cierre de un viaje por una version. Se queda en
              * cola, marcado como atascado (el mismo aviso rojo que el 409) y se
-             * sigue intentando: en cuanto la P4 se actualice, entra solo. */
-            if (!s_atascada_409) {
-                s_atascada_409 = true;
+             * sigue intentando: en cuanto la P4 se actualice, entra solo. Y
+             * ahora ADEMAS se puede descartar a mano desde la pantalla (ver
+             * viaje_cola_descartar_cabeza), que es la salida para el apunte que
+             * la P4 no va a aceptar nunca. */
+            if (viaje_cola_atasco() != VIAJE_COLA_ATASCO_RECHAZO) {
+                s_atasco = VIAJE_COLA_ATASCO_RECHAZO;
                 ESP_LOGE(TAG, "la P4 rechaza el apunte con 400 tras %d intentos. "
-                              "NO se descarta: sigue en cola y se reintenta. "
+                              "NO se descarta solo: sigue en cola y se reintenta. "
                               "Suele ser la P4 con firmware viejo: %s",
                          intentos_400, cuerpo);
                 avisar_cambio();
@@ -439,19 +519,42 @@ static void reparto_task(void *arg)
         if (estado >= 400 && estado < 500 && estado != 400 && estado != 401 &&
             estado != 408 && estado != 409 && estado != 429) {
             /* Tampoco se descarta (ver el comentario del 400): se marca y se
-             * reintenta. Si de verdad el apunte esta mal, se borra desde la
-             * pantalla -- "sin cerrar" lleva justo a esa lista --, pero que lo
-             * decida el usuario y no un codigo de respuesta. */
-            if (!s_atascada_409) {
-                s_atascada_409 = true;
-                ESP_LOGE(TAG, "la P4 rechaza el apunte con %d. NO se descarta: "
-                              "sigue en cola y se reintenta: %s", estado, cuerpo);
+             * reintenta, y se puede descartar a mano desde la pantalla. Si de
+             * verdad el apunte esta mal, que lo decida el usuario y no un codigo
+             * de respuesta. */
+            if (viaje_cola_atasco() != VIAJE_COLA_ATASCO_RECHAZO) {
+                s_atasco = VIAJE_COLA_ATASCO_RECHAZO;
+                ESP_LOGE(TAG, "la P4 rechaza el apunte con %d. NO se descarta "
+                              "solo: sigue en cola y se reintenta: %s", estado, cuerpo);
                 avisar_cambio();
             }
             vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
             continue;
         }
 
+        /* 5xx: la P4 esta VIVA y contesta, pero no puede escribir (507: tarjeta
+         * llena o fallando; 503: ocupada). Antes esto caia en el mismo saco mudo
+         * que "la P4 esta apagada" -- el usuario veia "mira si tiene corriente"
+         * sobre una P4 que estaba encendida y contestando. Ver el comentario de
+         * INTENTOS_5XX_ATASCO. */
+        if (estado >= 500) {
+            intentos_5xx++;
+            if (intentos_5xx >= INTENTOS_5XX_ATASCO &&
+                viaje_cola_atasco() != VIAJE_COLA_ATASCO_P4_ESCRITURA) {
+                s_atasco = VIAJE_COLA_ATASCO_P4_ESCRITURA;
+                ESP_LOGE(TAG, "la P4 contesta %d (%d veces seguidas): esta "
+                              "encendida pero NO PUEDE ESCRIBIR. Mira su "
+                              "tarjeta (llena?). Los apuntes NO se pierden: "
+                              "siguen en cola.", estado, intentos_5xx);
+                avisar_cambio();
+            }
+            vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
+            continue;
+        }
+        intentos_5xx = 0;
+
+        /* Ni respuesta (estado 0: ni se pudo hablar con ella). Aqui si que es
+         * "la P4 no esta". */
         vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
     }
 }

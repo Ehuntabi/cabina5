@@ -32,6 +32,7 @@
 #include "net/mini_proto.h"   /* MINI_ALARM_*, el byte de alarmas de la telemetria */
 #include "nav.h"
 #include "view_registro.h"    /* view_registro_puntual_declarar_llegada() */
+#include "confirm_screen.h"   /* descartar a mano el apunte atascado, desde la pastilla */
 #include "../data_model.h"
 #include "../net/udp_rx.h"
 #include "lv_port_compat.h"       /* lvgl_port_lock/unlock, ver view_info_set_pendientes() */
@@ -1935,27 +1936,46 @@ static void pendientes_aplicar(void *arg)
      * respondiendo (es un choque de numeracion, no que este apagada) -- por
      * eso lleva su propio aviso, distinto de "casi llena". Ver el comentario
      * de INTENTOS_409_ATASCO en viaje_cola.c. */
-    bool atascada = viaje_cola_bloqueada();
     /* Credenciales mal puestas NO se arreglan solas ni encendiendo la P4 (a
      * diferencia de "sin llegar" a secas, que puede ser solo que este
      * apagada): aviso propio para no hacer perder el tiempo mirando el cable
      * o la alimentacion cuando el problema esta en Ajustes. Ver el comentario
      * de INTENTOS_401_ATASCO en viaje_cola.c. */
-    bool cred_mal = viaje_cola_credenciales_mal();
+    viaje_cola_atasco_t atasco = viaje_cola_atasco();
+    bool cred_mal   = (atasco == VIAJE_COLA_ATASCO_CLAVE);
+    bool atascada   = (atasco == VIAJE_COLA_ATASCO_NUMERACION ||
+                       atasco == VIAJE_COLA_ATASCO_RECHAZO);
+    /* La P4 viva pero sin poder escribir (507: tarjeta llena). Antes esto era
+     * indistinguible de "la P4 esta apagada" y mandaba a mirar la corriente,
+     * que no arregla nada: lo que hay que hacer es sitio en su tarjeta. */
+    bool p4_no_escribe = (atasco == VIAJE_COLA_ATASCO_P4_ESCRITURA);
     if (cred_mal) {
         lv_label_ins_text(s_pendientes, LV_LABEL_POS_LAST, "  -  CLAVE MAL, AJUSTES");
+    } else if (p4_no_escribe) {
+        lv_label_ins_text(s_pendientes, LV_LABEL_POS_LAST, "  -  LA P4 NO PUEDE ESCRIBIR");
     } else if (atascada) {
-        lv_label_ins_text(s_pendientes, LV_LABEL_POS_LAST, "  -  ATASCADO, MIRA LA P4");
+        lv_label_ins_text(s_pendientes, LV_LABEL_POS_LAST, "  -  ATASCADO, TOCA AQUI");
     } else if (casi) {
         lv_label_ins_text(s_pendientes, LV_LABEL_POS_LAST, "  -  CASI LLENA");
     }
-    lv_obj_set_style_bg_color(s_pendientes,
-                              lv_color_hex((casi || atascada || cred_mal) ? 0xFF4444 : 0xFF9800), 0);
-    lv_obj_set_style_text_color(s_pendientes,
-                                lv_color_hex((casi || atascada || cred_mal) ? 0xFFFFFF : 0x000000), 0);
+    bool rojo = (casi || atascada || cred_mal || p4_no_escribe);
+    lv_obj_set_style_bg_color(s_pendientes, lv_color_hex(rojo ? 0xFF4444 : 0xFF9800), 0);
+    lv_obj_set_style_text_color(s_pendientes, lv_color_hex(rojo ? 0xFFFFFF : 0x000000), 0);
 
     lv_obj_clear_flag(s_pendientes, LV_OBJ_FLAG_HIDDEN);
     lv_obj_align(s_pendientes, LV_ALIGN_BOTTOM_MID, 0, -6);
+}
+
+/* Descartar el apunte que la P4 no acepta. Se llega desde la pastilla cuando
+ * esta marcada como ATASCADA. */
+static void descartar_apunte_cb(void *ud)
+{
+    (void)ud;
+    /* descartar_cabeza() avisa del cambio por su cuenta, asi que la pastilla se
+     * repinta sola con el numero nuevo. */
+    if (!viaje_cola_descartar_cabeza())
+        confirm_screen_aviso("No habia nada que descartar",
+                             "La cola ya se ha vaciado sola.", 0xFF9800, "Vale");
 }
 
 static void pendientes_click_cb(lv_event_t *e)
@@ -1964,6 +1984,46 @@ static void pendientes_click_cb(lv_event_t *e)
     /* Primero lo que pide algo de ti, en el mismo orden que pendientes_
      * aplicar(): llegar a un sitio antes que cerrar un apunte. */
     if (s_puntual_pendiente) { view_registro_puntual_declarar_llegada(); return; }
+
+    /* La cola atascada va ANTES que "sin cerrar": es la que puede dejarte sin
+     * poder anotar nada mas (a los 16 apuntes ya no cabe ninguno, ni el fin del
+     * viaje), y hasta el 13-oct-2026 la pastilla no llevaba a ningun sitio
+     * cuando no habia nada "sin cerrar". La lista de "sin cerrar" son los
+     * eventos de la SALIDA, no la cola: no servia para desatascarla. */
+    viaje_cola_atasco_t atasco = viaje_cola_atasco();
+    if (s_pend_valor > 0 && atasco != VIAJE_COLA_ATASCO_NO &&
+        atasco != VIAJE_COLA_ATASCO_CLAVE) {
+        if (atasco == VIAJE_COLA_ATASCO_P4_ESCRITURA) {
+            /* Aqui descartar NO arregla nada: el apunte esta bien y el
+             * problema es que la P4 no puede escribir. Se dice y no se
+             * ofrece boton de descartar. */
+            confirm_screen_aviso("LA P4 NO PUEDE ESCRIBIR",
+                                 "Esta encendida y contesta,\npero su tarjeta esta llena\no fallando.\n\n"
+                                 "Los apuntes NO se pierden:\nsiguen aqui. Hay que hacer\nsitio en su tarjeta.",
+                                 0xFF4444, "Entendido");
+            return;
+        }
+        if (atasco == VIAJE_COLA_ATASCO_NUMERACION) {
+            confirm_screen_open("NO NOS ENTENDEMOS",
+                                "La P4 y esta pantalla han\nperdido la numeracion del\nviaje.\n\n"
+                                "Descartar el apunte mas\nantiguo deja seguir con los\ndemas.",
+                                0xFF4444, "Descartarlo", "Cancelar",
+                                descartar_apunte_cb, NULL);
+            confirm_screen_ok_destructivo();
+            return;
+        }
+        /* RECHAZO: la P4 no acepta ese cuerpo (casi siempre, firmware mas
+         * viejo que esta pantalla). Se puede esperar a actualizarla, pero si no
+         * hay forma, descartarlo es la unica salida. Lo decide el usuario. */
+        confirm_screen_open("LA P4 NO ACEPTA UN APUNTE",
+                            "El mas antiguo de los que\nestan sin enviar.\n\n"
+                            "Suele ser la P4 con firmware\nviejo: si la actualizas,\nentra solo. Si no, se pierde\nsolo ese apunte.",
+                            0xFF4444, "Descartarlo", "Esperar",
+                            descartar_apunte_cb, NULL);
+        confirm_screen_ok_destructivo();
+        return;
+    }
+
     if (s_sin_cerrar == 0) return;   /* "sin enviar" no lleva a ningun sitio */
     nav_ir_a_sin_cerrar();
 }

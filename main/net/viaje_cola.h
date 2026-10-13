@@ -47,6 +47,21 @@ bool viaje_cola_push(const char *cuerpo, viaje_cola_error_t *motivo_out);
 
 size_t viaje_cola_pendientes(void);
 
+/* Por que esta atascada la cola. Un solo motivo cada vez, y el que manda es el
+ * del apunte de cabeza (que es el que no avanza). Antes esto eran dos booleanos
+ * sueltos (409 y 401) y todo lo demas -- un 400 de la P4 con firmware viejo, un
+ * 507 de tarjeta llena -- se veia igual que "la P4 esta apagada", que es un
+ * diagnostico FALSO. Ver los comentarios de reparto_task() en viaje_cola.c. */
+typedef enum {
+    VIAJE_COLA_ATASCO_NO = 0,        /* la cola va sola */
+    VIAJE_COLA_ATASCO_CLAVE,         /* 401: usuario/clave mal en Ajustes */
+    VIAJE_COLA_ATASCO_NUMERACION,    /* 409 sostenido: choque de numeracion */
+    VIAJE_COLA_ATASCO_RECHAZO,       /* la P4 rechaza el apunte (400 y otros 4xx) */
+    VIAJE_COLA_ATASCO_P4_ESCRITURA,  /* 5xx: la P4 vive pero no puede escribir */
+} viaje_cola_atasco_t;
+
+viaje_cola_atasco_t viaje_cola_atasco(void);
+
 /* true si el apunte de cabeza lleva mucho rato recibiendo 409 de la P4 sin
  * avanzar (ver el comentario de INTENTOS_409_ATASCO en el .c) -- sintoma de
  * un choque de numeracion entre los dos dispositivos, no de que la P4 este
@@ -58,6 +73,19 @@ bool viaje_cola_bloqueada(void);
  * del portal mal puestas en Ajustes): a diferencia de "la P4 esta apagada",
  * esto NO se arregla solo, hace falta corregir usuario/clave. */
 bool viaje_cola_credenciales_mal(void);
+
+/* Tira el apunte de CABEZA a mano (el que la P4 no acepta) y deja seguir a los
+ * de detras. Devuelve si habia algo que descartar.
+ *
+ * Existe porque la cola no descarta NUNCA por un codigo de respuesta -- a
+ * proposito: un 400 casi siempre es "la P4 es mas vieja" y el apunte entra solo
+ * al actualizarla --, pero si la P4 no lo va a aceptar nunca, la cola entera se
+ * queda atascada detras y a los 16 apuntes ya no se puede ni anotar ni cerrar
+ * el viaje. Antes no habia forma de quitar una entrada encolada: la lista de
+ * "sin cerrar" son los eventos de la SALIDA, no la cola. Se llama desde la
+ * pantalla, CON confirmacion: lo decide el usuario, no un codigo de respuesta.
+ * Auditoria del 13-oct-2026. */
+bool viaje_cola_descartar_cabeza(void);
 
 #ifdef __cplusplus
 }
