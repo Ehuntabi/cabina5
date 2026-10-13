@@ -208,7 +208,13 @@ static bool s_nvs_borrada_al_arrancar;
  * las tres pantallas y con ellas el dialogo de confirmacion) y el splash ya se
  * ha ido. */
 /* Reintento de la reconciliacion hasta que haya hora (ver su comentario). */
-static bool s_recon_pendiente;
+/* NACE A TRUE: si el primer intento no llega ni a correr (sin cerrojo de LVGL,
+ * o sin hora todavia), el temporizador tiene que seguir intentandolo. Antes
+ * nacia a false y solo se armaba dentro de la reconciliacion, asi que si el
+ * primer cerrojo fallaba nadie lo armaba y el temporizador se autoborraba en su
+ * primer disparo: M5 no corria NUNCA (lo cazo la tercera revision adversarial
+ * del 13-oct-2026). */
+static bool s_recon_pendiente = true;
 static void reconciliar_viaje_al_arrancar(void);
 
 static void recon_timer_cb(lv_timer_t *t)
