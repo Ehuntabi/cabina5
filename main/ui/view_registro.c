@@ -2407,7 +2407,12 @@ static bool apunte_encolar(categoria_t cat)
             u = apunte_campo_txt(b, sizeof(b), u, "inicio", hi);
             u = apunte_campo_txt(b, sizeof(b), u, "fin", hf);
             u = apunte_campo_num(b, sizeof(b), u, "minutos",
-                                 (long)((s_pern_fin - s_pern_ini) / 60));
+                                 (long)((s_pern_fin > s_pern_ini) ? (s_pern_fin - s_pern_ini) / 60 : 0));
+            /* La guarda NO es adorno (red team del 14-oct-2026): los dos son
+             * uint32 y salen de epoch_local, que NO es monotono -- al entrar en
+             * el horario de invierno el mismo reloj da 3599 s MENOS --, asi que
+             * la resta sin comprobar daba 71582778 "minutos" (1193045 h) en
+             * pernoctas.csv y en la pantalla. */
             u = apunte_campo_num(b, sizeof(b), u, "noches",
                                  (long)salida_noches(s_pern_ini, s_pern_fin));
             u = apunte_campo_txt(b, sizeof(b), u, "cobro",
@@ -4740,6 +4745,9 @@ static void boot_marcar_preguntado(uint32_t id)
 /* "45 min" o "2 h 15 min". Las horas sueltas se leen mucho peor en minutos. */
 static void duracion_texto(uint32_t seg, char *buf, size_t n)
 {
+    /* 'seg' es una resta de epochs locales: si el reloj ha ido hacia atras (el
+     * cambio de hora, o el GPS corrigiendo), sale un numero enorme. Se acota. */
+    if (seg > 60u * 60u * 24u * 60u) seg = 0;
     uint32_t m = seg / 60;
     if (m < 60) snprintf(buf, n, "%u min", (unsigned)m);
     else        snprintf(buf, n, "%u h %u min", (unsigned)(m / 60), (unsigned)(m % 60));
@@ -4880,7 +4888,7 @@ static bool parada_preguntar_en(int idx)
 
     char hi[8], dur[24];
     hora_corta(ev->epoch_ini, hi, sizeof(hi));
-    duracion_texto(ahora - ev->epoch_ini, dur, sizeof(dur));
+    duracion_texto(ahora > ev->epoch_ini ? ahora - ev->epoch_ini : 0, dur, sizeof(dur));
 
     if (motivo == MOTIVO_PERNOCTA) {
         uint32_t noches = salida_noches(ev->epoch_ini, ahora);
