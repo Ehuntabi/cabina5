@@ -316,22 +316,31 @@ static void tarea(void *arg)
         ESP_LOGE(TAG, "3) CANAL DE VIAJES ROTO: estado %d (0 = no hubo respuesta)", est);
     }
 
-    /* 4) El OTRO camino de subida: silenciar una alarma (/api/alarma). Se manda
-     * mascara 0 = ninguna alarma: la P4 lo acepta y no calla nada, asi que sirve
-     * para comprobar el camino sin efectos. */
-    ESP_LOGI(TAG, "paso: POST /api/alarma (camino de silenciar alarmas)");
+    /* 4) El OTRO camino de subida: silenciar una alarma (/api/alarma). Mascara
+     * 0 = ninguna alarma: la P4 lo acepta y no calla nada, asi que comprueba el
+     * camino sin efectos.
+     *
+     * OJO, AQUI ESTABA EL FALLO (13-oct-2026): se mandaba
+     * {"op":"silencio","mask":0}, que la P4 NO CONOCE -- el cuerpo de verdad es
+     * {"alarmas":N}, el que arma p4_api_cuerpo_alarma() y el que espera la P4
+     * (config_server.c: "Cuerpo: {"alarmas":N} con el bitmask MINI_ALARM_*").
+     * La P4 contestaba 400... y el test lo daba por BUENO, porque aceptaba
+     * cualquier 4xx como "la P4 autentico y enruto". Pero un 400 quiere decir
+     * "no entiendo esa orden", no "atendida": con esa logica el test habria
+     * dado el canal por bueno aunque silenciar estuviera roto de verdad.
+     *
+     * AHORA se manda el cuerpo REAL y se exige 2xx. Un 400 aqui es un fallo. */
+    ESP_LOGI(TAG, "paso: POST /api/alarma (camino real de silenciar alarmas)");
     est = 0;
-    ok = p4_api_post_url(P4_HOST "/api/alarma", "{\"op\":\"silencio\",\"mask\":0}", &est);
-    /* Vale cualquier 4xx menos 401: significa que la P4 autentico al cliente y
-     * enruto la peticion hasta su handler (que la rechaza por la mascara 0). Un
-     * 401 seria credenciales, y un 0 que la peticion no llego. */
-    if (est >= 400 && est < 500 && est != 401) {
-        ESP_LOGI(TAG, "4) CANAL DE ALARMAS OK: la P4 atiende la orden (HTTP %d; con mascara 0 "
+    ok = p4_api_post_url(P4_HOST "/api/alarma", "{\"alarmas\":0}", &est);
+    if (est >= 200 && est < 300) {
+        ESP_LOGI(TAG, "4) CANAL DE ALARMAS OK: la P4 acepta la orden (HTTP %d; con mascara 0 "
                       "no se ha callado ninguna alarma)", est);
     } else if (est == 401) {
         ESP_LOGE(TAG, "4) CANAL DE ALARMAS: 401 (credenciales del portal)");
     } else {
-        ESP_LOGW(TAG, "4) canal de alarmas: HTTP %d%s", est,
+        ESP_LOGE(TAG, "4) CANAL DE ALARMAS ROTO: HTTP %d%s -- el cuerpo real es "
+                      "{\"alarmas\":N}", est,
                  est == 0 ? " (sin respuesta: no llego)" : "");
     }
 
