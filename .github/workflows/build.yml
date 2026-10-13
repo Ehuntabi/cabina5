@@ -114,7 +114,8 @@ jobs:
                    components/config_storage/config_storage.c \
                    components/config_storage/include/config_storage.h \
                    test/viaje_cola_control_arnes.c test/viaje_cola_control.sh \
-                   test/viaje_cola_libre_arnes.c test/viaje_cola_libre.sh ; do
+                   test/viaje_cola_libre_arnes.c test/viaje_cola_libre.sh \
+                   test/viaje_horario_arnes.c test/viaje_horario.sh ; do
             if [ ! -f "cabina5/$f" ] || [ ! -f "35cabina/$f" ]; then
               echo "FALTA $f en alguno de los dos repos"; fallo=1; continue
             fi
@@ -141,6 +142,11 @@ jobs:
       # respuesta HTTP que antes se tiraba).
       - name: El hueco de la tarjeta de la P4 se entiende
         run: bash 35cabina/test/viaje_cola_libre.sh
+
+      # Y que el cambio de horario no acorte una pernocta (el epoch_local da un
+      # salto atras de 3600 s: la P4 manda su desfase y la cabina corrige).
+      - name: El cambio de horario no acorta las pernoctas
+        run: bash 35cabina/test/viaje_horario.sh
 
       - name: El contrato del canal de viaje, contra la P4
         run: bash victron/test/protocolo_cabina.sh victron cabina5

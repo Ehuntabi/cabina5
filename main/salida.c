@@ -158,6 +158,11 @@ const salida_vista_t *salida_get(void)
 
 uint32_t salida_noches(uint32_t epoch_ini, uint32_t epoch_fin)
 {
+    /* Si ha cambiado el horario mientras el tramo estaba abierto, el inicio
+     * quedo en la escala vieja: se corrige AQUI, en el calculo, sin tocar la
+     * hora de pared que se enseña (ver reloj_delta_horario). */
+    int d = reloj_delta_horario();
+    if (d) epoch_ini = (uint32_t)((int32_t)epoch_ini + d);
     if (epoch_fin <= epoch_ini) return 0;
     /* Cambios de dia de calendario, no periodos de 24 h: llegas el viernes por
      * la tarde y te vas el sabado por la manana y eso es UNA noche. Los epoch

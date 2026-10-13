@@ -24,6 +24,7 @@
 #include "freertos/FreeRTOS.h"
 #include "esp_log.h"
 #include "net/mini_proto.h"
+#include <stdint.h>
 
 static const char *TAG = "reloj";
 
@@ -34,9 +35,32 @@ static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t s_epoch;       /* ultimo epoch_local visto, 0 = nunca */
 static int64_t  s_epoch_us;    /* esp_timer en ese instante */
 
-void reloj_set_desde_p4(uint32_t epoch_local)
+/* El desfase horario que manda la P4 (cuartos de hora con signo) y el salto
+ * pendiente si ha cambiado desde la ultima vez. */
+static int s_off_quince = INT8_MIN;   /* INT8_MIN = todavia no lo se */
+static int s_delta_horario = 0;
+
+int reloj_delta_horario(void) { return s_delta_horario; }
+
+void reloj_set_desde_p4(uint32_t epoch_local, int utc_off_quince)
 {
     if (epoch_local == 0) return;          /* la P4 aun no sabe la hora */
+
+    /* ¿HA CAMBIADO EL HORARIO? (14-oct-2026). El desfase lo manda la P4 en un
+     * byte que antes era relleno; una P4 vieja manda 0, y 0 es un desfase
+     * legitimo (UTC), asi que solo se actua cuando el valor CAMBIA de uno
+     * conocido a otro: asi una P4 vieja no dispara nada. */
+    if (utc_off_quince >= INT8_MIN && utc_off_quince <= INT8_MAX) {
+        if (s_off_quince != INT8_MIN && utc_off_quince != s_off_quince) {
+            /* El inicio de un tramo abierto se guardo con el desfase VIEJO: para
+             * que la resta salga bien hay que sumarle la diferencia. */
+            s_delta_horario += (utc_off_quince - s_off_quince) * 900;
+            ESP_LOGW(TAG, "ha cambiado el horario (%d -> %d cuartos): las "
+                          "duraciones de los tramos ya abiertos se corrigen %d s",
+                     s_off_quince, utc_off_quince, s_delta_horario);
+        }
+        s_off_quince = utc_off_quince;
+    }
     /* La P4 ya filtra esto en el envio (udp_tx.c: solo manda epoch_local si
      * ahora > MINI_EPOCH_VALIDO), pero es el otro firmware, por UDP -- no
      * fiarse ciegamente de ese invariante aqui tambien. Un epoch absurdo

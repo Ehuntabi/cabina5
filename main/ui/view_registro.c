@@ -2266,6 +2266,25 @@ static bool p4_a_la_escucha(void)
     return d.last_update_ms != 0 && (ms - d.last_update_ms) < 5000;
 }
 
+/* El aviso correcto cuando NO se puede empezar por falta de hora (14-oct-2026).
+ *
+ * Antes salia siempre "Enciende la P4 primero", y eso es FALSO cuando la P4 esta
+ * delante y contestando pero todavia no sabe que dia es (RTC sin pila y sin fix
+ * del GPS): el usuario se ponia a mirar cables y alimentacion de una placa que
+ * estaba encendida. Los dos casos se distinguen por si llega telemetria. */
+static void aviso_sin_hora(void)
+{
+    if (p4_a_la_escucha())
+        confirm_screen_aviso("La P4 aun no sabe la hora",
+                             "Esta encendida y contesta,\npero le falta que el GPS\nle diga que dia es.\n\n"
+                             "Espera un par de minutos\n(con el cielo a la vista) y\nvuelve a intentarlo.",
+                             COL_ACCION_STOP, "Entendido");
+    else
+        confirm_screen_aviso("Enciende la P4 primero",
+                             "Sin ella no se que dia es,\ny la carpeta del viaje lleva\nla fecha en el nombre.",
+                             COL_ACCION_STOP, "Entendido");
+}
+
 /* Texto del aviso segun por que ha fallado viaje_cola_push(), no siempre el
  * mismo cartel: antes "cola llena, la P4 no la vacia" salia igual para un
  * fallo de NVS que nada tiene que ver con que la P4 este apagada -- daba un
@@ -2407,7 +2426,9 @@ static bool apunte_encolar(categoria_t cat)
             u = apunte_campo_txt(b, sizeof(b), u, "inicio", hi);
             u = apunte_campo_txt(b, sizeof(b), u, "fin", hf);
             u = apunte_campo_num(b, sizeof(b), u, "minutos",
-                                 (long)((s_pern_fin > s_pern_ini) ? (s_pern_fin - s_pern_ini) / 60 : 0));
+                                 (long)((s_pern_fin > (uint32_t)((int32_t)s_pern_ini + reloj_delta_horario()))
+                               ? (s_pern_fin - (uint32_t)((int32_t)s_pern_ini + reloj_delta_horario())) / 60
+                               : 0));
             /* La guarda NO es adorno (red team del 14-oct-2026): los dos son
              * uint32 y salen de epoch_local, que NO es monotono -- al entrar en
              * el horario de invierno el mismo reloj da 3599 s MENOS --, asi que
@@ -2704,9 +2725,7 @@ static void viaje_do_iniciar(void *ud)
     (void)ud;
     uint32_t ahora = reloj_p4();
     if (ahora == 0) {   /* comprobado tambien antes de teclear; puede caerse en medio */
-        confirm_screen_aviso("Enciende la P4 primero",
-                             "Sin ella no se que dia es,\ny la carpeta del viaje lleva\nla fecha en el nombre.",
-                             COL_ACCION_STOP, "Entendido");
+        aviso_sin_hora();
         return;
     }
     con_gps_o_seguir(viaje_iniciar_real);
@@ -2827,9 +2846,7 @@ static void viaje_iniciar_cb(lv_event_t *e)
      * en el nombre y este aparato no tiene reloj propio. Preguntar el destino
      * para luego no poder empezar seria hacer teclear en balde. */
     if (!p4_a_la_escucha()) {
-        confirm_screen_aviso("Enciende la P4 primero",
-                             "Sin ella no se que dia es,\ny la carpeta del viaje lleva\nla fecha en el nombre.",
-                             COL_ACCION_STOP, "Entendido");
+        aviso_sin_hora();
         return;
     }
     lv_textarea_set_text(s_viaje_destino_ta, "");
@@ -4210,9 +4227,15 @@ static void volver_al_menu(void)
 static bool declarar(evento_tipo_t tipo, uint8_t sub, uint8_t sub2)
 {
     if (reloj_p4() == 0) {
-        confirm_screen_aviso("Enciende la P4 primero",
-                             "Sin ella no se que hora es,\ny el apunte va con su hora\nde inicio.",
-                             COL_ACCION_STOP, "Entendido");
+        if (p4_a_la_escucha())
+            confirm_screen_aviso("La P4 aun no sabe la hora",
+                                 "Esta encendida y contesta,\npero le falta que el GPS\nle diga que hora es.\n\n"
+                                 "Espera un par de minutos y\nvuelve a intentarlo.",
+                                 COL_ACCION_STOP, "Entendido");
+        else
+            confirm_screen_aviso("Enciende la P4 primero",
+                                 "Sin ella no se que hora es,\ny el apunte va con su hora\nde inicio.",
+                                 COL_ACCION_STOP, "Entendido");
         return false;
     }
     if (salida_eventos_abiertos() >= SALIDA_EVENTOS_MAX) {
@@ -4888,7 +4911,10 @@ static bool parada_preguntar_en(int idx)
 
     char hi[8], dur[24];
     hora_corta(ev->epoch_ini, hi, sizeof(hi));
-    duracion_texto(ahora > ev->epoch_ini ? ahora - ev->epoch_ini : 0, dur, sizeof(dur));
+    {
+        uint32_t ini_corr = (uint32_t)((int32_t)ev->epoch_ini + reloj_delta_horario());
+        duracion_texto(ahora > ini_corr ? ahora - ini_corr : 0, dur, sizeof(dur));
+    }
 
     if (motivo == MOTIVO_PERNOCTA) {
         uint32_t noches = salida_noches(ev->epoch_ini, ahora);

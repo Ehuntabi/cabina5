@@ -637,7 +637,7 @@ static void rx_task(void *arg)
             continue;
         }
         data_model_update_from_msg(msg);
-        reloj_set_desde_p4(msg->epoch_local);
+        reloj_set_desde_p4(msg->epoch_local, (int)(int8_t)msg->utc_off_quince);
         s_ultimo_rx_us = esp_timer_get_time();   /* enlace vivo: ver udp_rx_enlace() */
         s_sin_datos_intentos = 0;                /* llego un paquete: escalera a cero */
         s_aviso_mudez_dado = false;
