@@ -1,6 +1,7 @@
 // config_storage.c
 #include "config_storage.h"
 #include "esp_log.h"
+#include "esp_mac.h"   /* esp_read_mac: la MAC de esta pantalla va en el id */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
@@ -371,6 +372,28 @@ uint32_t next_trip_seq(void)
         ESP_LOGE(TAG, "next_trip_seq: no se pudo grabar %lu (%s) -- riesgo de "
                       "id repetido si hay un apagon antes del proximo commit",
                  (unsigned long)v, esp_err_to_name(err));
+    }
+
+    /* EL ID LLEVA LA MAC DE ESTA PANTALLA EN LOS 8 BITS DE ARRIBA.
+     *
+     * Hacia falta con DOS cabinas (la 3,5" y la de 5", que es el montaje que se
+     * quiere): cada una lleva su propio contador y las dos empiezan en 1, asi que
+     * sus ids chocaban. La P4 identifica los apuntes por id (anillo de 64, que se
+     * vacia en cada `inicio`), de modo que un apunte de una pantalla podia caer en
+     * el anillo de la otra y descartarse como "duplicado" con un 200: la cabina lo
+     * borraba de su cola y el dato se perdia SIN QUE NADIE SE ENTERE. Paso en la
+     * auditoria de comunicacion del 13-oct-2026.
+     *
+     * Con los 8 bits altos de la MAC (y 24 bits de contador, 16 millones de
+     * apuntes por pantalla) los dos espacios de ids son disjuntos salvo que las
+     * dos MAC coincidan en ese byte (1/256, y solo importa si ademas coinciden
+     * los contadores). NO hace falta tocar la P4 ni el protocolo: alli el id es
+     * un numero opaco que solo se compara. Y no obliga a grabar las dos cabinas a
+     * la vez: cada una puede actualizarse por su cuenta. */
+    uint8_t mac[6] = {0};
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK) {
+        uint32_t con_mac = ((uint32_t)mac[5] << 24) | (v & 0x00FFFFFFu);
+        if (con_mac != 0) return con_mac;   /* 0 sigue sin ser un id valido */
     }
     return v;
 }
