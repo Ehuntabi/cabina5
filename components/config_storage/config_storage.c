@@ -232,6 +232,13 @@ static esp_err_t trip_blob_load(trip_blob_t *out)
         memset(out, 0, sizeof(*out));
         return g;
     }
+    /* LA VERSION SE DEDUCE DEL TAMANO LEIDO, no se pone a 1 antes de leer: un
+     * blob guardado por un firmware anterior es mas CORTO, y nvs_get_blob solo
+     * copia sus bytes -- el campo del final se quedaba con lo que hubiera puesto
+     * el memset (o sea TRIP_BLOB_VERSION), asi que un blob viejo se declaraba
+     * "de la version nueva". Revision del 13-oct-2026; hoy nadie lee el campo,
+     * pero es la trampa que se pondria el dia que alguien amplie el blob. */
+    out->version = (len >= sizeof(*out)) ? TRIP_BLOB_VERSION : 0;
     return ESP_OK;
 }
 
@@ -300,7 +307,16 @@ esp_err_t save_trip_inicio(const char *destino)
 esp_err_t save_trip_fin(void)
 {
     trip_blob_t b;
-    trip_blob_load(&b);   /* conservar n_eventos: lo resetea el proximo inicio */
+    /* SI NO SE HA PODIDO LEER, NO SE GRABA: escribir aqui seria dejar el estado
+     * del viaje a ceros (activo=0, n_eventos=0) sobre un viaje que sigue
+     * abierto. La P4 daria el viaje por COMPLETO con eventos:1. Revision del
+     * 13-oct-2026: el arreglo se habia quedado solo en
+     * save_trip_destino_nuevo(). */
+    esp_err_t leido = trip_blob_load(&b);
+    if (leido != ESP_OK) {
+        ESP_LOGE(TAG, "%s: no grabo, el estado del viaje no se ha podido leer", __func__);
+        return leido;
+    }   /* conservar n_eventos: lo resetea el proximo inicio */
     b.activo = 0;
     b.destino[0] = '\0';
     return trip_blob_save(&b);
@@ -366,7 +382,18 @@ uint32_t trip_eventos_get(void)
 uint32_t trip_eventos_inc(void)
 {
     trip_blob_t b;
-    trip_blob_load(&b);
+    /* NO SE INCREMENTA A CIEGAS: si el estado no se ha podido leer, grabar el
+     * incremento dejaria el blob a ceros con n_eventos=1, y el fin mandaria
+     * "eventos:1" -- la P4 daria el viaje por COMPLETO sin serlo (revision del
+     * 13-oct-2026: el arreglo se habia quedado solo en save_trip_destino_nuevo).
+     * Se devuelve lo que haya (0 si no se pudo leer) y se avisa. */
+    esp_err_t leido = trip_blob_load(&b);
+    if (leido != ESP_OK) {
+        ESP_LOGE(TAG, "trip_eventos_inc: estado del viaje ilegible (%s): NO "
+                      "cuento este apunte; la P4 vera el viaje corto",
+                 esp_err_to_name(leido));
+        return 0;
+    }
     b.n_eventos++;
     esp_err_t err = trip_blob_save(&b);
     if (err != ESP_OK) {

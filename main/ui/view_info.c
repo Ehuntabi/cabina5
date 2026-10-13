@@ -1970,6 +1970,13 @@ static void pendientes_aplicar(void *arg)
     lv_obj_align(s_pendientes, LV_ALIGN_BOTTOM_MID, 0, -6);
 }
 
+/* Ir a Ajustes desde la pastilla (la clave del portal se arregla alli). */
+static void ir_a_ajustes_cb(void *ud)
+{
+    (void)ud;
+    nav_open_ajustes();
+}
+
 /* Descartar el apunte que la P4 no acepta. Se llega desde la pastilla cuando
  * esta marcada como ATASCADA. */
 static void descartar_apunte_cb(void *ud)
@@ -1995,8 +2002,17 @@ static void pendientes_click_cb(lv_event_t *e)
      * cuando no habia nada "sin cerrar". La lista de "sin cerrar" son los
      * eventos de la SALIDA, no la cola: no servia para desatascarla. */
     viaje_cola_atasco_t atasco = viaje_cola_atasco();
-    if (s_pend_valor > 0 && atasco != VIAJE_COLA_ATASCO_NO &&
-        atasco != VIAJE_COLA_ATASCO_CLAVE) {
+    /* CLAVE MAL: esto SI se arregla desde aqui (Ajustes -> WiFi), asi que la
+     * pastilla lleva alli en vez de no hacer nada. Revision del 13-oct-2026. */
+    if (s_pend_valor > 0 && atasco == VIAJE_COLA_ATASCO_CLAVE) {
+        confirm_screen_open("LA CLAVE DEL PORTAL NO VALE",
+                            "La P4 rechaza el usuario y la\nclave del portal.\n\n"
+                            "Se ponen aqui al lado, en\nAjustes -> WiFi.",
+                            0xFF4444, "Ir a Ajustes", "Ahora no",
+                            ir_a_ajustes_cb, NULL);
+        return;
+    }
+    if (s_pend_valor > 0 && atasco != VIAJE_COLA_ATASCO_NO) {
         if (atasco == VIAJE_COLA_ATASCO_P4_ESCRITURA) {
             /* Aqui descartar NO arregla nada: el apunte esta bien y el
              * problema es que la P4 no puede escribir. Se dice y no se

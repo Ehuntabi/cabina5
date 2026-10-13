@@ -342,15 +342,34 @@ bool viaje_cola_credenciales_mal(void)
  * Devuelve si habia algo que descartar. */
 bool viaje_cola_descartar_cabeza(void)
 {
-    bool habia;
+    /* SOLO SI SIGUE ATASCADA, y todo dentro del MISMO cerrojo.
+     *
+     * Dos agujeros que cazo la revision del 13-oct-2026:
+     *  (a) antes se soltaba el mutex para mirar si habia algo y se volvia a
+     *      coger dentro de descartar_cabeza(): en ese hueco el repartidor podia
+     *      sacar la cabeza X (entregada) y este descarte se llevaba por delante
+     *      Y, que no habia enviado nadie;
+     *  (b) el dialogo se abre porque la cola estaba atascada, pero el apunte
+     *      atascado ENTRA SOLO muchas veces (es lo que dice el propio texto: "si
+     *      actualizas la P4, entra solo"): al confirmar, se borraba la cabeza
+     *      ACTUAL, que ya era un apunte bueno.
+     * Ahora se comprueba el atasco y se avanza la cabeza en el mismo bloque, y
+     * la generacion sube ANTES de tocar nada. */
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     uint32_t cabeza, cola;
     indices_leer(&cabeza, &cola);
-    habia = (cabeza < cola);
-    xSemaphoreGive(s_mutex);
-    if (!habia) return false;
-
+    if (cabeza >= cola) {
+        xSemaphoreGive(s_mutex);
+        return false;
+    }
+    if (s_atasco == VIAJE_COLA_ATASCO_NO) {
+        xSemaphoreGive(s_mutex);
+        ESP_LOGW(TAG, "el apunte de cabeza ya no esta atascado: no descarto nada");
+        return false;
+    }
     s_generacion++;                 /* el repartidor no debe sacar la siguiente */
+    xSemaphoreGive(s_mutex);
+
     descartar_cabeza();             /* coge el mutex y avisa del cambio el solo */
     /* El atasco era de ESA entrada: la marca se va con ella. Si la siguiente
      * vuelve a fallar, se volvera a marcar sola en unos segundos. */
@@ -371,6 +390,14 @@ static void reparto_task(void *arg)
     int intentos_5xx = 0;   /* idem: si la P4 no puede escribir, falla con todos */
 
     while (1) {
+        /* LA GENERACION SE LEE ANTES DE LEER LA CABEZA, no antes de enviar.
+         * Si se leyera despues de leer_cabeza(), este caso se colaba: el
+         * repartidor lee la entrada A, el usuario descarta a mano (la cabeza
+         * pasa a B), el repartidor captura la generacion YA NUEVA, entrega A
+         * -- que efectivamente estaba en vuelo -- y al volver cree que nadie ha
+         * tocado nada y saca B sin haberlo entregado. Leyendola antes, ese
+         * descarte invalida la comprobacion y no se saca nada. */
+        uint32_t gen = s_generacion;
         if (!leer_cabeza(cuerpo, sizeof(cuerpo))) {
             /* OJO: leer_cabeza dice que no por dos motivos distintos, y hay que
              * separarlos. Si la cola esta vacia, a dormir. Pero si hay
@@ -392,11 +419,9 @@ static void reparto_task(void *arg)
         }
 
         int estado = 0;
-        /* La generacion se lee ANTES de enviar: si mientras tanto la UI ha
-         * descartado esta misma entrada a mano, al volver no hay que sacar nada
-         * (la cabeza ya es otra y sacarla seria perder un apunte que nadie ha
-         * entregado). Ver viaje_cola_descartar_cabeza(). */
-        uint32_t gen = s_generacion;
+        /* 'gen' se capturo al principio de la vuelta (ver arriba). Si la UI ha
+         * descartado algo mientras tanto, al volver NO se saca nada: la cabeza
+         * ya es otra y sacarla seria perder un apunte que nadie ha entregado. */
         bool ok = p4_api_post(cuerpo, &estado);
 
         if (ok) {
