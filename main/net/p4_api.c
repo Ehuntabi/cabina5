@@ -55,6 +55,9 @@ typedef struct {
     void          *user_data;   /* lo que paso quien lanzo, para el callback */
     bool           ok;
     int            estado;      /* codigo HTTP, o 0 si ni siquiera conecto */
+    /* El principio del cuerpo de la respuesta: ahi viene " libre_mb=NNN" (el
+     * hueco de la tarjeta de la P4). Ver p4_api_post_resp(). */
+    char           resp[96];
 } trabajo_t;
 
 /* Vuelta al hilo de LVGL para avisar del resultado. */
@@ -78,7 +81,12 @@ static bool lanzar_a(const char *url, const char *cuerpo, p4_api_done_cb cb,
  * tiene la suya. */
 bool p4_api_post(const char *cuerpo, int *estado_out)
 {
-    return p4_api_post_url(P4_URL, cuerpo, estado_out);
+    return p4_api_post_url(P4_URL, cuerpo, estado_out, NULL, 0);
+}
+
+bool p4_api_post_resp(const char *cuerpo, int *estado_out, char *resp_out, size_t resp_n)
+{
+    return p4_api_post_url(P4_URL, cuerpo, estado_out, resp_out, resp_n);
 }
 
 /* Cabecera "Authorization: Basic xxx" montada a mano.
@@ -110,8 +118,10 @@ static void cabecera_basic(const char *user, const char *pass, char *out, size_t
     out[k] = '\0';
 }
 
-bool p4_api_post_url(const char *url, const char *cuerpo, int *estado_out)
+bool p4_api_post_url(const char *url, const char *cuerpo, int *estado_out,
+                      char *resp_out, size_t resp_n)
 {
+    if (resp_out && resp_n) resp_out[0] = 0;
     if (!url || !cuerpo) return false;
     if (estado_out) *estado_out = 0;
 
@@ -160,9 +170,23 @@ bool p4_api_post_url(const char *url, const char *cuerpo, int *estado_out)
             ok = (estado >= 200 && estado < 300);
             ESP_LOGI(TAG, "%s -> HTTP %d", cuerpo, estado);
             /* Drenar el cuerpo de la respuesta si lo hay, para poder reutilizar
-             * o cerrar limpio. */
+             * o cerrar limpio. DE PASO SE GUARDA EL PRINCIPIO (14-oct-2026): la
+             * P4 añade " libre_mb=NNN" al final de sus respuestas cortas, y ese
+             * es el unico sitio por donde la pantalla puede saber cuanto queda en
+             * su tarjeta. Se copia lo que quepa y se sigue drenando: si el cuerpo
+             * fuera enorme, no se corta la lectura por quedarse sin hueco. */
             char resto[64];
-            while (esp_http_client_read(c, resto, sizeof(resto)) > 0) { }
+            size_t copiado = 0;
+            int r;
+            while ((r = esp_http_client_read(c, resto, sizeof(resto))) > 0) {
+                if (resp_out && resp_n > 1 && copiado < resp_n - 1) {
+                    size_t libre = resp_n - 1 - copiado;
+                    size_t n = (size_t)r < libre ? (size_t)r : libre;
+                    memcpy(resp_out + copiado, resto, n);
+                    copiado += n;
+                    resp_out[copiado] = 0;
+                }
+            }
         } else {
             ESP_LOGW(TAG, "no se pudo escribir el cuerpo (%d de %d bytes)", escritos, len);
         }
@@ -177,7 +201,8 @@ bool p4_api_post_url(const char *url, const char *cuerpo, int *estado_out)
 static void envio_task(void *arg)
 {
     trabajo_t *t = (trabajo_t *)arg;
-    t->ok = p4_api_post_url(t->url, t->cuerpo, &t->estado);
+    t->ok = p4_api_post_url(t->url, t->cuerpo, &t->estado,
+                             t->resp, sizeof(t->resp));
     /* Ver el comentario de cabecera: lv_async_call() en si mismo no basta.
      *
      * Espera SIN LIMITE (lvgl_port_lock(0)): con un timeout de 1s, si la

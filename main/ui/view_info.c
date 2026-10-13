@@ -2029,10 +2029,25 @@ static void pendientes_click_cb(lv_event_t *e)
             /* Aqui descartar NO arregla nada: el apunte esta bien y el
              * problema es que la P4 no puede escribir. Se dice y no se
              * ofrece boton de descartar. */
-            confirm_screen_aviso("LA P4 NO PUEDE ESCRIBIR",
-                                 "Esta encendida y contesta,\npero su tarjeta esta llena\no fallando.\n\n"
-                                 "Los apuntes NO se pierden:\nsiguen aqui. Hay que hacer\nsitio en su tarjeta.",
-                                 0xFF4444, "Entendido");
+            /* Y SI SABE CUANTO QUEDA, LO DICE (14-oct-2026): la P4 añade
+             * " libre_mb=NNN" al cuerpo de sus respuestas y la cola lo guarda.
+             * Es un aviso, no un dato para decidir: si no lo sabe (P4 vieja, o
+             * el ultimo apunte fue hace mucho) se calla en vez de inventar. */
+            int libre = viaje_cola_libre_mb();
+            if (libre >= 0) {
+                char cuerpo[192];
+                snprintf(cuerpo, sizeof(cuerpo),
+                         "Esta encendida y contesta,\npero su tarjeta esta llena\no fallando.\n\n"
+                         "Le quedan %d MB. Los apuntes\nNO se pierden: siguen aqui.\n"
+                         "Hay que hacer sitio en su\ntarjeta.", libre);
+                confirm_screen_aviso("LA P4 NO PUEDE ESCRIBIR", cuerpo,
+                                     0xFF4444, "Entendido");
+            } else {
+                confirm_screen_aviso("LA P4 NO PUEDE ESCRIBIR",
+                                     "Esta encendida y contesta,\npero su tarjeta esta llena\no fallando.\n\n"
+                                     "Los apuntes NO se pierden:\nsiguen aqui. Hay que hacer\nsitio en su tarjeta.",
+                                     0xFF4444, "Entendido");
+            }
             return;
         }
         if (atasco == VIAJE_COLA_ATASCO_NUMERACION) {

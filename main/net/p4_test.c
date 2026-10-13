@@ -336,7 +336,7 @@ static void tarea(void *arg)
      * AHORA se manda el cuerpo REAL y se exige 2xx. Un 400 aqui es un fallo. */
     ESP_LOGI(TAG, "paso: POST /api/alarma (camino real de silenciar alarmas)");
     est = 0;
-    ok = p4_api_post_url(P4_HOST "/api/alarma", "{\"alarmas\":0}", &est);
+    ok = p4_api_post_url(P4_HOST "/api/alarma", "{\"alarmas\":0}", &est, NULL, 0);
     if (est >= 200 && est < 300) {
         ESP_LOGI(TAG, "4) CANAL DE ALARMAS OK: la P4 acepta la orden (HTTP %d; con mascara 0 "
                       "no se ha callado ninguna alarma)", est);

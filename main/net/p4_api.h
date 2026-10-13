@@ -29,10 +29,21 @@ bool p4_api_viaje_inicio(uint32_t id, const char *destino, uint32_t fecha_dias,
  * 'estado_out' recibe el codigo HTTP, o 0 si no se llego a conectar. */
 bool p4_api_post(const char *cuerpo, int *estado_out);
 
+/* Igual, pero deja en 'resp_out' los primeros bytes del CUERPO de la respuesta.
+ *
+ * Existe por el hueco de la tarjeta de la P4 (14-oct-2026): la P4 añade
+ * " libre_mb=NNN" al cuerpo de las respuestas de /api/viaje, y ese es el unico
+ * canal que la cabina tiene para enterarse sin tocar el struct de telemetria (40
+ * bytes, compartido por las tres placas, que no se puede cambiar sin grabarlas
+ * todas a la vez). Se queda con el principio: el sufijo va al final de un texto
+ * corto. */
+bool p4_api_post_resp(const char *cuerpo, int *estado_out, char *resp_out, size_t resp_n);
+
 /* El POST a una URL concreta (mismo camino que los viajes). Lo usa el auto-test
  * para probar /api/alarma; el resto usa p4_api_post. SINCRONO: no llamar desde
  * la tarea de LVGL. */
-bool p4_api_post_url(const char *url, const char *cuerpo, int *estado_out);
+bool p4_api_post_url(const char *url, const char *cuerpo, int *estado_out,
+                      char *resp_out, size_t resp_n);
 
 /* Montadores del cuerpo JSON, para encolar sin enviar. */
 /* Identidad de esta pantalla (su MAC en hex) tal y como viaja en los cuerpos:

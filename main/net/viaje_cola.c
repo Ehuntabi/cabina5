@@ -21,6 +21,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "nvs.h"
+#include "esp_timer.h"   /* esp_timer_get_time: caducidad del hueco de la SD */
 #include <string.h>
 #include <stdio.h>
 #include <stdatomic.h>
@@ -461,6 +462,45 @@ bool viaje_cola_tiene_op_pendiente(const char *op)
     return hay;
 }
 
+/* ¿Cuanto dice la P4 que le queda en la tarjeta? Devuelve -1 si no viene.
+ *
+ * El sufijo lo añade la P4 al cuerpo de sus respuestas de /api/viaje
+ * ("... libre_mb=NNN", ver responde_con_hueco() en config_server_viaje.c). Es
+ * TEXTO SIN AUTENTICAR: se usa para AVISAR al usuario, nunca para decidir si un
+ * apunte se ha guardado (eso lo dice el codigo HTTP). Sin sufijo -- una P4
+ * anterior al 14-oct-2026 -- devuelve -1 y no se enseña nada. */
+static int parsea_libre_mb(const char *respuesta)
+{
+    if (!respuesta) return -1;
+    const char *p = strstr(respuesta, "libre_mb=");
+    if (!p) return -1;
+    p += 9;                                  /* "libre_mb=" */
+    if (*p < '0' || *p > '9') return -1;
+    long v = 0;
+    while (*p >= '0' && *p <= '9') {
+        v = v * 10 + (*p - '0');
+        if (v > 1000000) return -1;           /* absurdo: 1 TB, no cuela */
+        p++;
+    }
+    return (int)v;
+}
+
+/* Lo ultimo que dijo la P4, y cuando lo dijo. -1 = no se sabe. */
+static volatile int     s_sd_libre_mb = -1;
+static volatile int64_t s_sd_libre_us = 0;
+
+#define LIBRE_MB_VALIDEZ_US  (30LL * 60LL * 1000000LL)   /* 30 min */
+
+int viaje_cola_libre_mb(void)
+{
+    if (s_sd_libre_mb < 0) return -1;
+    /* El dato caduca: si la P4 no ha dicho nada en media hora, mejor no enseñar
+     * una cifra que puede ser de hace tres dias (la pantalla se apaga con el
+     * contacto, asi que "hace tres dias" es literal). */
+    if (esp_timer_get_time() - s_sd_libre_us > LIBRE_MB_VALIDEZ_US) return -1;
+    return s_sd_libre_mb;
+}
+
 bool viaje_cola_ultima_es_op(const char *op)
 {
     if (!op || !op[0]) return false;
@@ -576,7 +616,17 @@ static void reparto_task(void *arg)
         /* 'gen' se capturo al principio de la vuelta (ver arriba). Si la UI ha
          * descartado algo mientras tanto, al volver NO se saca nada: la cabeza
          * ya es otra y sacarla seria perder un apunte que nadie ha entregado. */
-        bool ok = p4_api_post(cuerpo, &estado);
+        /* El cuerpo de la respuesta trae (si la P4 es de hoy) cuanto le queda
+         * en la tarjeta: se guarda para poder avisar ANTES de que se llene. */
+        char resp[96];
+        bool ok = p4_api_post_resp(cuerpo, &estado, resp, sizeof(resp));
+        if (ok || estado == 507) {
+            int libre = parsea_libre_mb(resp);
+            if (libre >= 0) {
+                s_sd_libre_mb = libre;
+                s_sd_libre_us = esp_timer_get_time();
+            }
+        }
 
         if (ok) {
             idx_400 = UINT32_MAX;

@@ -130,6 +130,12 @@ bool viaje_cola_ultima_es_op(const char *op);
  * decirlo (auditoria del 13-oct-2026, hallazgo B2). */
 int viaje_cola_perdidos_al_arrancar(void);
 
+/* Cuanto queda en la tarjeta de la P4, tal y como lo dijo ella en el cuerpo de
+ * la ultima respuesta (" libre_mb=NNN", 14-oct-2026). -1 si no se sabe (P4
+ * vieja, sin respuesta todavia, o el dato es viejo): la pantalla lo enseña solo
+ * cuando lo sabe, y NUNCA decide con el si un apunte se guardo. */
+int viaje_cola_libre_mb(void);
+
 #ifdef __cplusplus
 }
 #endif
