@@ -89,5 +89,34 @@ jobs:
           [ "$propio" = "$otro" ] || { echo "CUERPO_MAX distinto entre cabinas"; exit 1; }
           [ "$propio" -lt "$body" ] || { echo "CUERPO_MAX no cabe en la P4"; exit 1; }
 
+      # LOS FICHEROS DEL VIAJE, BYTE A BYTE EN LAS DOS CABINAS (auditoria del
+      # 14-oct-2026). El ciclo del viaje -- la cola, la reconciliacion del
+      # arranque, el contador, los cuerpos que se mandan a la P4 -- es el MISMO
+      # codigo en las dos, y las dos placas escriben sobre el mismo viaje de la
+      # P4. Una edicion en una sola pasaba el CI en verde (solo se comparaban
+      # mini_proto.h y CUERPO_MAX) y a partir de ahi las dos cuentan,
+      # reconcilian o descartan distinto sobre el mismo viaje. Aqui se cae solo.
+      - name: El ciclo del viaje, identico en las dos cabinas
+        run: |
+          fallo=0
+          for f in main/net/viaje_cola.c main/net/viaje_cola.h \
+                   main/net/p4_api.c main/net/p4_api.h \
+                   main/net/apunte.c main/net/apunte.h \
+                   main/net/udp_rx.c main/net/reloj.c main/net/mini_proto.h \
+                   main/salida.c main/salida.h \
+                   components/config_storage/config_storage.c \
+                   components/config_storage/include/config_storage.h ; do
+            if [ ! -f "cabina5/$f" ] || [ ! -f "35cabina/$f" ]; then
+              echo "FALTA $f en alguno de los dos repos"; fallo=1; continue
+            fi
+            if ! diff -q "cabina5/$f" "35cabina/$f" >/dev/null; then
+              echo "DISTINTO: $f"
+              diff -u "cabina5/$f" "35cabina/$f" | head -40
+              fallo=1
+            fi
+          done
+          [ "$fallo" = 0 ] || { echo "Las dos cabinas tienen que llevar el MISMO ciclo de viaje"; exit 1; }
+          echo "ciclo del viaje identico en las dos cabinas"
+
       - name: El contrato del canal de viaje, contra la P4
         run: bash victron/test/protocolo_cabina.sh victron cabina5

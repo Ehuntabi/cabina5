@@ -37,6 +37,9 @@ esp_err_t save_wifi_config(const char *ssid, const char *pass);
 /* ¿Hay un viaje en marcha? (para reconciliar al arrancar, ver el .c) */
 bool load_trip_activo(void);
 
+/* 1 activo, 0 no activo, -1 no se pudo leer (ver el .c). */
+int load_trip_activo_estado(void);
+
 /* Destino del viaje en curso (da nombre a la carpeta en la SD de la P4). */
 esp_err_t load_trip_destino(char *out, size_t *len);
 

@@ -4621,21 +4621,38 @@ static void viaje_p4_guardar(void *ud)
 {
     (void)ud;
     char cuerpo[160];   /* ver el comentario del fin: id + dev */
-    p4_api_cuerpo_fin_ajeno(cuerpo, sizeof(cuerpo), next_trip_seq());
+    /* forzar=1: este boton es la confirmacion explicita (ver su cb). */
+    p4_api_cuerpo_fin_ajeno(cuerpo, sizeof(cuerpo), next_trip_seq(), 1);
     viaje_p4_manda(cuerpo, "Viaje guardado");
 }
 
 static void viaje_p4_descartar(void *ud)
 {
     (void)ud;
-    char cuerpo[160];   /* id + dev, igual que el fin */
-    p4_api_cuerpo_descartar(cuerpo, sizeof(cuerpo), next_trip_seq());
+    char cuerpo[160];   /* id + dev + forzar, igual que el fin */
+    p4_api_cuerpo_descartar(cuerpo, sizeof(cuerpo), next_trip_seq(), 1);
     viaje_p4_manda(cuerpo, "Viaje apartado");
 }
 
 static void viaje_p4_guardar_cb(lv_event_t *e)
 {
     (void)e;
+    if (s_viaje_p4_ajeno) {
+        /* CIERRE DE UN VIAJE AJENO (auditoria del 14-oct-2026). El texto de
+         * antes invitaba a cerrarlo sin decir que ese viaje puede estar EN
+         * MARCHA en la otra pantalla: al cerrarlo, la otra sigue grabando y
+         * todo lo suyo se va al historial del vehiculo, sin resumen. Se dice
+         * claro y se pide confirmacion explicita; la P4, ademas, exige el
+         * "forzar" que manda este camino (p4_api_cuerpo_fin_ajeno). */
+        confirm_screen_open("Es de la OTRA pantalla",
+                            "Ese viaje lo empezo la otra\npantalla y puede seguir EN\nMARCHA.\n\n"
+                            "Si lo cierras desde aqui, lo\ncerraras tambien para ella.\n"
+                            "Lo suyo es cerrarlo alli.",
+                            COL_ACCION_STOP, "Cerrarlo igual", "Cancelar",
+                            viaje_p4_guardar, NULL);
+        confirm_screen_ok_destructivo();
+        return;
+    }
     confirm_screen_open("Guardar el viaje?", "La P4 lo cierra y le escribe\nsu resumen. Luego ya puedes\nempezar el nuevo.",
                         COL_ACCION_OK, "Si, guardarlo", "Cancelar", viaje_p4_guardar, NULL);
 }
@@ -4645,6 +4662,21 @@ static void viaje_p4_descartar_cb(lv_event_t *e)
     (void)e;
     /* Se dice EXACTAMENTE lo que pasa con la carpeta. "Descartar" a secas suena
      * a borrar, y no borra: aparta. */
+    if (s_viaje_p4_ajeno) {
+        /* Y SI ES DE LA OTRA PANTALLA, SE DICE (auditoria del 14-oct-2026): el
+         * boton estaba a UN toque y renombraba a DESCARTADO_ la carpeta del
+         * viaje REAL de la otra, que seguia grabando. Su viaje se perdia como
+         * viaje (sin resumen, apuntes al historial) y no se enteraba nadie. La
+         * P4 tambien lo rechaza sin el "forzar" que manda este camino. */
+        confirm_screen_open("Es de la OTRA pantalla",
+                            "Ese viaje lo empezo la otra\npantalla y puede seguir EN\nMARCHA.\n\n"
+                            "Su carpeta pasaria a llamarse\nDESCARTADO_ y se quedaria\n"
+                            "sin resumen. No se borra nada.",
+                            COL_ACCION_STOP, "Apartarlo igual", "Cancelar",
+                            viaje_p4_descartar, NULL);
+        confirm_screen_ok_destructivo();
+        return;
+    }
     confirm_screen_open("Apartar el viaje?", "Su carpeta pasa a llamarse\nDESCARTADO_... y deja de\ncontar. No se borra nada.",
                         COL_ACCION_STOP, "Si, apartarlo", "Cancelar",
                         viaje_p4_descartar, NULL);
@@ -5165,7 +5197,9 @@ static void puntual_do_cancelar(void *ud)
      * borra nada. */
     if (salida_get()->tipo == SALIDA_PUNTUAL) {
         char cuerpo[64];
-        p4_api_cuerpo_descartar(cuerpo, sizeof(cuerpo), next_trip_seq());
+        /* forzar=0: aqui la salida es NUESTRA (la acabamos de abrir), asi que
+         * la P4 no tiene por que dudar del dueño. */
+        p4_api_cuerpo_descartar(cuerpo, sizeof(cuerpo), next_trip_seq(), 0);
         viaje_cola_error_t motivo;
         if (!viaje_cola_push(cuerpo, &motivo)) {
             /* Si esto no se encola, la carpeta se queda abierta de verdad

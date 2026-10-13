@@ -92,6 +92,15 @@ bool viaje_cola_descartar_cabeza(void);
  * del .c (hallazgo M5 de la auditoria del 13-oct-2026). */
 bool viaje_cola_tiene_op_pendiente(const char *op);
 
+/* true si el ULTIMO apunte de la cola (el mas reciente) es de esa operacion.
+ *
+ * Existe para la reconciliacion del arranque (auditoria del 14-oct-2026): un
+ * "fin" encolado puede ser el de ESTE viaje (corte entre encolarlo y cerrarlo
+ * aqui: hay que cerrar) o el de un viaje ANTERIOR cuyo 200 se perdio (el nuevo
+ * viaje va por detras: NO hay que tocar nada). Lo que los distingue es que el
+ * fin del viaje que se esta cerrando es el ultimo que se encolo. */
+bool viaje_cola_ultima_es_op(const char *op);
+
 /* Cuantos apuntes se han tenido que tirar AL ARRANCAR (la cola se reinicio
  * porque los indices no cuadraban o cambio la capacidad). La pantalla lo avisa
  * una vez: los apuntes que el usuario vio guardados ya no estan y hay que

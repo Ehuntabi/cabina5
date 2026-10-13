@@ -51,7 +51,7 @@ void p4_api_cuerpo_fin(char *out, size_t n, uint32_t id, uint32_t eventos,
  * estado): no sabemos cuantos apuntes generó, y mandar un numero inventado
  * marcaria el viaje como INCOMPLETO sin serlo. Sin el campo, la P4 lo da por
  * bueno -- ver comprobar_completo() en config_server_viaje.c. */
-void p4_api_cuerpo_fin_ajeno(char *out, size_t n, uint32_t id);
+void p4_api_cuerpo_fin_ajeno(char *out, size_t n, uint32_t id, int forzar);
 
 /* Avisa a la P4 del destino nuevo SIN renombrar nada: ella lo apunta y lo
  * aplica al cerrar el viaje. Ver p4_api_cuerpo_destino en el .c. */
@@ -60,7 +60,7 @@ void p4_api_cuerpo_destino(char *out, size_t n, uint32_t id, const char *destino
 /* APARTAR el viaje abierto en la P4 en vez de cerrarlo: su carpeta pasa a
  * llamarse DESCARTADO_<nombre> y deja de contar como viaje. Para el que se
  * empezo por error. No borra nada. */
-void p4_api_cuerpo_descartar(char *out, size_t n, uint32_t id);
+void p4_api_cuerpo_descartar(char *out, size_t n, uint32_t id, int forzar);
 
 /* ── Silenciar una alarma de la P4 (14-sep-2026) ────────────────────────────
  *

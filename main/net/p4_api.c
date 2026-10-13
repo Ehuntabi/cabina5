@@ -303,16 +303,23 @@ void p4_api_cuerpo_destino(char *out, size_t n, uint32_t id, const char *destino
              (unsigned long)id, limpio);
 }
 
-void p4_api_cuerpo_fin_ajeno(char *out, size_t n, uint32_t id)
+void p4_api_cuerpo_fin_ajeno(char *out, size_t n, uint32_t id, int forzar)
 {
-    snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"dev\":\"%s\"}",
-             (unsigned long)id, p4_api_dev_id());
+    /* 'forzar' SOLO lo manda la pantalla "VIAJE EN LA P4", despues de que el
+     * usuario confirme que cierra un viaje que empezo OTRA pantalla. La P4
+     * (desde el 14-oct-2026) rechaza con 409 un cierre ajeno sin esta llave,
+     * porque el dueño puede seguir grabando; con ella, deja hacerlo -- si no,
+     * un viaje cuyo dueño ya no existe no se podria cerrar de ninguna forma. */
+    snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"dev\":\"%s\"%s}",
+             (unsigned long)id, p4_api_dev_id(), forzar ? ",\"forzar\":true" : "");
 }
 
-void p4_api_cuerpo_descartar(char *out, size_t n, uint32_t id)
+void p4_api_cuerpo_descartar(char *out, size_t n, uint32_t id, int forzar)
 {
-    snprintf(out, n, "{\"op\":\"descartar\",\"id\":%lu,\"dev\":\"%s\"}",
-             (unsigned long)id, p4_api_dev_id());
+    /* Ver p4_api_cuerpo_fin_ajeno: 'forzar' es la confirmacion explicita de que
+     * se esta apartando un viaje que empezo otra pantalla. */
+    snprintf(out, n, "{\"op\":\"descartar\",\"id\":%lu,\"dev\":\"%s\"%s}",
+             (unsigned long)id, p4_api_dev_id(), forzar ? ",\"forzar\":true" : "");
 }
 
 void p4_api_cuerpo_alarma(char *out, size_t n, uint8_t mask)

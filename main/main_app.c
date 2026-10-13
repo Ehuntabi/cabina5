@@ -255,8 +255,53 @@ static void aviso_perdidas_cb(lv_timer_t *t)
 
 static void reconciliar_viaje_al_arrancar(void)
 {
-    bool activo     = load_trip_activo();
+    /* SI EL ESTADO NO SE PUEDE LEER, NO SE TOCA NADA (auditoria del 14-oct-2026):
+     * 'load_trip_activo()' devolvia false con el blob ilegible, que es
+     * indistinguible de "aqui no hay viaje", y la rama de abajo volvia a marcar
+     * el inicio con el contador a 1 -- un viaje de verdad declarado completo.
+     * Se reintenta (la NVS puede fallar un momento), con el aviso una sola vez
+     * para no llenar el log cada 3 s. */
+    int act = load_trip_activo_estado();
+    if (act < 0) {
+        static bool avisado = false;
+        if (!avisado) {
+            avisado = true;
+            ESP_LOGE(TAG, "no puedo leer el estado del viaje: no toco nada (ni "
+                          "abro ni cierro) y lo sigo intentando");
+        }
+        s_recon_pendiente = true;
+        return;
+    }
+    bool activo     = (act == 1);
     bool hay_salida = salida_hay();
+
+    /* EL CIERRE ENCOLADO MANDA SOBRE TODO LO DEMAS (auditoria del 14-oct-2026).
+     *
+     * 'viaje_do_finalizar' encola el fin y DESPUES cierra aqui. Un corte de
+     * contacto entre las dos cosas (que es como se apaga esto todos los dias)
+     * dejaba el viaje AUN marcado activo con la salida abierta: la P4 procesaba
+     * el fin y cerraba el viaje, y esta pantalla seguia diciendo "viaje en
+     * curso" de un viaje ya cerrado. Todo lo que se anotara a partir de ahi se
+     * contestaba 200 y se iba al historial del vehiculo, sin resumen y sin que
+     * nadie se enterase.
+     *
+     * Y al reves: si 'save_trip_fin()' fallo (NVS) y el corte llego antes de
+     * 'salida_cerrar()', la rama de abajo REABRIA la salida de un viaje que se
+     * estaba cerrando. Por eso esto va ANTES de decidir nada.
+     *
+     * 'viaje_cola_ultima_es_op' y no 'tiene_op_pendiente': un fin viejo de un
+     * viaje anterior (al que se le perdio el 200) tambien esta en la cola, y
+     * cerrar por ese cerraria el viaje NUEVO. El fin del viaje que se estaba
+     * cerrando es el ultimo que se encolo; si hay algo detras, es de otro. */
+    if (activo && viaje_cola_ultima_es_op("fin")) {
+        ESP_LOGW(TAG, "cierre ENCOLADO y el viaje sigue abierto aqui: lo cierro "
+                      "en local en vez de reabrirlo");
+        save_trip_fin();
+        salida_cerrar();
+        s_recon_pendiente = false;
+        return;
+    }
+
     if (activo == hay_salida) { s_recon_pendiente = false; return; }
 
     /* SIN HORA NO SE DECIDE NADA: salida_abrir_viaje() necesita el reloj (fechan

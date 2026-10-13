@@ -218,8 +218,22 @@ static esp_err_t trip_blob_load(trip_blob_t *out)
         ESP_LOGE(TAG, "trip_blob: no puedo abrir la NVS (%s)", esp_err_to_name(err));
         return err;
     }
-    size_t len = sizeof(*out);
-    esp_err_t g = nvs_get_blob(h, TRIP_BLOB_KEY, out, &len);
+    /* UN BLOB MAS LARGO NO ES UN ERROR (auditoria del 14-oct-2026): con
+     * nvs_get_blob y un buffer del tamano de ESTA struct, un blob grabado por un
+     * firmware mas nuevo devuelve INVALID_LENGTH, y eso dejaba la pantalla sin
+     * poder abrir, cerrar ni contar (el RELEVO documenta que ya ha pasado al
+     * grabar un binario viejo encima). Se pregunta el tamano y se copian los
+     * primeros bytes: los campos que conocemos van delante. */
+    size_t len = 0;
+    esp_err_t g = nvs_get_blob(h, TRIP_BLOB_KEY, NULL, &len);
+    size_t copiar = sizeof(*out);
+    if (g == ESP_OK) {
+        if (len < copiar) copiar = len;
+        g = nvs_get_blob(h, TRIP_BLOB_KEY, out, &copiar);
+        if (g == ESP_OK) len = copiar;
+    } else if (g == ESP_ERR_NVS_TYPE_MISMATCH || g == ESP_ERR_NVS_INVALID_LENGTH) {
+        g = ESP_ERR_NVS_INVALID_LENGTH;   /* se trata abajo, con su log */
+    }
     nvs_close(h);
     if (g == ESP_ERR_NVS_NOT_FOUND) {                  /* primera vez: sin viaje */
         memset(out, 0, sizeof(*out));
@@ -262,6 +276,20 @@ bool load_trip_activo(void)
     trip_blob_t b;
     if (trip_blob_load(&b) != ESP_OK) return false;   /* ilegible: no se inventa */
     return b.activo != 0;
+}
+
+/* Como load_trip_activo(), pero distingue "no hay viaje" de "no se pudo leer"
+ * (auditoria del 14-oct-2026): con el blob ilegible, load_trip_activo() devuelve
+ * false y la reconciliacion del arranque lo interpretaba como "aqui no hay
+ * viaje" y volvia a marcar el inicio -- n_eventos a 1 -- sobre un viaje que SI
+ * existia, con lo que el fin mandaba un contador falsamente corto y la P4 daba
+ * por COMPLETO un viaje al que le faltaban apuntes. Devuelve 1 activo, 0 no
+ * activo, -1 no se pudo leer (no se toca nada y se reintenta). */
+int load_trip_activo_estado(void)
+{
+    trip_blob_t b;
+    if (trip_blob_load(&b) != ESP_OK) return -1;
+    return b.activo ? 1 : 0;
 }
 
 /* Destino del viaje en curso. Es lo que da nombre a la carpeta en la SD de la

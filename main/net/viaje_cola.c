@@ -228,6 +228,42 @@ static void descartar_cabeza(void)
     avisar_cambio();
 }
 
+/* ¿Este apunte es un AVISO que se puede soltar si la P4 no lo entiende?
+ *
+ * Hoy solo el `destino` (el cambio de nombre a mitad de viaje): es ADVISORY,
+ * porque el nombre nuevo viaja TAMBIEN en el `fin` y la cabina lo tiene en su
+ * NVS. En cambio un repostaje o el `fin` NO se pueden soltar nunca.
+ *
+ * POR QUE HACE FALTA (arbitraje del 13-oct-2026): con una P4 de firmware
+ * anterior al 13-oct (la de la autocaravana iba por la v2.33 el 30-sep), la op
+ * `destino` da 400 "op?" -- y como la cola no descarta NADA, la cabeza no
+ * avanzaba nunca: detras se apilaban los apuntes y el `fin`, a los 16 la cola se
+ * llenaba y "Terminar viaje" fallaba. El viaje no se podia cerrar desde la
+ * cabina y la P4 lo mantenia abierto. Un aviso que sobra no puede bloquear el
+ * cierre de un viaje. */
+/* Intentos sobre la MISMA cabeza antes de soltar un aviso (ver es_advisory). */
+#define MAX_INTENTOS_ADVISORY 3
+
+/* Cuenta intentos sobre la MISMA entrada de cabeza. Devuelve true cuando ya se
+ * ha pasado del presupuesto (y hay que soltarla). */
+static bool cabeza_igual(uint32_t *idx, int *intentos)
+{
+    uint32_t cabeza, cola;
+    indices_leer(&cabeza, &cola);
+    if (cabeza == *idx) {
+        (*intentos)++;
+    } else {
+        *idx = cabeza;
+        *intentos = 1;
+    }
+    return *intentos >= MAX_INTENTOS_ADVISORY;
+}
+
+static bool es_advisory(const char *cuerpo)
+{
+    return cuerpo && strstr(cuerpo, "\"op\":\"destino\"") != NULL;
+}
+
 static bool leer_cabeza(char *out, size_t n)
 {
     uint32_t cabeza, cola;
@@ -377,6 +413,29 @@ bool viaje_cola_tiene_op_pendiente(const char *op)
     return hay;
 }
 
+bool viaje_cola_ultima_es_op(const char *op)
+{
+    if (!op || !op[0]) return false;
+    char busca[24];
+    snprintf(busca, sizeof(busca), "\"op\":\"%s\"", op);
+
+    bool es = false;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    uint32_t cabeza, cola;
+    indices_leer(&cabeza, &cola);
+    nvs_handle_t h;
+    if (cola > cabeza && nvs_open(NS, NVS_READONLY, &h) == ESP_OK) {
+        char clave[16], cuerpo[CUERPO_MAX];
+        clave_de(cola - 1, clave, sizeof(clave));
+        size_t len = sizeof(cuerpo);
+        if (nvs_get_str(h, clave, cuerpo, &len) == ESP_OK &&
+            strstr(cuerpo, busca)) es = true;
+        nvs_close(h);
+    }
+    xSemaphoreGive(s_mutex);
+    return es;
+}
+
 bool viaje_cola_descartar_cabeza(void)
 {
     /* SOLO SI SIGUE ATASCADA, y todo dentro del MISMO cerrojo.
@@ -421,6 +480,8 @@ static void reparto_task(void *arg)
     char cuerpo[CUERPO_MAX];
     uint32_t idx_400 = UINT32_MAX;   /* indice de cola del ultimo 400 visto */
     int intentos_400 = 0;
+    uint32_t idx_adv = UINT32_MAX;   /* indice del ultimo advisory que no entra */
+    int intentos_adv = 0;
     uint32_t idx_409 = UINT32_MAX;   /* indice de cola del ultimo 409 visto */
     int intentos_409 = 0;
     int intentos_401 = 0;   /* no distingue apunte: una clave mal puesta falla con cualquiera */
@@ -554,6 +615,16 @@ static void reparto_task(void *arg)
              * ahora ADEMAS se puede descartar a mano desde la pantalla (ver
              * viaje_cola_descartar_cabeza), que es la salida para el apunte que
              * la P4 no va a aceptar nunca. */
+            if (es_advisory(cuerpo) && intentos_400 >= MAX_INTENTOS_ADVISORY) {
+                ESP_LOGW(TAG, "el aviso de destino no entra (la P4 no conoce esa "
+                              "op: firmware viejo?). Lo SUELTO: el destino va "
+                              "tambien en el cierre, y un aviso no puede bloquear "
+                              "los apuntes ni el fin que vienen detras");
+                descartar_cabeza();
+                idx_400 = UINT32_MAX;
+                intentos_400 = 0;
+                continue;
+            }
             if (viaje_cola_atasco() != VIAJE_COLA_ATASCO_RECHAZO) {
                 s_atasco = VIAJE_COLA_ATASCO_RECHAZO;
                 ESP_LOGE(TAG, "la P4 rechaza el apunte con 400 tras %d intentos. "
@@ -584,6 +655,14 @@ static void reparto_task(void *arg)
              * reintenta, y se puede descartar a mano desde la pantalla. Si de
              * verdad el apunte esta mal, que lo decida el usuario y no un codigo
              * de respuesta. */
+            if (es_advisory(cuerpo)) {
+                if (cabeza_igual(&idx_adv, &intentos_adv)) {
+                    ESP_LOGW(TAG, "el aviso de destino no entra (%d): lo suelto, "
+                                  "que el destino va tambien en el cierre", estado);
+                    descartar_cabeza();
+                    continue;
+                }
+            }
             if (viaje_cola_atasco() != VIAJE_COLA_ATASCO_RECHAZO) {
                 s_atasco = VIAJE_COLA_ATASCO_RECHAZO;
                 ESP_LOGE(TAG, "la P4 rechaza el apunte con %d. NO se descarta "
