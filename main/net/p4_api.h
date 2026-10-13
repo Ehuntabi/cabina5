@@ -35,6 +35,10 @@ bool p4_api_post(const char *cuerpo, int *estado_out);
 bool p4_api_post_url(const char *url, const char *cuerpo, int *estado_out);
 
 /* Montadores del cuerpo JSON, para encolar sin enviar. */
+/* Identidad de esta pantalla (su MAC en hex) tal y como viaja en los cuerpos:
+ * la P4 la usa para saber de quien es el viaje abierto. Ver p4_api.c. */
+const char *p4_api_dev_id(void);
+
 void p4_api_cuerpo_inicio(char *out, size_t n, uint32_t id,
                           const char *destino, uint32_t fecha_dias);
 /* 'eventos' es cuantos apuntes ha generado el viaje, el inicio incluido: con

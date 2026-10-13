@@ -86,6 +86,8 @@ static uint32_t s_cerrando_id;
 /* Puesto a true al final de view_registro_create(). view_registro_reset()
  * puede llegar antes de que la vista exista (el carrusel la crea perezosa). */
 static bool      s_ui_lista;
+/* true si el 409 vino como 412: el viaje abierto lo empezo la OTRA pantalla. */
+static bool      s_viaje_p4_ajeno;
 
 /* --- Reparto del menu, a pantalla completa (800x480, ver estilos.h) --------
  *
@@ -2633,7 +2635,15 @@ static void inicio_resultado_cb(bool ok, int estado, void *user_data)
      * empezo antes de perder el estado, o desde otro sitio). Decir "terminalo
      * antes" y quedarse ahi era un callejon sin salida: el unico aparato que
      * puede cerrarlo es ESTE, y la P4 vive en la parte de atras. */
-    if (!ok && estado == 409) { mostrar_menu(PAN_VIAJE_P4); return; }
+    /* 412 = el viaje abierto lo empezo OTRA pantalla (la P4 lo sabe por el 'dev'
+     * que manda cada cabina). Va al mismo sitio, pero alli se dice cual es: la
+     * salida facil de esa pantalla -- "apartarlo (era una prueba)" -- renombraria
+     * la carpeta de un viaje de verdad que sigue grabando. */
+    if (!ok && (estado == 409 || estado == 412)) {
+        s_viaje_p4_ajeno = (estado == 412);
+        mostrar_menu(PAN_VIAJE_P4);
+        return;
+    }
     if (!ok) { aviso_envio_fallo(estado, "Viaje"); return; }
     viaje_marcar_iniciado();
     /* La P4 ya ha creado su carpeta; aqui se abre la salida que sostiene los
@@ -4276,7 +4286,15 @@ static void inicio_puntual_resultado_cb(bool ok, int estado, void *user_data)
     /* Mismo callejon sin salida que un viaje real: si la P4 ya tiene algo
      * abierto que esta pantalla no conocia, el unico sitio para resolverlo
      * es PAN_VIAJE_P4. */
-    if (!ok && estado == 409) { mostrar_menu(PAN_VIAJE_P4); return; }
+    /* 412 = el viaje abierto lo empezo OTRA pantalla (la P4 lo sabe por el 'dev'
+     * que manda cada cabina). Va al mismo sitio, pero alli se dice cual es: la
+     * salida facil de esa pantalla -- "apartarlo (era una prueba)" -- renombraria
+     * la carpeta de un viaje de verdad que sigue grabando. */
+    if (!ok && (estado == 409 || estado == 412)) {
+        s_viaje_p4_ajeno = (estado == 412);
+        mostrar_menu(PAN_VIAJE_P4);
+        return;
+    }
     if (!ok) { aviso_envio_fallo(estado, EV_NOMBRE[s_puntual_tipo]); return; }
     if (!salida_abrir_puntual(EV_NOMBRE[s_puntual_tipo])) {
         /* Sin hora no puede ser -- se acaba de usar para el inicio -- pero si
@@ -5636,7 +5654,16 @@ static void crear_menus(lv_obj_t *parent)
      * viaje de verdad, y el boton de abajo -- "Apartarlo (era una prueba)" --
      * renombra su carpeta y lo deja sin resumen. Sabiendo que hay apuntes
      * esperando, se entiende que lo que toca es GUARDARLO. */
-    if (viaje_cola_pendientes() > 0) {
+    if (s_viaje_p4_ajeno) {
+        /* 412: lo empezo la OTRA pantalla. Se dice claro, porque aqui al lado
+         * esta "Apartarlo (era una prueba)" y eso renombraria la carpeta de un
+         * viaje de verdad que la otra pantalla sigue grabando (auditoria de
+         * comunicacion del 13-oct-2026). */
+        lv_label_set_text(aviso,
+            "Ese viaje lo empezo la OTRA\npantalla y puede seguir en\nmarcha.\n\n"
+            "Cierralo desde ella. Si de\nverdad quieres cerrarlo desde\naqui, "
+            "GUARDARLO.");
+    } else if (viaje_cola_pendientes() > 0) {
         lv_label_set_text_fmt(aviso,
             "La P4 tiene un viaje abierto.\n\n"
             "Tienes %u apunte(s) sin enviar:\n"

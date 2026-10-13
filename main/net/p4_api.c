@@ -23,6 +23,7 @@
 #include "config_storage.h"
 #include "p4_creds.h"   /* NVS y, si no hay, valores de fabrica */
 #include "esp_http_client.h"
+#include "esp_wifi.h"   /* p4_api_dev_id(): la MAC de esta pantalla */
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -220,12 +221,38 @@ static bool lanzar_a(const char *url, const char *cuerpo, p4_api_done_cb cb,
     return true;
 }
 
+/* DE QUE PANTALLA ES ESTE VIAJE (auditoria de comunicacion del 13-oct-2026).
+ *
+ * Se manda la MAC de esta placa en hex ("aabbccddeeff") en inicio, fin y
+ * descartar. La P4 la guarda con el viaje abierto y, si otra pantalla intenta
+ * empezar un viaje, contesta 412 en vez de 409: asi la segunda sabe que el viaje
+ * abierto NO es suyo, y no le ofrece "apartarlo (era una prueba)" -- que
+ * renombraba la carpeta del viaje REAL de la otra, que seguia grabando.
+ *
+ * Se lee una vez y se cachea: la MAC no cambia en caliente. Si no se puede leer,
+ * se manda vacio y la P4 se comporta como siempre (409). */
+const char *p4_api_dev_id(void)
+{
+    static char dev[13];
+    if (!dev[0]) {
+        uint8_t mac[6] = {0};
+        if (esp_wifi_get_mac(WIFI_IF_STA, mac) == ESP_OK) {
+            snprintf(dev, sizeof(dev), "%02x%02x%02x%02x%02x%02x",
+                     mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        } else {
+            snprintf(dev, sizeof(dev), "desconocido");
+        }
+    }
+    return dev;
+}
+
 void p4_api_cuerpo_inicio(char *out, size_t n, uint32_t id,
                           const char *destino, uint32_t fecha_dias)
 {
     snprintf(out, n,
-             "{\"op\":\"inicio\",\"id\":%lu,\"destino\":\"%s\",\"fecha_dias\":%lu}",
-             (unsigned long)id, destino, (unsigned long)fecha_dias);
+             "{\"op\":\"inicio\",\"id\":%lu,\"destino\":\"%s\",\"fecha_dias\":%lu,"
+             "\"dev\":\"%s\"}",
+             (unsigned long)id, destino, (unsigned long)fecha_dias, p4_api_dev_id());
 }
 
 /* 'destino' es el nombre DEFINITIVO del viaje, o NULL/"" si no ha cambiado.
@@ -247,12 +274,13 @@ void p4_api_cuerpo_fin(char *out, size_t n, uint32_t id, uint32_t eventos,
             limpio[j++] = destino[i];
         }
         limpio[j] = 0;
-        snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"eventos\":%lu,\"destino\":\"%s\"}",
-                 (unsigned long)id, (unsigned long)eventos, limpio);
+        snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"eventos\":%lu,"
+                         "\"destino\":\"%s\",\"dev\":\"%s\"}",
+                 (unsigned long)id, (unsigned long)eventos, limpio, p4_api_dev_id());
         return;
     }
-    snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"eventos\":%lu}",
-             (unsigned long)id, (unsigned long)eventos);
+    snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"eventos\":%lu,\"dev\":\"%s\"}",
+             (unsigned long)id, (unsigned long)eventos, p4_api_dev_id());
 }
 
 /* AVISO A LA P4 DEL DESTINO NUEVO, SIN renombrar nada (13-oct-2026).
@@ -277,12 +305,14 @@ void p4_api_cuerpo_destino(char *out, size_t n, uint32_t id, const char *destino
 
 void p4_api_cuerpo_fin_ajeno(char *out, size_t n, uint32_t id)
 {
-    snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu}", (unsigned long)id);
+    snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"dev\":\"%s\"}",
+             (unsigned long)id, p4_api_dev_id());
 }
 
 void p4_api_cuerpo_descartar(char *out, size_t n, uint32_t id)
 {
-    snprintf(out, n, "{\"op\":\"descartar\",\"id\":%lu}", (unsigned long)id);
+    snprintf(out, n, "{\"op\":\"descartar\",\"id\":%lu,\"dev\":\"%s\"}",
+             (unsigned long)id, p4_api_dev_id());
 }
 
 void p4_api_cuerpo_alarma(char *out, size_t n, uint8_t mask)
