@@ -228,8 +228,29 @@ void p4_api_cuerpo_inicio(char *out, size_t n, uint32_t id,
              (unsigned long)id, destino, (unsigned long)fecha_dias);
 }
 
-void p4_api_cuerpo_fin(char *out, size_t n, uint32_t id, uint32_t eventos)
+/* 'destino' es el nombre DEFINITIVO del viaje, o NULL/"" si no ha cambiado.
+ *
+ * LO MANDA EL FIN Y NO EL CAMBIO (12-oct-2026): el usuario cambia el destino a
+ * mitad de viaje y la pantalla lo enseña al momento, pero la carpeta de la P4
+ * NO se renombra hasta que se termina el viaje. Mientras corre hay ficheros
+ * escribiendose (ruta, telemetria) y renombrar por debajo obligaria a
+ * cerrarlos y reabrirlos. Al cerrar ya se cierran de todas formas. */
+void p4_api_cuerpo_fin(char *out, size_t n, uint32_t id, uint32_t eventos,
+                       const char *destino)
 {
+    if (destino && destino[0]) {
+        /* El destino lo teclea el usuario: se escapan comillas y barras, que si
+         * no el JSON que se manda a la P4 queda roto y el cierre se pierde. */
+        char limpio[80]; size_t j = 0;
+        for (size_t i = 0; destino[i] && j + 2 < sizeof(limpio); i++) {
+            if (destino[i] == '"' || destino[i] == '\\') limpio[j++] = '\\';
+            limpio[j++] = destino[i];
+        }
+        limpio[j] = 0;
+        snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"eventos\":%lu,\"destino\":\"%s\"}",
+                 (unsigned long)id, (unsigned long)eventos, limpio);
+        return;
+    }
     snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"eventos\":%lu}",
              (unsigned long)id, (unsigned long)eventos);
 }

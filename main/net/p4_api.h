@@ -39,7 +39,8 @@ void p4_api_cuerpo_inicio(char *out, size_t n, uint32_t id,
                           const char *destino, uint32_t fecha_dias);
 /* 'eventos' es cuantos apuntes ha generado el viaje, el inicio incluido: con
  * eso la P4 sabe si le falta alguno y marca el viaje como incompleto. */
-void p4_api_cuerpo_fin(char *out, size_t n, uint32_t id, uint32_t eventos);
+void p4_api_cuerpo_fin(char *out, size_t n, uint32_t id, uint32_t eventos,
+                       const char *destino);
 
 /* Fin SIN el recuento de apuntes. Para cerrar un viaje que esta abierto en la
  * P4 pero no en esta pantalla (se empezo desde otro sitio, o se perdio el

@@ -161,6 +161,18 @@ static lv_obj_t *s_peaje_currency_dd;
  * Viaje no hay formulario donde ponerlo. */
 static lv_obj_t *s_viaje_destino_ta;
 static char      s_viaje_destino[24];
+/* DESTINO NUEVO, pedido A MITAD DE VIAJE (12-oct-2026).
+ *
+ * El usuario: "al iniciar viaje puse un destino y al ponernos en marcha
+ * cambiamos de idea y fuimos a otro". Vacio = no se ha cambiado nada.
+ *
+ * La tira de arriba enseña ESTE nombre en cuanto se escribe, pero la carpeta de
+ * la P4 NO se renombra hasta terminar el viaje: mientras corre hay ficheros
+ * escribiendose (ruta, telemetria) y renombrar por debajo obligaria a cerrarlos
+ * y reabrirlos. Se manda en el fin (ver p4_api_cuerpo_fin). */
+static char      s_destino_nuevo[24];
+static lv_obj_t *s_destino_nuevo_ta;
+static lv_obj_t *s_btn_destino;   /* el boton Cambiar destino del menu de viaje */
 
 /* --- Parada: donde has parado y que has hecho ------------------------------
  * Varias a la vez: en un area sueles vaciar Y llenar en la misma parada. */
@@ -435,6 +447,7 @@ static bool s_paseo = false;
 
 static void volver_al_menu(void);
 static void mostrar_menu(pantalla_t p);
+static void salida_tira_refresh(void);   /* se usa en cambiar_destino_cb, definido antes */
 static void puntual_refresh(void);
 static bool avisa_de_lo_abierto(const char *titulo, confirm_cb_t si);
 
@@ -2699,7 +2712,8 @@ static void viaje_do_finalizar(void *ud)
      * Tres intentos con la cola llena y la P4 daba el viaje por incompleto sin
      * faltarle nada. El +1 es este mismo mensaje. */
     char cuerpo[80];
-    p4_api_cuerpo_fin(cuerpo, sizeof(cuerpo), next_trip_seq(), trip_eventos_get() + 1);
+    p4_api_cuerpo_fin(cuerpo, sizeof(cuerpo), next_trip_seq(), trip_eventos_get() + 1,
+                      s_destino_nuevo);
 
     viaje_cola_error_t motivo;
     if (!viaje_cola_push(cuerpo, &motivo)) {
@@ -2712,6 +2726,30 @@ static void viaje_do_finalizar(void *ud)
     show_grid();
 }
 
+/* Se llama al aceptar el editor del destino DE UN VIAJE YA EMPEZADO.
+ *
+ * Solo apunta el nombre y repinta la tira: el renombrado de la carpeta lo hace
+ * la P4 al cerrar el viaje (ver p4_api_cuerpo_fin). */
+static void destino_nuevo_listo_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_READY) return;
+    const char *txt = lv_textarea_get_text(s_destino_nuevo_ta);
+    snprintf(s_destino_nuevo, sizeof(s_destino_nuevo), "%s", txt);
+    ESP_LOGI(TAG, "destino cambiado a '%s' (la carpeta se renombra al terminar)",
+             s_destino_nuevo);
+    salida_tira_refresh();
+}
+
+static void cambiar_destino_cb(lv_event_t *e)
+{
+    (void)e;
+    /* Se arranca con el nombre que tiene ahora, para retocar y no teclear de
+     * cero. Si ya se habia cambiado, con el nuevo. */
+    const char *actual = s_destino_nuevo[0] ? s_destino_nuevo : salida_get()->nombre;
+    lv_textarea_set_text(s_destino_nuevo_ta, actual);
+    entry_screen_open(s_destino_nuevo_ta, "Nuevo destino", false);
+}
+
 /* Se llama al aceptar el editor del destino. */
 static void viaje_destino_listo_cb(lv_event_t *e)
 {
@@ -2721,7 +2759,7 @@ static void viaje_destino_listo_cb(lv_event_t *e)
     snprintf(s_viaje_destino, sizeof(s_viaje_destino), "%s", txt);
 
     char cuerpo[120];
-    snprintf(cuerpo, sizeof(cuerpo), "Destino: %s\n\nLa carpeta se llamara asi\ny NO se podra cambiar.",
+    snprintf(cuerpo, sizeof(cuerpo), "Destino: %s\n\nLa carpeta se llamara asi.\nPodras cambiarlo despues,\nhasta que termines el viaje.",
              s_viaje_destino);
     confirm_screen_open("Empezar el viaje?", cuerpo, COL_ACCION_OK,
                         "Si, empezar", "Cancelar", viaje_do_iniciar, NULL);
@@ -4007,7 +4045,10 @@ static void salida_tira_refresh(void)
      * una sola parada (el tipo elegido: Repostaje, ITV...), asi que se
      * ensena igual que el de un viaje. Antes no lo tenia y aqui se ponia el
      * generico "Salida puntual" para no dejar la tira en blanco. */
-    int  n = snprintf(txt, sizeof(txt), "%s", s->nombre);
+    /* El nombre que se enseña es el PENDIENTE si lo hay: el usuario quiere ver
+     * el cambio al momento, aunque la carpeta se renombre al cerrar. */
+    const char *nombre_visible = s_destino_nuevo[0] ? s_destino_nuevo : s->nombre;
+    int  n = snprintf(txt, sizeof(txt), "%s", nombre_visible);
     /* snprintf devuelve lo que HABRIA escrito: si truncase, txt+n se saldria
      * del buffer. Con los tamanos de ahora no llega a pasar, pero el dia que
      * el nombre crezca esto seria una pisada de memoria muy dificil de ver. */
@@ -4381,7 +4422,8 @@ static void puntual_do_terminar(void *ud)
      * apunte_encolar() ya lo incrementa con el mismo trip_eventos_inc() que
      * usa un viaje real -- mismo patron que viaje_do_finalizar. Detectado
      * el 09-sep-2026. */
-    p4_api_cuerpo_fin(cuerpo, sizeof(cuerpo), next_trip_seq(), trip_eventos_get() + 1);
+    p4_api_cuerpo_fin(cuerpo, sizeof(cuerpo), next_trip_seq(), trip_eventos_get() + 1,
+                      s_destino_nuevo);
 
     viaje_cola_error_t motivo;
     if (!viaje_cola_push(cuerpo, &motivo)) {
@@ -5301,6 +5343,12 @@ static void crear_menus(lv_obj_t *parent)
     boton_grande(body, ICO_MAS, "ANADIR PARADA", NULL,
                  COL_ACCION_OK, ir_a_cb, (void *)(uintptr_t)PAN_TIPOS);
 
+    /* CAMBIAR EL DESTINO (12-oct-2026). Debajo del boton grande, porque es lo
+     * que se busca cuando a mitad de camino se cambia de idea. */
+    s_btn_destino = boton_chico(body, "Cambiar destino", COL_VIAJE,
+                                LV_SIZE_CONTENT, cambiar_destino_cb, NULL);
+    lv_obj_set_style_pad_hor(s_btn_destino, 24, 0);
+
     /* Los dos secundarios comparten fila: entre los dos gastan lo que gastaria
      * uno solo, y asi el grande se queda con el sitio. */
     f = fila(body);
@@ -5662,6 +5710,20 @@ void view_registro_create(lv_obj_t *parent)
      * la ruta no se dejan ni teclear. La P4 vuelve a filtrar por su cuenta. */
     lv_textarea_set_accepted_chars(s_viaje_destino_ta,
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 -_");
+    /* Gemelo del anterior para CAMBIAR el destino de un viaje ya empezado: el
+     * de arriba abre el cartel de empezar el viaje, y este no: solo apunta el
+     * nombre nuevo y repinta la tira. */
+    s_destino_nuevo_ta = lv_textarea_create(parent);
+    lv_obj_add_flag(s_destino_nuevo_ta, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_destino_nuevo_ta, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_size(s_destino_nuevo_ta, 0, 0);
+    lv_textarea_set_one_line(s_destino_nuevo_ta, true);
+    lv_textarea_set_max_length(s_destino_nuevo_ta, 20);
+    lv_textarea_set_accepted_chars(s_destino_nuevo_ta,
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 -_");
+    lv_obj_add_event_cb(s_destino_nuevo_ta, destino_nuevo_listo_cb,
+                        LV_EVENT_READY, NULL);
+
     lv_obj_add_event_cb(s_viaje_destino_ta, viaje_destino_listo_cb,
                         LV_EVENT_VALUE_CHANGED, NULL);
 
