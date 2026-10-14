@@ -58,9 +58,13 @@ void p4_api_cuerpo_inicio(char *out, size_t n, uint32_t id,
                           const char *destino, uint32_t fecha_dias,
                           uint32_t km_cuadro);
 /* 'eventos' es cuantos apuntes ha generado el viaje, el inicio incluido: con
- * eso la P4 sabe si le falta alguno y marca el viaje como incompleto. */
+ * eso la P4 sabe si le falta alguno y marca el viaje como incompleto.
+ *
+ * 'km_cuadro' = lo que marca el cuentakilometros del vehiculo AL CERRAR (0 = no
+ * se apunto, y entonces el campo no viaja). Con el de la salida, la P4 escribe
+ * en el resumen lo que ha hecho el viaje de verdad y lo compara con el GPS. */
 void p4_api_cuerpo_fin(char *out, size_t n, uint32_t id, uint32_t eventos,
-                       const char *destino);
+                       const char *destino, uint32_t km_cuadro);
 
 /* Fin SIN el recuento de apuntes. Para cerrar un viaje que esta abierto en la
  * P4 pero no en esta pantalla (se empezo desde otro sitio, o se perdio el

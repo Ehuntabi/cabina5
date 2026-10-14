@@ -302,24 +302,38 @@ void p4_api_cuerpo_inicio(char *out, size_t n, uint32_t id,
  * escribiendose (ruta, telemetria) y renombrar por debajo obligaria a
  * cerrarlos y reabrirlos. Al cerrar ya se cierran de todas formas. */
 void p4_api_cuerpo_fin(char *out, size_t n, uint32_t id, uint32_t eventos,
-                       const char *destino)
+                       const char *destino, uint32_t km_cuadro)
 {
+    /* El destino lo teclea el usuario: se escapan comillas y barras, que si no
+     * el JSON que se manda a la P4 queda roto y el cierre se pierde. */
+    char limpio[80] = {0};
     if (destino && destino[0]) {
-        /* El destino lo teclea el usuario: se escapan comillas y barras, que si
-         * no el JSON que se manda a la P4 queda roto y el cierre se pierde. */
-        char limpio[80]; size_t j = 0;
+        size_t j = 0;
         for (size_t i = 0; destino[i] && j + 2 < sizeof(limpio); i++) {
             if (destino[i] == '"' || destino[i] == '\\') limpio[j++] = '\\';
             limpio[j++] = destino[i];
         }
         limpio[j] = 0;
-        snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"eventos\":%lu,"
-                         "\"destino\":\"%s\",\"dev\":\"%s\"}",
-                 (unsigned long)id, (unsigned long)eventos, limpio, p4_api_dev_id());
-        return;
     }
-    snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"eventos\":%lu,\"dev\":\"%s\"}",
-             (unsigned long)id, (unsigned long)eventos, p4_api_dev_id());
+
+    /* Se arma a trozos y no con un snprintf de cuatro formatos: "destino" y
+     * "km_cuadro" son opcionales por separado (hay cuatro combinaciones) y con
+     * la cadena de formato variable los argumentos de las varargs dejaban de
+     * cuadrar -- un %lu leyendo un char* es un fallo que aparece en la placa y
+     * no al compilar. */
+    int k = snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"eventos\":%lu,\"dev\":\"%s\"",
+                     (unsigned long)id, (unsigned long)eventos, p4_api_dev_id());
+    if (k > 0 && (size_t)k < n && limpio[0]) {
+        k += snprintf(out + k, n - (size_t)k, ",\"destino\":\"%s\"", limpio);
+    }
+    /* EL CUENTAKILOMETROS AL CERRAR (16-oct-2026): solo si hay lectura, como en
+     * el inicio. La P4 lo guarda y lo escribe en resumen.txt junto al de la
+     * salida, que es con quien se compara el recorrido del GPS. */
+    if (k > 0 && (size_t)k < n && km_cuadro > 0) {
+        k += snprintf(out + k, n - (size_t)k, ",\"km_cuadro\":%lu",
+                      (unsigned long)km_cuadro);
+    }
+    if (k > 0 && (size_t)k < n - 1) snprintf(out + k, n - (size_t)k, "}");
 }
 
 /* AVISO A LA P4 DEL DESTINO NUEVO, SIN renombrar nada (13-oct-2026).

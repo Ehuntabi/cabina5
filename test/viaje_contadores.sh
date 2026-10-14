@@ -166,3 +166,82 @@ else
 fi
 
 [ "$fallos" = 0 ] || { echo; echo "FALLOS: $fallos"; exit 1; }
+
+# ── 3. El cuentakilometros del cuadro en el cuerpo del CIERRE ──────────────
+#
+# Al cerrar el viaje se pide tambien la lectura del cuadro, y va en el fin. Aqui
+# se comprueba lo que de verdad puede romperse: que 'destino' y 'km_cuadro' son
+# opcionales POR SEPARADO (cuatro combinaciones) y que el JSON sale bien en las
+# cuatro. Con la cadena de formato variable, un %lu leyendo un char* no falla al
+# compilar: falla en la placa.
+echo
+echo "== el km del cuadro en el cuerpo del cierre =="
+python3 - "$AQUI/.." "$TMP/fin.c" <<'PYEXT3'
+import re, sys, pathlib
+repo = pathlib.Path(sys.argv[1]).resolve()
+fuente = (repo / 'main/net/p4_api.c').read_text()
+m = re.search(r'void p4_api_cuerpo_fin\(char \*out, size_t n, uint32_t id, uint32_t eventos,\s*\n\s*const char \*destino, uint32_t km_cuadro\)\s*\n\{', fuente)
+if not m:
+    raise SystemExit('no encuentro p4_api_cuerpo_fin() en main/net/p4_api.c')
+i = m.start(); k = fuente.index('{', i); n = 0
+while True:
+    if fuente[k] == '{': n += 1
+    elif fuente[k] == '}':
+        n -= 1
+        if n == 0: break
+    k += 1
+fn = fuente[i:k+1]
+plantilla = '''#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+const char *p4_api_dev_id(void) { return "AABBCCDDEEFF"; }
+
+__FN__
+
+int main(int argc, char **argv)
+{
+    char cuerpo[224];
+    const char *dest = (argc > 1 && argv[1][0]) ? argv[1] : NULL;
+    uint32_t km = (argc > 2) ? (uint32_t)strtoul(argv[2], NULL, 10) : 0;
+    p4_api_cuerpo_fin(cuerpo, sizeof(cuerpo), 77, 12, dest, km);
+    printf("%s\\n", cuerpo);
+    return 0;
+}
+'''
+pathlib.Path(sys.argv[2]).write_text(plantilla.replace('__FN__', fn))
+PYEXT3
+gcc -std=gnu17 -Wall -Wextra -I "$AQUI/../main/net" -o "$TMP/fin" "$TMP/fin.c"
+
+fallos2=0
+comprueba_fin() {   # $1 destino ("" = ninguno), $2 km, $3 "si"/"no" destino, $4 "si"/"no" km
+    json=$("$TMP/fin" "$1" "$2")
+    echo "$json" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d['op'] == 'fin', d
+assert d['id'] == 77, d
+assert d['eventos'] == 12, d
+assert d['dev'] == 'AABBCCDDEEFF', d
+assert ('destino' in d) == ('$3' == 'si'), d
+assert ('km_cuadro' in d) == ('$4' == 'si'), d
+if '$3' == 'si': assert d['destino'] == '$1', d
+if '$4' == 'si': assert d['km_cuadro'] == int('$2'), d
+" 2>/dev/null && echo "ok     destino='$1' km=$2 -> $([ "$3" = si ] && echo con || echo sin) destino, $([ "$4" = si ] && echo con || echo sin) km" \
+      || { echo "FALLO  destino='$1' km=$2"; echo "       $json"; fallos2=1; }
+}
+comprueba_fin ""        0      no no
+comprueba_fin "Tarifa"  0      si no
+comprueba_fin ""        123789 no si
+comprueba_fin "Tarifa"  123789 si si
+
+# Y que quepa: destino de 20 + 6 cifras es el peor caso del cierre.
+largo=$("$TMP/fin" "Un destino largo ya" 999999 | tr -d '\n' | wc -c)
+if [ "$largo" -lt 160 ]; then
+    echo "ok     el fin mas largo mide $largo < 160 (cabe en el buffer del cierre)"
+else
+    echo "FALLO  el fin mide $largo y el buffer es 160"; fallos2=1
+fi
+
+[ "$fallos2" = 0 ] || { echo; echo "FALLOS: $fallos2"; exit 1; }
