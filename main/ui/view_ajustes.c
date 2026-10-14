@@ -14,7 +14,7 @@
 #include "estilos.h"   /* la escala de fuentes y el ancho de columna */
 #include "../brillo.h"
 #include "view_info.h"
-#include "nav.h"       /* nav_ir_a_paseo(): el indice de todas las pantallas */
+#include "nav.h"       /* nav_close_ajustes(): salir de esta pantalla */
 #include "../net/udp_rx.h"
 #include "../net/mini_proto.h"   /* MINI_PROTO_VERSION: el diagnostico del enlace */
 #include "confirm_screen.h"
@@ -210,14 +210,7 @@ static void wifi_back_cb(lv_event_t *e)
     mostrar_menu(true);
 }
 
-/* Entra al indice de todas las pantallas (modo paseo). Se cierra Ajustes de
- * paso: el carrusel de registro vive en otra pantalla y si no se quedaria
- * abierto por debajo. */
-static void paseo_open_cb(lv_event_t *e)
-{
-    (void)e;
-    nav_ir_a_paseo();
-}
+/* (aqui vivia paseo_open_cb, el boton del modo paseo: quitado el 16-oct-2026) */
 
 static void wifi_open_cb(lv_event_t *e)
 {
@@ -399,19 +392,13 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_center(blbl);
     s_brillo_lbl = blbl;
 
-    /* Ver TODAS las pantallas del cuaderno (modo paseo, ver view_registro.h).
-     * Los menus de registro solo se abren desde dentro de una salida, asi que
-     * sin esto no hay forma de revisarlos. Va el ultimo de los botones y con el
-     * color de "Ajustes": no apunta nada, es una herramienta. */
-    lv_obj_t *pbtn = lv_btn_create(s_menu);
-    lv_obj_set_size(pbtn, lv_pct(100), 110);
-    lv_obj_set_flex_grow(pbtn, 1);
-    lv_obj_set_style_bg_color(pbtn, lv_color_hex(0x455A64), 0);
-    lv_obj_add_event_cb(pbtn, paseo_open_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *plbl = lv_label_create(pbtn);
-    lv_label_set_text(plbl, LV_SYMBOL_LIST "   Ver todas las pantallas");
-    lv_obj_set_style_text_font(plbl, &lv_font_montserrat_28, 0);
-    lv_obj_center(plbl);
+    /* AQUI ESTABA EL BOTON "Ver todas las pantallas" (modo paseo). El usuario lo
+     * mando quitar el 16-oct-2026: es una herramienta de taller y en el menu de
+     * Configuracion solo hace ruido. El modo paseo sigue en el codigo
+     * (view_registro_paseo_* / nav_ir_a_paseo, ver view_registro.h) y se puede
+     * volver a colgar de un boton si algun dia hace falta; para revisar las
+     * pantallas sin tactil esta ademas el carrusel del modo captura
+     * (capture_carousel.c). */
 
     /* Estado del enlace con la P4. Vive AQUI y no en la pantalla de datos
      * (mudado el 30-sep-2026): es lo que se mira cuando algo no va, y en
