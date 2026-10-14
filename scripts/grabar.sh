@@ -141,7 +141,7 @@ fi
 # comprobada: se escribe y punto. `build/flash_args` es la lista de offsets que
 # mantiene el propio build (bootloader, tabla de particiones, app, spiffs).
 echo "[..] grabando en $PUERTO"
-( cd build && python -m esptool --chip esp32s3 -p "$PUERTO" -b 460800 \
+( cd build && python3 -m esptool --chip esp32s3 -p "$PUERTO" -b 460800 \
     --before default_reset --after hard_reset write_flash @flash_args )
 
 # LAS DOS MITADES DE LA OTA, con el mismo firmware. Esta placa tiene ota_0 en
@@ -150,7 +150,7 @@ echo "[..] grabando en $PUERTO"
 # copia de atras, la pantalla volveria a una version vieja sin que nadie lo
 # relacione. Se graban las dos para que no haya sorpresa.
 echo "[..] la otra mitad de la OTA (0x410000), para que no quede una version vieja"
-python -m esptool --chip esp32s3 -p "$PUERTO" -b 460800 \
+python3 -m esptool --chip esp32s3 -p "$PUERTO" -b 460800 \
     write_flash 0x410000 "$APP_BIN" | tail -3
 
 echo
