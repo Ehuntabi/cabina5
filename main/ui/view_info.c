@@ -1511,12 +1511,18 @@ static void make_viaje_card(lv_obj_t *grid)
     lv_obj_clear_flag(s_viaje_km, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(s_viaje_km, LV_ALIGN_LEFT_MID, 30, 0);
 
+    /* La unidad, SEPARADA DEL NUMERO (16-oct-2026, el usuario: "--km y --h
+     * estan juntos y quedan mal"): con el hueco de 6 px que llevaba, el numero y
+     * la unidad se leian como una sola palabra ("1237.4km", "2:35h"). Ahora son
+     * 18 (14 se probo primero y la "h", que es estrecha, seguia pegada). El
+     * numero NO se mueve (sigue empezando en la misma x que los de la bateria);
+     * lo que se corre es la unidad. */
     lv_obj_t *u_km = lv_label_create(card);
     lv_label_set_text(u_km, "km");
     paleta_texto(u_km, 0xCCCCCC, 0xFFFFFF);
     lv_obj_set_style_text_font(u_km, &lv_font_montserrat_24, 0);
     lv_obj_clear_flag(u_km, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(u_km, LV_ALIGN_LEFT_MID, 186, 4);
+    lv_obj_align(u_km, LV_ALIGN_LEFT_MID, 198, 4);
 
     s_viaje_h = lv_label_create(card);
     lv_label_set_text(s_viaje_h, "--");
@@ -1525,7 +1531,10 @@ static void make_viaje_card(lv_obj_t *grid)
     lv_obj_set_width(s_viaje_h, 150);
     lv_obj_set_style_text_align(s_viaje_h, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_clear_flag(s_viaje_h, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_viaje_h, LV_ALIGN_RIGHT_MID, -50, 0);
+    /* -62 y no -50: la "h" se queda donde estaba (-30, alineada con la columna
+     * MOTOR de la bateria) y lo que se corre hacia dentro es el numero, para
+     * dejar el mismo hueco que en los km. */
+    lv_obj_align(s_viaje_h, LV_ALIGN_RIGHT_MID, -62, 0);
 
     lv_obj_t *u_h = lv_label_create(card);
     lv_label_set_text(u_h, "h");
