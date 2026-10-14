@@ -75,6 +75,24 @@ typedef struct {
      * Esta pantalla NO recibe la posicion, solo si la hay (ver mini_proto.h). */
     uint8_t  gps_estado;
 
+    /* Contadores del VIAJE ABIERTO en la P4 (16-oct-2026), para la tarjeta del
+     * viaje de la pantalla de informacion:
+     *   viaje_km_decimas = km recorridos, en DECIMAS de km (1234 = 123,4 km)
+     *   viaje_minutos    = minutos CONDUCIENDO (no tiempo con la carpeta
+     *                      abierta: ver el bloque CONTADORES DEL VIAJE de
+     *                      mini_proto.h)
+     * MINI_NO_DATA_U16 en cualquiera de los dos = la P4 no tiene viaje abierto.
+     * Los dos van juntos: si uno es "sin dato", el otro tambien.
+     *
+     * Se copian TAL CUAL (sin flag aparte, a diferencia del resto del modelo)
+     * porque el centinela ya distingue los dos casos y ademas el 0 es un valor
+     * legitimo -- un viaje recien empezado tiene 0 km y 0 min. Quien pinte esto
+     * tiene que mirar TAMBIEN que haya salida abierta aqui (salida_hay()): la
+     * P4 puede tener un viaje abierto que empezo la OTRA pantalla, y ese no es
+     * "el viaje actual" de esta. */
+    uint16_t viaje_km_decimas;
+    uint16_t viaje_minutos;
+
     /* Alarmas ACTIVAS en la P4, bitmask MINI_ALARM_* (ver mini_proto.h).
      *
      * Se recibe en vez de deducirlo de los niveles a proposito: el umbral de la

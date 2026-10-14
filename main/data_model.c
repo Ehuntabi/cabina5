@@ -118,6 +118,14 @@ void data_model_update_from_msg(const struct mini_msg *msg)
         tmp.exterior_has_data   = false;
     }
 
+    /* Contadores del viaje en curso: los cuatro bytes sueltos de la trama se
+     * recomponen aqui, en un solo sitio, para que nadie mas tenga que saber que
+     * van partidos (ver mini_proto.h, bloque CONTADORES DEL VIAJE). */
+    tmp.viaje_km_decimas = (uint16_t)(((uint16_t)msg->viaje_km_hi  << 8) |
+                                       (uint16_t)msg->viaje_km_lo);
+    tmp.viaje_minutos    = (uint16_t)(((uint16_t)msg->viaje_min_hi << 8) |
+                                       (uint16_t)msg->viaje_min_lo);
+
     /* Reloj de la P4. Se copia tal cual, incluido el 0 = "aun no tiene hora
      * buena": el que lo use ya distingue. */
     tmp.epoch_local = msg->epoch_local;

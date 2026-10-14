@@ -29,6 +29,7 @@
 #include "net/viaje_cola.h"   /* VIAJE_COLA_CAPACIDAD, para el aviso de casi llena */
 #include "net/p4_api.h"       /* mandar la orden de silencio a la P4 */
 #include "net/mini_proto.h"   /* MINI_ALARM_*, el byte de alarmas de la telemetria */
+#include "salida.h"          /* salida_hay(): si hay salida abierta AQUI */
 #include "nav.h"
 #include "view_registro.h"    /* view_registro_puntual_declarar_llegada() */
 #include "confirm_screen.h"   /* descartar a mano el apunte atascado, desde la pastilla */
@@ -188,6 +189,7 @@ void view_info_set_contraste(bool activo)
 #define COL_BORDER_COLD  col2(0x66CCFF, 0xFFFFFF)  /* Frigo azul claro */
 #define COL_BORDER_WATER col2(0x29B6F6, 0xFFFFFF)  /* Aguas azul saturado */
 #define COL_BORDER_HEAT  col2(0xFFD54F, 0xFFEB3B)  /* Exterior amarillo calido */
+#define COL_BORDER_VIAJE col2(0x4CD964, 0xFFFFFF)  /* Viaje en curso: verde */
 
 /* Bateria: la tarjeta grande de arriba, con sus piezas sueltas. */
 static lv_obj_t   *s_bat_dot;
@@ -215,6 +217,8 @@ static lv_obj_t   *s_frigo_val;
 static lv_obj_t   *s_frigo_trend;  /* flecha de tendencia */
 static lv_obj_t   *s_ext_trend;
 static lv_obj_t   *s_pendientes;
+static lv_obj_t   *s_viaje_km;     /* los km de la salida, en la tarjeta del medio */
+static lv_obj_t   *s_viaje_h;      /* las horas de conduccion, en la misma */
 
 /* Definidas abajo, con el resto de la pastilla. */
 static void pendientes_aplicar(void *arg);
@@ -351,7 +355,24 @@ static lv_color_t color_for_frigo(int16_t centi) {
  *
  * 210 (bateria) + 4 de hueco + 246 (aguas y temperaturas) + 8 de margen = 480
  * clavados: la rejilla no depende de que la pantalla mida lo que mide hoy. */
-/* ── REPARTO (14-oct-2026): DOS FILAS ──────────────────────────────────────
+/* ── REPARTO (16-oct-2026): TRES FILAS ─────────────────────────────────────
+ *
+ *     fila 0:  [ BATERIA, todo el ancho ]
+ *     fila 1:  [ VIAJE: km | VIAJE | horas, todo el ancho ]   <- nueva
+ *     fila 2:  [ AGUAS | TEMPERATURAS ]
+ *
+ * La del medio la pidio el usuario el 16-oct-2026: "una card que ocupe todo el
+ * ancho entre bateria y aguas-temperaturas, con los kilometros que se llevan
+ * recorridos en la salida actual a la izquierda y las horas de conduccion
+ * acumuladas a la derecha". Los dos numeros los manda la P4 (ver el bloque
+ * CONTADORES DEL VIAJE de mini_proto.h).
+ *
+ * DE DONDE SALEN LOS 76 px DE LA TARJETA NUEVA: de la bateria, que baja de los
+ * 287 que ocupaba (franja de arriba + barra de la T) a 215. Medido en la placa:
+ * 215 (bateria) + 4 + 76 (viaje) + 4 + 173 (aguas y temperaturas) = 472, o sea
+ * los 173 de siempre para las dos de abajo, que es a lo que estan ajustadas.
+ *
+ * ── REPARTO ANTERIOR (14-oct-2026): DOS FILAS ──────────────────────────────
  *
  *     fila 0:  [ BATERIA, todo el ancho ]
  *     fila 1:  [ AGUAS | TEMPERATURAS ]
@@ -365,6 +386,20 @@ static lv_color_t color_for_frigo(int16_t centi) {
  * 287 para la bateria (que es lo que ocupaban la franja de arriba y la barra de
  * la T) y el resto, 173, para aguas y temperaturas, a partes iguales. */
 #define GPS_CARD_H      199
+/* La tarjeta del viaje en curso: km a la izquierda, horas a la derecha y el
+ * rotulo en medio. 76 px es lo que pide un numero a letra 32 (39 px) mas los 16
+ * de relleno y el aire de arriba y abajo. */
+#define VIAJE_CARD_H     76
+/* Y los 16 px que le devuelve a la bateria la fila de abajo.
+ *
+ * Al meter la tarjeta del viaje, la fila de abajo (elastica) salia con 189 en
+ * vez de los 173 de siempre: 464 - 199 (bateria) - 76 (viaje) - 8 (huecos). Sus
+ * dos tarjetas estan ajustadas a 173 -- el contenido va pegado ARRIBA, asi que
+ * el alto de mas se queda de negro al fondo, que es justo lo que el usuario
+ * avisa siempre ("el contenido desaprovecha espacio por debajo"). Asi que esos
+ * 16 px se los queda la BATERIA, que los aprovecha de verdad: mas aire entre el
+ * titulo y el dibujo, que a 199 quedaban 2 px. */
+#define BAT_FILA_H       (GPS_CARD_H + 16)   /* 215 */
 /* LA T YA NO EXISTE (14-oct-2026): se fue con la velocidad.
  *
  * Eran dos rectangulos pegados -- la barra arriba a todo lo ancho y el palo
@@ -377,7 +412,11 @@ static lv_color_t color_for_frigo(int16_t centi) {
  * arriba mas la barra), asi que las dos de abajo se quedan practicamente igual
  * (173 en vez de 181: los 8 px que faltan son de la franja que asomaba por
  * debajo) y NO hay que retocar ninguna de sus posiciones. */
-#define BAT_CARD_H_TOTAL (GPS_CARD_H + 4 + 84)
+/* 287 era el alto de la tarjeta de bateria mientras la T existia (la franja de
+ * arriba mas la barra). Desde el 16-oct-2026 la fila de la bateria es
+ * BAT_FILA_H (215) y este numero NO se usa: se deja documentado, como
+ * TARJETAS_CARD_H, por si hay que volver. */
+#define BAT_CARD_H_TOTAL (GPS_CARD_H + 4 + 84)   /* (ya no se usa: ver BAT_FILA_H) */
 /* 246 era el alto fijo de la fila de abajo. Ya no se usa: esa fila es elastica
  * (LV_GRID_FR(1)) y se lleva todo el alto que sobre, que es lo que quita los
  * 12 px muertos del fondo. Se deja el numero documentado por si hay que volver. */
@@ -386,16 +425,12 @@ static lv_color_t color_for_frigo(int16_t centi) {
 /* El titulo de la tarjeta ocupa 8 (relleno) + 24 (letra) + 10 de aire = 42 */
 #define BAT_TITULO_H     42
 
-/* El bloque dibujo+bornes (BAT_H + BAT_BORNE_H) centrado en el hueco que queda
- * por debajo del titulo. */
-#define BAT_DIB_Y  (BAT_TITULO_H + (BAT_CARD_H - 2 * 8 - BAT_TITULO_H \
-                                    - (BAT_H + BAT_BORNE_H)) / 2)
-
-/* Los dos numeros de la bateria (tension y corriente) van en columna a la
- * izquierda del dibujo, y la columna se coloca en el MISMO sitio que el dibujo:
- * si se dejan centrados en la tarjeta entera, con los 210 px de ahora salen
- * mas bajos que la bateria y no se leen como una fila. */
-#define BAT_NUM_Y  ((BAT_DIB_Y + BAT_BORNE_H + BAT_H / 2) - 44)
+/* Aqui vivian BAT_DIB_Y y BAT_NUM_Y, las cuentas de donde caia el dibujo y los
+ * numeros dentro de la tarjeta. Desde el 9-oct-2026 las posiciones se ponen con
+ * lv_obj_align (CENTER, LEFT_MID, RIGHT_MID) y aquellas dos no las usaba nadie
+ * -- ademas BAT_DIB_Y referenciaba un BAT_CARD_H que ya no existe, asi que la
+ * primera vez que alguien las usara habria fallado el build. Borradas el
+ * 16-oct-2026 al tocar este reparto. */
 
 
 static lv_obj_t *s_bat_relleno;
@@ -960,6 +995,53 @@ static bool al_info_activa(al_info_t i)
     return (d.alarmas & AL_INFO_BIT[i]) != 0;
 }
 
+/* Los km y las horas de conduccion de la salida en curso.
+ *
+ * SE ENSEÑAN LOS DOS O NINGUNO, y solo cuando hay dato de verdad:
+ *   - sin salida abierta AQUI, no hay "viaje actual" que enseñar: la P4 puede
+ *     tener abierto el viaje que empezo la OTRA pantalla, y sus km no son los
+ *     de esta;
+ *   - con la P4 diciendo "sin dato" (no tiene viaje abierto: sus contadores se
+ *     paran al cerrarlo y se quedan con los del viaje anterior), tampoco;
+ *   - y si el enlace esta caducado, el ultimo numero recibido es viejo: se
+ *     atenua igual que los demas, que para eso esta CONN_TIMEOUT_MS.
+ * Cuando no hay dato van dos guiones en gris, que se leen como "no lo se" y no
+ * como "cero kilometros".
+ *
+ * El color se pone con lv_obj_set_style_text_color y NO con paleta_texto(): esa
+ * REGISTRA el objeto cada vez que se la llama y esto corre cada 500 ms, asi que
+ * en dos minutos se comia las 48 plazas de la paleta. */
+static void refresh_viaje(const mini_data_t *d)
+{
+    if (!s_viaje_km || !s_viaje_h) return;
+
+    uint32_t ms = (uint32_t)(esp_timer_get_time() / 1000);
+    bool enlace = d->last_update_ms != 0 && (ms - d->last_update_ms < CONN_TIMEOUT_MS);
+    bool hay = salida_hay() && enlace &&
+               d->viaje_km_decimas != MINI_NO_DATA_U16 &&
+               d->viaje_minutos    != MINI_NO_DATA_U16;
+
+    char b[24];
+    if (hay) {
+        /* Los km con un decimal (100 m): es la resolucion que manda la P4, y
+         * asi el numero se mueve mientras se conduce, que es lo que se mira. */
+        snprintf(b, sizeof(b), "%.1f", (double)d->viaje_km_decimas / 10.0);
+        lv_label_set_text(s_viaje_km, b);
+        /* Las horas como "2:35": en horas y minutos, que es como se lee un
+         * cuaderno de viaje (y "2.58 h" no lo dice nadie). */
+        unsigned min = (unsigned)d->viaje_minutos;
+        snprintf(b, sizeof(b), "%u:%02u", min / 60u, min % 60u);
+        lv_label_set_text(s_viaje_h, b);
+    } else {
+        lv_label_set_text(s_viaje_km, "--");
+        lv_label_set_text(s_viaje_h, "--");
+    }
+
+    uint32_t c = hay ? 0xFFFFFF : (s_contraste ? 0xE0E0E0 : 0x888888);
+    lv_obj_set_style_text_color(s_viaje_km, lv_color_hex(c), 0);
+    lv_obj_set_style_text_color(s_viaje_h,  lv_color_hex(c), 0);
+}
+
 /* La alarma sigue puesta a ojos de esta pantalla, aunque el enlace haya
  * caducado. Se usa SOLO para no borrar el estado de silencio mientras la P4
  * esta muda unos segundos: si se borrara, al volver el enlace el icono saldria
@@ -1219,6 +1301,7 @@ static void refresh_cb(lv_timer_t *t)
 
     refresh_bat(&d);
     refresh_aux(&d);
+    refresh_viaje(&d);   /* km y horas de conduccion de la salida en curso */
     static tendencia_t t_frigo, t_ext;
     refresh_temp(s_frigo_val, d.frigo_has_data, d.frigo_temp_centi, true);
     refresh_tendencia(&t_frigo, s_frigo_trend, d.frigo_has_data, d.frigo_temp_centi);
@@ -1394,6 +1477,64 @@ static lv_obj_t *make_fila_dato(lv_obj_t *padre, const char *etiqueta,
     return v;
 }
 
+/* --- La tarjeta del viaje en curso (16-oct-2026) ---------------------------
+ *
+ * Todo el ancho, entre la bateria y las dos de abajo: km recorridos a la
+ * izquierda, horas de conduccion a la derecha y el rotulo en medio (arriba se
+ * comeria la mitad de un hueco de 76 px).
+ *
+ * LOS NUMEROS NO SE CALCULAN AQUI: llegan de la P4 en la telemetria, ya
+ * resueltos (ver el bloque CONTADORES DEL VIAJE de mini_proto.h). Esta pantalla
+ * no tiene GPS ni forma de saber cuanto se ha conducido; lo unico que hace es
+ * pintar lo que le mandan, y callarse ("--") cuando no hay dato. */
+static void make_viaje_card(lv_obj_t *grid)
+{
+    lv_obj_t *card = make_card(grid, COL_BORDER_VIAJE, "", 0, 2, 1, NULL, true,
+                               &lv_font_montserrat_20);
+
+    lv_obj_t *tit = lv_label_create(card);
+    lv_label_set_text(tit, "VIAJE");
+    lv_obj_set_style_text_color(tit, COL_BORDER_VIAJE, 0);
+    lv_obj_set_style_text_font(tit, &lv_font_montserrat_20, 0);
+    lv_obj_clear_flag(tit, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(tit, LV_ALIGN_CENTER, 0, 0);
+
+    /* Hueco FIJO con el numero alineado a la derecha dentro y la unidad justo
+     * detras, igual que la tension y la corriente de la bateria: asi la "km" no
+     * se mueve cuando el numero pasa de "9.8" a "123.4". */
+    s_viaje_km = lv_label_create(card);
+    lv_label_set_text(s_viaje_km, "--");
+    paleta_texto(s_viaje_km, 0xFFFFFF, 0xFFFFFF);
+    lv_obj_set_style_text_font(s_viaje_km, &lv_font_montserrat_32, 0);
+    lv_obj_set_width(s_viaje_km, 150);
+    lv_obj_set_style_text_align(s_viaje_km, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_clear_flag(s_viaje_km, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(s_viaje_km, LV_ALIGN_LEFT_MID, 30, 0);
+
+    lv_obj_t *u_km = lv_label_create(card);
+    lv_label_set_text(u_km, "km");
+    paleta_texto(u_km, 0xCCCCCC, 0xFFFFFF);
+    lv_obj_set_style_text_font(u_km, &lv_font_montserrat_24, 0);
+    lv_obj_clear_flag(u_km, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(u_km, LV_ALIGN_LEFT_MID, 186, 4);
+
+    s_viaje_h = lv_label_create(card);
+    lv_label_set_text(s_viaje_h, "--");
+    paleta_texto(s_viaje_h, 0xFFFFFF, 0xFFFFFF);
+    lv_obj_set_style_text_font(s_viaje_h, &lv_font_montserrat_32, 0);
+    lv_obj_set_width(s_viaje_h, 150);
+    lv_obj_set_style_text_align(s_viaje_h, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_clear_flag(s_viaje_h, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(s_viaje_h, LV_ALIGN_RIGHT_MID, -50, 0);
+
+    lv_obj_t *u_h = lv_label_create(card);
+    lv_label_set_text(u_h, "h");
+    paleta_texto(u_h, 0xCCCCCC, 0xFFFFFF);
+    lv_obj_set_style_text_font(u_h, &lv_font_montserrat_24, 0);
+    lv_obj_clear_flag(u_h, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(u_h, LV_ALIGN_RIGHT_MID, -30, 4);
+}
+
 /* DIAGNOSTICO: vuelca el arbol de esta pantalla con posiciones y tamanos. */
 void view_info_diag_arbol(void)
 {
@@ -1448,7 +1589,10 @@ void view_info_create(lv_obj_t *parent)
                                    LV_GRID_TEMPLATE_LAST};
     /* La fila de abajo se lleva lo que sobre (173): es el mismo alto que tenian
      * cuando la T asomaba por debajo, y por eso sus posiciones no se tocan. */
-    static lv_coord_t row_dsc[] = {BAT_CARD_H_TOTAL, LV_GRID_FR(1),
+    /* TRES filas desde el 16-oct-2026: bateria (199), viaje (76, nueva) y la de
+     * abajo elastica, que se queda con los 181 que sobran. Ver el reparto
+     * comentado arriba del todo. */
+    static lv_coord_t row_dsc[] = {BAT_FILA_H, VIAJE_CARD_H, LV_GRID_FR(1),
                                    LV_GRID_TEMPLATE_LAST};
 
     lv_obj_t *grid = lv_obj_create(parent);
@@ -1484,7 +1628,7 @@ void view_info_create(lv_obj_t *parent)
      * El +8 baja el conjunto lo que ocupa el titulo, para que quede centrado a
      * la vista y no solo en la cuenta. Con la tarjeta de 210 px ese ajuste ya
      * no vale: el centro geometrico (105) le deja el titulo pegado al dibujo.
-     * Ahora se calcula a partir del alto de la tarjeta (BAT_CARD_H, definida
+     * Ahora se calcula a partir del alto de la tarjeta (BAT_FILA_H, definida
      * junto a la rejilla en view_info_create): el bloque dibujo+bornes se
      * centra en el hueco que queda POR DEBAJO del titulo. */
     lv_obj_t *dib = make_bateria_dibujo(s_gps_card);
@@ -1592,11 +1736,14 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, 146, 29);
     lv_obj_align(col_motor,   LV_ALIGN_RIGHT_MID, -30, 0);
     lv_obj_align(dib,         LV_ALIGN_CENTER, 0, 10);
+    /* --- En medio, a todo el ancho: el viaje en curso (16-oct-2026) -------- */
+    make_viaje_card(grid);
+
     /* --- Abajo izquierda: aguas ------------------------------------------- */
-    make_water_cell(grid, 0, 1, 1);
+    make_water_cell(grid, 0, 1, 2);
 
     /* --- Abajo derecha: las dos temperaturas juntas ----------------------- */
-    lv_obj_t *temp_card = make_card(grid, COL_BORDER_COLD, "TEMPERATURAS", 1, 1, 1, NULL, true,
+    lv_obj_t *temp_card = make_card(grid, COL_BORDER_COLD, "TEMPERATURAS", 1, 1, 2, NULL, true,
                                        &lv_font_montserrat_20);
     /* El valor del frigo va en un hueco fijo y la flecha al borde: asi la
      * flecha no se mueve cuando el numero cambia de ancho ("-5.0" contra

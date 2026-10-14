@@ -272,12 +272,26 @@ const char *p4_api_dev_id(void)
 }
 
 void p4_api_cuerpo_inicio(char *out, size_t n, uint32_t id,
-                          const char *destino, uint32_t fecha_dias)
+                          const char *destino, uint32_t fecha_dias,
+                          uint32_t km_cuadro)
 {
-    snprintf(out, n,
-             "{\"op\":\"inicio\",\"id\":%lu,\"destino\":\"%s\",\"fecha_dias\":%lu,"
-             "\"dev\":\"%s\"}",
-             (unsigned long)id, destino, (unsigned long)fecha_dias, p4_api_dev_id());
+    /* El cuentakilometros va SOLO si hay lectura (16-oct-2026): con 0 no se
+     * manda el campo, que es como se dice "no apuntado". Mandarlo a 0 seria
+     * mandar un dato que el usuario no ha dado, y la P4 no podria distinguir
+     * "el cuadro marcaba 0" de "no me lo han dicho" -- hoy los dos salen como
+     * "no se apunto" en el resumen, pero no hay por que perder la diferencia. */
+    if (km_cuadro > 0) {
+        snprintf(out, n,
+                 "{\"op\":\"inicio\",\"id\":%lu,\"destino\":\"%s\",\"fecha_dias\":%lu,"
+                 "\"km_cuadro\":%lu,\"dev\":\"%s\"}",
+                 (unsigned long)id, destino, (unsigned long)fecha_dias,
+                 (unsigned long)km_cuadro, p4_api_dev_id());
+    } else {
+        snprintf(out, n,
+                 "{\"op\":\"inicio\",\"id\":%lu,\"destino\":\"%s\",\"fecha_dias\":%lu,"
+                 "\"dev\":\"%s\"}",
+                 (unsigned long)id, destino, (unsigned long)fecha_dias, p4_api_dev_id());
+    }
 }
 
 /* 'destino' es el nombre DEFINITIVO del viaje, o NULL/"" si no ha cambiado.
@@ -380,10 +394,12 @@ bool p4_api_alarma_sentido(uint8_t mask, int silenciar, p4_api_done_cb cb,
 }
 
 bool p4_api_viaje_inicio(uint32_t id, const char *destino, uint32_t fecha_dias,
-                         p4_api_done_cb cb)
+                         uint32_t km_cuadro, p4_api_done_cb cb)
 {
-    char cuerpo[192];
-    p4_api_cuerpo_inicio(cuerpo, sizeof(cuerpo), id, destino, fecha_dias);
+    /* 224 y no 192: el inicio con cuentakilometros lleva 20 caracteres mas
+     * ("km_cuadro":999999,) y con el tope de 6 cifras el cuerpo llega a ~130. */
+    char cuerpo[224];
+    p4_api_cuerpo_inicio(cuerpo, sizeof(cuerpo), id, destino, fecha_dias, km_cuadro);
     return lanzar(cuerpo, cb);
 }
 

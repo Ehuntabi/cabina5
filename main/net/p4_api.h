@@ -21,8 +21,12 @@ typedef void (*p4_api_done_cb)(bool ok, int estado, void *user_data);
 
 /* Devuelven false si ni siquiera se pudo lanzar el envio (sin memoria); en ese
  * caso 'cb' NO se llama. */
+/* 'km_cuadro' = lo que marca el cuentakilometros del vehiculo en el momento de
+ * empezar (0 = no se apunto, y entonces el campo no viaja). Lo teclea el usuario
+ * y es OPCIONAL: la 3,5" no lo pide, asi que su inicio tiene que seguir siendo
+ * valido tal cual. La P4 lo guarda con el viaje y lo escribe en resumen.txt. */
 bool p4_api_viaje_inicio(uint32_t id, const char *destino, uint32_t fecha_dias,
-                         p4_api_done_cb cb);
+                         uint32_t km_cuadro, p4_api_done_cb cb);
 
 /* El POST crudo, SINCRONO: bloquea hasta la respuesta. Lo usa el repartidor de
  * la cola (viaje_cola.c), que tiene su propia tarea. NO llamar desde LVGL.
@@ -51,7 +55,8 @@ bool p4_api_post_url(const char *url, const char *cuerpo, int *estado_out,
 const char *p4_api_dev_id(void);
 
 void p4_api_cuerpo_inicio(char *out, size_t n, uint32_t id,
-                          const char *destino, uint32_t fecha_dias);
+                          const char *destino, uint32_t fecha_dias,
+                          uint32_t km_cuadro);
 /* 'eventos' es cuantos apuntes ha generado el viaje, el inicio incluido: con
  * eso la P4 sabe si le falta alguno y marca el viaje como incompleto. */
 void p4_api_cuerpo_fin(char *out, size_t n, uint32_t id, uint32_t eventos,
