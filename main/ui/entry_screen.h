@@ -35,6 +35,13 @@ void entry_screen_init(lv_obj_t *parent);
  * aceptados a digitos y punto. */
 void entry_screen_open(lv_obj_t *target, const char *label, bool numeric);
 
+/* Igual, pero para ENCADENAR: se llama desde el callback VALUE_CHANGED del campo
+ * anterior (destino -> km del cuadro, al empezar un viaje) y aplaza la apertura
+ * un ciclo de LVGL, porque el "Aceptar" cierra este panel DESPUES de avisar al
+ * callback y, si no, el paso nuevo nace escondido. Ver el comentario largo en
+ * entry_screen.c. */
+void entry_screen_open_siguiente(lv_obj_t *target, const char *label, bool numeric);
+
 /* Cierra el editor SIN volcar lo tecleado. Para cuando algo de fuera se lleva
  * al usuario a otra pantalla (p.ej. un gesto del carrusel) y el overlay no
  * debe quedarse abierto por detras. No hace nada si no estaba abierto. */
