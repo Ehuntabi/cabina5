@@ -1763,32 +1763,34 @@ void view_info_create(lv_obj_t *parent)
      * (26 y 62) los dos datos quedaban amontonados arriba con 150 px de negro
      * debajo.
      *
-     * Y EL 16-OCT-2026 SUBEN LAS DOS (52->44 y 96->84), a ojo del usuario sobre
+     * Y EL 16-OCT-2026 SUBEN LAS DOS (52->38 y 96->78), a ojo del usuario sobre
      * la foto de la pantalla: con la fila del ventilador anclada abajo, a
      * "Exterior" le quedaban 5 px de aire con "Vent." y se leian como una sola
-     * cosa. La flecha de tendencia de cada fila va SIEMPRE 22 px por debajo de
+     * cosa. Primero subieron 8 y 12; el usuario pidio "un poco mas" y suben
+     * otros 6, SIN tocar la separacion entre ellas (40 px, que la dio por
+     * buena). La flecha de tendencia de cada fila va SIEMPRE 22 px por debajo de
      * su valor (patron de toda la tarjeta), asi que sube con el. */
-    s_frigo_val = make_fila_dato(temp_card, "Frigo", &lv_font_montserrat_32, 44);
+    s_frigo_val = make_fila_dato(temp_card, "Frigo", &lv_font_montserrat_32, 38);
     lv_obj_set_width(s_frigo_val, TEMP_NUM_W);
     lv_obj_set_style_text_align(s_frigo_val, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(s_frigo_val, LV_ALIGN_TOP_RIGHT, -26, 44);
+    lv_obj_align(s_frigo_val, LV_ALIGN_TOP_RIGHT, -26, 38);
 
     s_frigo_trend = lv_label_create(temp_card);
     lv_label_set_text(s_frigo_trend, "");
     lv_obj_set_style_text_font(s_frigo_trend, &lv_font_montserrat_20, 0);
     lv_obj_clear_flag(s_frigo_trend, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_frigo_trend, LV_ALIGN_TOP_RIGHT, 0, 66);
+    lv_obj_align(s_frigo_trend, LV_ALIGN_TOP_RIGHT, 0, 60);
 
-    s_ext_val   = make_fila_dato(temp_card, "Exterior", &lv_font_montserrat_32, 84);
+    s_ext_val   = make_fila_dato(temp_card, "Exterior", &lv_font_montserrat_32, 78);
     lv_obj_set_width(s_ext_val, TEMP_NUM_W);
     lv_obj_set_style_text_align(s_ext_val, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(s_ext_val, LV_ALIGN_TOP_RIGHT, -26, 84);
+    lv_obj_align(s_ext_val, LV_ALIGN_TOP_RIGHT, -26, 78);
 
     s_ext_trend = lv_label_create(temp_card);
     lv_label_set_text(s_ext_trend, "");
     lv_obj_set_style_text_font(s_ext_trend, &lv_font_montserrat_20, 0);
     lv_obj_clear_flag(s_ext_trend, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_ext_trend, LV_ALIGN_TOP_RIGHT, 0, 106);
+    lv_obj_align(s_ext_trend, LV_ALIGN_TOP_RIGHT, 0, 100);
 
     /* Icono del altavoz de la alarma del congelador: arriba a la DERECHA, que
      * es el unico hueco libre de la tarjeta (el titulo va centrado, "Frigo" a
