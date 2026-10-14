@@ -65,7 +65,9 @@ if [ -z "$DESC" ]; then
     exit 1
 fi
 case "$DESC" in
-    *-*) VER="$(printf '%s' "$DESC" | awk -F'[.-]' '{ printf "v%s.%d", $1, $2 + 1 }')" ;;
+    # OJO: el tag YA lleva la "v" ($1 es "v4"), asi que no se le anade otra
+    # (el 16-oct salia "vv1.7" y el script se negaba a grabar por su propio error).
+    *-*) VER="$(printf '%s' "$DESC" | awk -F'[.-]' '{ printf "%s.%d", $1, $2 + 1 }')" ;;
     *)   VER="$DESC" ;;
 esac
 echo "[i] esta copia es la $VER   ($(git describe --tags --always --match 'v*.*'))"
