@@ -309,6 +309,25 @@ cambiar la escala entera es tocar **un fichero**.
 - LVGL **no trae Montserrat 56** (llega hasta la 48): ese escalón no existe y el
   titular de 48 se queda como está.
 
+## La pantalla se puede montar girada 180 grados
+
+`main/display.h` tiene `PANTALLA_GIRADA_180` (hoy a **1**): el soporte de la
+autocaravana obliga a montarla al revés, así que la imagen va girada media vuelta.
+Se hace con la rotación de LVGL, que en la versión 9 gira **las dos cosas**: lo que
+se dibuja y las **coordenadas del táctil** (`lv_indev.c` mira la rotación del
+display), así que no hay que tocar el GT911.
+
+**OJO si algún día se toca el flush** (16-oct-2026): `lv_display_set_rotation()`
+solo *apunta* la rotación; los **píxeles** los gira quien hace el flush. Los ports
+de Espressif lo hacen ellos, pero esta placa tiene su propio flush, así que el giro
+está en `bsp_lvgl_flush_cb()` (`lv_display_rotate_area()` + un giro 180 en el
+sitio, sin memoria extra). Sin eso, la rotación se queda en el apunte y en la
+pantalla no cambia nada — que es exactamente lo que pasó al probarlo.
+
+180 y no 90/270 a propósito: al girar media vuelta el ancho y el alto no cambian,
+así que los buffers valen los mismos. Medido en la placa: 24 fps y 39 Hz, igual que
+sin girar.
+
 ## Compilar en este PC (trampa del toolchain)
 
 Este PC compila la P4 (RISC-V) a diario, y su instalación de IDF está pensada
