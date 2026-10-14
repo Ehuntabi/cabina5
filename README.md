@@ -31,20 +31,25 @@ Dos consecuencias prácticas de que el panel sea RGB:
 - No hay "tabla de comandos" del panel: si algo se ve mal (desplazado, colores
   cambiados), el problema es el **timing o los pines**, no la inicialización.
 
-## Estado (8-oct-2026)
+## Estado (16-oct-2026)
 
 **Verificado en la placa**, con estos números medidos:
 
 | | |
 |---|---|
-| Refresco de LVGL | **22 fotogramas/s** (el panel barre a **39,0 Hz**, estable) |
-| Heap interno libre | **53 KB** (con WiFi arrancado; el margen se lo lleva la UI nueva) |
+| Refresco de LVGL | **24 fotogramas/s** (el panel barre a **39,0 Hz**, estable) |
+| Heap interno libre | **54 KB** (con WiFi arrancado) |
 | Táctil | Funciona en toda la superficie, en **modo sondeo** (ver *Trampas*, apartado 5) |
-| UI | Las 4 vistas y los 2 overlays, adaptados a los **800×480 reales** y con la letra un escalón más |
-| Splash | La autocaravana (`main/icons/splash_logo_5.c`), sin texto |
-| Red | UDP en el 4242 a la espera de la P4, WiFi conectando |
+| UI | **La aplicación entera** (las 4 vistas, los 2 overlays y los 9 formularios), no la pantalla de prueba del principio |
+| Auto-test al arrancar | `CANAL DE VIAJES OK` y `CANAL DE ALARMAS OK` contra la P4 |
+| Red | UDP 4242 (telemetría de la P4) y latido de vuelta al 4243 |
 | Rearranques | **Ninguno** en marcha normal (los únicos resets son los que provoca abrir el puerto serie) |
-| Flash | 2,2 MB de app: **46 % de la partición libre** |
+| Flash | 2,2 MB de app: **47 % de la partición libre** |
+
+Pantalla de Datos: la batería arriba a todo el ancho, **la tarjeta del viaje** en
+medio (km recorridos a la izquierda, horas de conducción a la derecha) y aguas y
+temperaturas abajo. Esa tarjeta es de esta pantalla y no de la 3,5": allí la de
+Datos son dos filas y no cabe una tercera.
 
 - Proyecto ESP-IDF para `esp32s3` (16 MB, PSRAM octal, dos huecos de OTA).
 - `main/display.h`: pines y timing **verificados en esta placa** (B IO8/3/46/9/1,
@@ -55,9 +60,15 @@ Dos consecuencias prácticas de que el panel sea RGB:
   el **puente de panel IO** que necesita `esp_lvgl_port` con paneles RGB (los
   paneles RGB no tienen panel IO en IDF 5.5; el porqué está comentado en el
   propio fichero, no lo borres).
-- `main/main.c`: **pantalla de prueba** (no la aplicación): barra de colores,
-  rejilla de 100 px, coordenadas del táctil en vivo, IP y contador de paquetes
-  UDP de la P4 en el puerto 4242.
+- `main/main_app.c`: **la aplicación** (el `main.c` de la 3,5", portado): arranca
+  la NVS, el modelo de datos, la UI del carrusel, el receptor UDP de la P4, la
+  cola de apuntes y el auto-test del canal de subida.
+- La **pantalla de prueba** del port (barra de colores, rejilla de 100 px,
+  coordenadas del táctil en vivo) ya **no existe**: cuando la aplicación estuvo
+  portada y probada se borro (`main.c` en el commit f406457). Lo que queda para
+  diagnosticar sin arrancar la app es el **modo captura** de
+  `main/capture_carousel.c` (datos de ejemplo y volcado de la pantalla por el
+  puerto serie) y el volcado de geometría (`view_info_diag_arbol`).
 
 ## Trampas de esta placa (las seis nos costaron una tarde cada una)
 
