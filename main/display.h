@@ -30,6 +30,26 @@
 #define LCD_H_RES               800
 #define LCD_V_RES               480
 
+/* ── LA PANTALLA, GIRADA 180 GRADOS (16-oct-2026) ───────────────────────────
+ *
+ * El soporte que ha preparado el usuario obliga a montar la pantalla al reves,
+ * asi que lo que se dibuja tiene que ir girado media vuelta. Se hace con la
+ * rotacion de LVGL, que en la version 9 gira LAS DOS COSAS: la imagen (al
+ * volcar cada trozo al panel) y las COORDENADAS DEL TACTIL (lv_indev.c mira la
+ * rotacion del display antes de repartir el evento), asi que no hay que tocar
+ * el GT911 ni los flags de mirror de su driver.
+ *
+ * 180 y no 90/270 A PROPOSITO: al girar media vuelta el ancho y el alto NO
+ * cambian, asi que los buffers de dibujo valen los mismos y la rotacion no pide
+ * ni un byte mas de memoria (las otras dos si: hay que dibujar el cuadro en
+ * vertical). El precio es que LVGL gira cada trozo al pintarlo, o sea algo mas de
+ * CPU por refresco; se mide con la linea "refrescos LVGL" del arranque.
+ *
+ * Todo el diseño de la UI (posiciones, tarjetas, gestos) sigue igual: esto es
+ * una vuelta a la imagen entera, no un rediseño. Para volver a la orientacion de
+ * siempre, poner el 1 en 0. */
+#define PANTALLA_GIRADA_180     1
+
 /* Nombres que espera la aplicacion portada del satelite de 3,5" (alli el BSP
  * los llamaba asi). Se mantienen para no tocar la app en 30 sitios. */
 #define BSP_LCD_H_RES               LCD_H_RES

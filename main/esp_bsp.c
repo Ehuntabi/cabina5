@@ -597,6 +597,13 @@ lv_display_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
         return NULL;
     }
     lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_RGB565);
+    /* La vuelta entera, si el soporte la pide (ver display.h): gira lo que se
+     * dibuja Y las coordenadas del tactil, que es lo que hace que no haya que
+     * tocar el driver del GT911. */
+#if PANTALLA_GIRADA_180
+    lv_display_set_rotation(s_disp, LV_DISPLAY_ROTATION_180);
+    ESP_LOGI(TAG, "pantalla girada 180 grados (el soporte va asi)");
+#endif
     lv_display_set_buffers(s_disp, buf1, buf2, BSP_BUF_PX * sizeof(lv_color_t),
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(s_disp, bsp_lvgl_flush_cb);
