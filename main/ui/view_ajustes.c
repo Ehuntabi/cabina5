@@ -78,35 +78,107 @@ static void ta_click_cb(lv_event_t *e)
  * editor. Lo llevan las DOS claves (la del Wi-Fi y la del portal) desde la
  * auditoria de seguridad del 13-oct-2026: estaban a la vista, y de pie junto a
  * la pantalla se leian de un vistazo. En el P4 ya se hacia asi. */
-static lv_obj_t *make_field(lv_obj_t *parent, const char *label_text, uint32_t max_len,
-                            bool oculto)
+/* EL CAMPO ES UNA FILA: ROTULO A LA IZQUIERDA, VALOR A LA DERECHA.
+ *
+ * Lo pidio el usuario el 16-oct-2026 con la foto delante: "los campos de SSID,
+ * password etc ocupan todo el ancho; creo que se puede organizar mucho mejor el
+ * contenido de la pantalla wifi". Antes cada campo era un bloque de lado a lado
+ * con el rotulo encima en gris, y ademas salian mal: el valor se creaba SIN
+ * fuente (le tocaba la del sistema, 20) mientras el rotulo -- 14, que por el
+ * encadenado de estilos.h acaba en 26 -- y las explicaciones se veian MAS
+ * GRANDES que el dato.
+ *
+ * Ahora: el dato manda (letra 34, literal) y el rotulo es una columna fija de
+ * 190 px a su izquierda (letra 18, literal). Los dos tamaños van LITERALES a
+ * proposito: 18 y 34 no son nombres viejos de estilos.h, asi que no se encadenan
+ * y miden lo que dicen (ver el aviso de doble traduccion en estilos.h).
+ *
+ * 56 px de alto: 44 para la caja (con la letra 34, que pide 38) y el resto de
+ * aire. El campo se sigue abriendo a pantalla completa al tocarlo, asi que un
+ * SSID largo se lee entero alli. */
+#define CAMPO_ALTO           56
+#define CAMPO_ROTULO_W      190
+#define CAMPO_VALOR_W       567   /* 768 - 190 del rotulo - 11 de aire */
+
+/* REPARTO VERTICAL DE LA PANTALLA (16-oct-2026), en un solo sitio y con las
+ * cuentas hechas: cada fila se coloca en su y, sin layout automatico. De arriba
+ * abajo: fila del titulo, cabecera y campos de la red de la P4, cabecera y
+ * campos del portal, y la fila del boton con el estado a su derecha. La ultima
+ * acaba en 438 de los 448 utiles (16 de margen arriba y abajo), asi que NO hay
+ * que deslizar nada. */
+#define FILA_W          768
+#define FILA_TITULO_H    60
+#define FILA_TITULO_Y     0
+#define FILA_G1_Y        66
+#define FILA_F1_Y        98
+#define FILA_F2_Y       160
+#define FILA_G2_Y       222
+#define FILA_F3_Y       254
+#define FILA_F4_Y       316
+#define FILA_BTN_Y      378
+#define FILA_BTN_W      380
+#define FILA_ESTADO_X   400
+#define FILA_ESTADO_Y   (FILA_BTN_Y + (FILA_TITULO_H - GRUPO_ALTO) / 2)
+#define FILA_ESTADO_W   (FILA_W - FILA_ESTADO_X)
+/* El rotulo mide lo mismo que una cabecera de grupo (y asi los dos textos
+ * pequeños de la pantalla casan en alto). */
+#define GRUPO_ALTO           26
+#define CAMPO_ROTULO_FUENTE (&lv_font_montserrat_18)
+#define CAMPO_VALOR_FUENTE  (&lv_font_montserrat_34)
+
+static lv_obj_t *make_field_en(lv_obj_t *parent, const char *label_text, uint32_t max_len,
+                               bool oculto, int y)
 {
     lv_obj_t *cont = lv_obj_create(parent);
-    lv_obj_set_size(cont, lv_pct(100), 56);
+    lv_obj_set_size(cont, FILA_W, CAMPO_ALTO);
+    lv_obj_set_pos(cont, 0, y);
     lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(cont, 0, 0);
-    lv_obj_set_style_pad_all(cont, 2, 0);
+    lv_obj_set_style_pad_all(cont, 0, 0);
     lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
 
+    /* POSICIONES A MANO, sin flex (16-oct-2026). Con `flex_grow` en la caja del
+     * valor, LVGL dejaba la ULTIMA caja de la pantalla con el tamaño de su
+     * contenido (260x130, medio fuera del campo) y el boton de guardar en 0x0:
+     * el formulario entero se desmontaba. Con dos numeros fijos no hay nada que
+     * repartir y sale igual siempre: rotulo 190 px a la izquierda, caja 567 px a
+     * la derecha (768 - 190 - 11 de aire). */
     lv_obj_t *lbl = lv_label_create(cont);
     lv_label_set_text(lbl, label_text);
     lv_obj_set_style_text_color(lbl, lv_color_hex(0x888888), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
-    lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_text_font(lbl, CAMPO_ROTULO_FUENTE, 0);
+    lv_obj_set_size(lbl, CAMPO_ROTULO_W, GRUPO_ALTO);
+    lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_set_pos(lbl, 0, (CAMPO_ALTO - GRUPO_ALTO) / 2);
 
     lv_obj_t *ta = lv_textarea_create(cont);
     lv_textarea_set_one_line(ta, true);
     lv_textarea_set_max_length(ta, max_len);
     if (oculto) lv_textarea_set_password_mode(ta, true);
-    lv_obj_set_size(ta, lv_pct(100), 34);
-    lv_obj_align(ta, LV_ALIGN_TOP_LEFT, 0, 18);
+    lv_obj_set_size(ta, CAMPO_VALOR_W, 44);
+    lv_obj_set_pos(ta, CAMPO_ROTULO_W + 11, (CAMPO_ALTO - 44) / 2);
+    lv_obj_set_style_text_font(ta, CAMPO_VALOR_FUENTE, 0);
+    /* Sin el relleno vertical del tema: con letra 34 en 44 px no cabe. */
+    lv_obj_set_style_pad_top(ta, 0, 0);
+    lv_obj_set_style_pad_bottom(ta, 0, 0);
     /* En CLICKED y no en FOCUSED: al volver del editor el campo conserva el
-     * foco, asi que con FOCUSED el segundo toque no volveria a abrirlo. El
-     * rotulo viaja en el user_data y es el titulo que saca el editor. */
+     * foco, asi que con FOCUSED el segundo toque no volveria a abrirlo. */
     lv_obj_set_user_data(ta, (void *)label_text);
     lv_obj_add_event_cb(ta, ta_click_cb, LV_EVENT_CLICKED, NULL);
 
     return ta;
+}
+
+/* Cabecera de grupo: dice QUE es cada bloque de campos. El texto que antes iba
+ * en parrafos de ayuda sueltos (que se comian 58 px de alto) cabe aqui. */
+static void make_grupo_en(lv_obj_t *parent, const char *texto, int y)
+{
+    lv_obj_t *l = lv_label_create(parent);
+    lv_obj_set_pos(l, 0, y);
+    lv_label_set_text(l, texto);
+    lv_obj_set_style_text_color(l, lv_color_hex(0xFF9800), 0);
+    lv_obj_set_style_text_font(l, CAMPO_ROTULO_FUENTE, 0);
+    lv_obj_set_size(l, FILA_W, GRUPO_ALTO);
 }
 
 static void mostrar_menu(bool menu)
@@ -451,8 +523,13 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(s_wifi, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_wifi, 0, 0);
     lv_obj_set_style_pad_all(s_wifi, 16, 0);
-    lv_obj_set_style_pad_row(s_wifi, 8, 0);
-    lv_obj_set_flex_flow(s_wifi, LV_FLEX_FLOW_COLUMN);
+    /* 6 y no 8: con los campos a 66 px, el titulo, el boton y el estado, la
+     * cuenta da 435 de los 448 utiles. Los 8 px de antes eran de cuando los
+     * campos median 56 y el dato se leia con lupa. */
+    /* SIN LAYOUT AUTOMATICO (16-oct-2026): cada fila se coloca en su y, con las
+     * cuentas hechas aqui abajo. El flex de LVGL se probo primero y dejaba la
+     * ultima caja y el boton mal (ver make_field), asi que el reparto va escrito
+     * y se comprueba en la placa con el volcado del arbol. */
     /* Cuatro campos y dos explicaciones caben justos en 480 px de alto (en la
      * pantalla de 320 px logicos no cabian, y de ahi que se deslice). Se deja
      * que se pueda deslizar igualmente: con la letra un escalon mas y un campo
@@ -463,7 +540,8 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_scrollbar_mode(s_wifi, LV_SCROLLBAR_MODE_AUTO);
 
     lv_obj_t *row = lv_obj_create(s_wifi);
-    lv_obj_set_size(row, lv_pct(100), 60);
+    lv_obj_set_size(row, FILA_W, FILA_TITULO_H);
+    lv_obj_set_pos(row, 0, FILA_TITULO_Y);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(row, 0, 0);
     lv_obj_set_style_pad_all(row, 0, 0);
@@ -480,41 +558,49 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(back_lbl, &lv_font_montserrat_26, 0);
     lv_obj_center(back_lbl);
 
+    /* EL TITULO, CENTRADO (16-oct-2026, el usuario: "el titulo esta
+     * descentrado"). Estaba alineado al borde derecho, que con el boton Volver a
+     * la izquierda dejaba el rotulo pegado a la esquina y sin relacion con nada.
+     * Centrado en la fila cae en el medio de la pantalla; el boton acaba en 192
+     * px, asi que no se tocan. */
     lv_obj_t *title = lv_label_create(row);
     lv_label_set_text(title, "AJUSTES WI-FI");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFF9800), 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_22, 0);
-    lv_obj_align(title, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
 
-    lv_obj_t *hint = lv_label_create(s_wifi);
-    lv_label_set_text(hint, "Red de la P4 a la que se asocia la 35cabina\n(cambiar aqui al pasar a otra P4, sin reflashear)");
-    lv_obj_set_style_text_color(hint, lv_color_hex(0x888888), 0);
-    lv_obj_set_style_text_font(hint, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_set_width(hint, lv_pct(100));
+    /* LOS CAMPOS, EN DOS GRUPOS (16-oct-2026). Las dos explicaciones que habia
+     * sueltas -- y que se comian 58 px de alto, dejando el boton de guardar
+     * fuera de la pantalla -- pasan a ser las cabeceras de cada grupo: se leen
+     * mejor (estan pegadas a lo que explican) y no ocupan alto de mas. */
+    make_grupo_en(s_wifi, "RED DE LA P4 (la del wifi)", FILA_G1_Y);
+    s_ssid_ta = make_field_en(s_wifi, "SSID", 32, false, FILA_F1_Y);          /* s_ssid[33] en udp_rx.c */
+    s_pass_ta = make_field_en(s_wifi, "Password", 64, true, FILA_F2_Y);      /* s_pass[65] en udp_rx.c */
 
-    s_ssid_ta = make_field(s_wifi, "SSID", 32, false);          /* s_ssid[33] en udp_rx.c */
-    s_pass_ta = make_field(s_wifi, "Password", 64, true);      /* s_pass[65] en udp_rx.c */
+    make_grupo_en(s_wifi, "PORTAL DE LA P4 (usuario y clave, no los del wifi)", FILA_G2_Y);
+    s_http_user_ta = make_field_en(s_wifi, "Usuario", 32, false, FILA_F3_Y);   /* hu[33] en view_ajustes_refresh */
+    s_http_pass_ta = make_field_en(s_wifi, "Clave", 64, true, FILA_F4_Y);     /* hp[65] en view_ajustes_refresh */
 
-    lv_obj_t *hint2 = lv_label_create(s_wifi);
-    lv_label_set_text(hint2, "Usuario y clave del PORTAL de la P4 (no del wifi),\npara mandarle los apuntes del viaje");
-    lv_obj_set_style_text_color(hint2, lv_color_hex(0x888888), 0);
-    lv_obj_set_style_text_font(hint2, &lv_font_montserrat_14, 0);
-    lv_obj_set_width(hint2, lv_pct(100));
-
-    s_http_user_ta = make_field(s_wifi, "Usuario del portal", 32, false);   /* hu[33] en view_ajustes_refresh */
-    s_http_pass_ta = make_field(s_wifi, "Clave del portal", 64, true);     /* hp[65] en view_ajustes_refresh */
-
+    /* BOTON CON ALTO PROPIO, y esto era un fallo de verdad (16-oct-2026): el
+     * boton se creaba SIN alto -- su rotulo va centrado, y un objeto con el
+     * tamaño "lo que mida mi contenido" no mide nada si su unico hijo esta
+     * alineado en vez de en el flujo -- asi que salia de 0x0 y el formulario
+     * quedaba descuadrado (el usuario lo vio como que el boton no estaba). */
     lv_obj_t *btn = lv_btn_create(s_wifi);
-    lv_obj_set_width(btn, lv_pct(100));
+    lv_obj_set_size(btn, FILA_BTN_W, FILA_TITULO_H);
+    lv_obj_set_pos(btn, 0, FILA_BTN_Y);
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x2E7D32), 0);
     lv_obj_add_event_cb(btn, guardar_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *btn_lbl = lv_label_create(btn);
     lv_label_set_text(btn_lbl, "Guardar y reconectar");
     lv_obj_center(btn_lbl);
 
+    /* El estado, a la derecha del boton: cabe en la misma fila y asi no se le
+     * quita alto a nada. */
     s_status_lbl = lv_label_create(s_wifi);
     lv_label_set_text(s_status_lbl, "");
+    lv_obj_set_size(s_status_lbl, FILA_ESTADO_W, GRUPO_ALTO);
+    lv_obj_set_pos(s_status_lbl, FILA_ESTADO_X, FILA_ESTADO_Y);
     lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(0x4CD964), 0);
     lv_obj_set_style_text_font(s_status_lbl, &lv_font_montserrat_14, 0);
 
