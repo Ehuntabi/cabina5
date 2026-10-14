@@ -23,9 +23,18 @@
 set -euo pipefail
 
 AQUI=$(cd "$(dirname "$0")" && pwd)
-VICT="${1:-$(cd "$AQUI/../../victron" 2>/dev/null && pwd || echo "")}"
 
-[ -n "$VICT" ] && [ -f "$VICT/main/net/udp_tx.c" ] || {
+# DONDE ESTA EL REPO DE LA P4. No vale una ruta fija: en el PC los tres repos son
+# hermanos (~/joint/victron), y en el CI depende de si el propio repo se bajo en
+# la raiz del workspace (cabina5: <raiz>/35cabina/test) o en una subcarpeta
+# (35cabina: <raiz>/35cabina/35cabina/test). El 16-oct-2026 esto hizo fallar el
+# CI de la 3,5" con "no encuentro el repo victron" teniendolo al lado.
+VICT=""
+for c in "${1:-}" "$AQUI/../../victron" "$AQUI/../victron" "$PWD/victron" "$PWD/../victron"; do
+    [ -n "$c" ] && [ -f "$c/main/net/udp_tx.c" ] && { VICT=$(cd "$c" && pwd); break; }
+done
+
+[ -n "$VICT" ] || {
     echo "ERROR: no encuentro el repo victron (main/net/udp_tx.c). Pasalo como argumento."; exit 2; }
 
 TMP=$(mktemp -d)
