@@ -23,7 +23,6 @@
  * aguas encoge: antes ocupaba un cuarto de la pantalla para mostrar cinco
  * lucecitas.
  */
-#define VELOCIDAD_DEMO 1   /* ver el comentario en view_info_create */
 #include "estilos.h"   /* ESC(): la escala de la pantalla */
 #include "view_info.h"
 #include "brillo.h"
@@ -191,17 +190,16 @@ void view_info_set_contraste(bool activo)
 #define COL_BORDER_HEAT  col2(0xFFD54F, 0xFFEB3B)  /* Exterior amarillo calido */
 
 /* Bateria: la tarjeta grande de arriba, con sus piezas sueltas. */
-static lv_obj_t   *s_bat_card;
 static lv_obj_t   *s_bat_dot;
 /* El marco de GPS de arriba: es el que lleva el punto de conexion y el icono
  * del GPS desde el 9-oct-2026 (pedido: "los iconos gps y el led verde de
  * comunicacion llevalos arriba"). Antes iban los dos dentro de la tarjeta de
  * bateria, que ahora es una columna estrecha y no tiene sitio para ellos. */
+/* LA TARJETA DE LA BATERIA. Se sigue llamando s_gps_card por historia: el marco
+ * de arriba iba a ser el del GPS y acabo llevando la bateria (9-oct-2026). La
+ * VELOCIDAD se quito el 14-oct-2026: la P4 no la manda (su GPS no la saca del
+ * NMEA y el protocolo no tiene el campo) y una demo que sube sola no es un dato. */
 static lv_obj_t   *s_gps_card;
-/* La VELOCIDAD, en el centro del marco de GPS y en grande: es el dato que se
- * mira de un vistazo con el vehiculo en marcha. Sale "--" porque la P4 aun no
- * la manda (ver el comentario del marco, en view_info_create). */
-static lv_obj_t   *s_gps_vel;
 static lv_obj_t   *s_bat_soc;      /* el numero, DENTRO del dibujo */
 static lv_obj_t   *s_bat_volt;     /* solo el numero, alineado a la derecha */
 static lv_obj_t   *s_bat_amp;
@@ -353,29 +351,33 @@ static lv_color_t color_for_frigo(int16_t centi) {
  *
  * 210 (bateria) + 4 de hueco + 246 (aguas y temperaturas) + 8 de margen = 480
  * clavados: la rejilla no depende de que la pantalla mida lo que mide hoy. */
-/* ── REPARTO NUEVO (9-oct-2026): TRES FILAS ─────────────────────────────────
+/* ── REPARTO (14-oct-2026): DOS FILAS ──────────────────────────────────────
  *
- * A peticion del usuario: "trasladar la card bateria abajo y dejar el hueco que
- * ocupa ahora solo con marco hasta que se llene de contenido gps". O sea:
+ *     fila 0:  [ BATERIA, todo el ancho ]
+ *     fila 1:  [ AGUAS | TEMPERATURAS ]
  *
- *     fila 0:  [ MARCO GPS, vacio, todo el ancho ]   <- se llenara con
- *     fila 1:  [ BATERIA, todo el ancho ]               velocidad, satelites,
- *     fila 2:  [ AGUAS | TEMPERATURAS ]                 km y tiempo de viaje
+ * Antes eran tres filas con un marco vacio arriba ("hasta que se llene de
+ * contenido gps") y la bateria partida en forma de T. Ni el marco ni la T
+ * llegaron a tener contenido -- el GPS nunca mando velocidad --, asi que las dos
+ * se quitaron: ahora es la pantalla de la 3,5" con el ancho de la de 5".
  *
- * Los 472 utiles (480 menos los 4+4 de margen) se reparten: 116 + 4 + 184 + 4 +
- * 164. La bateria baja de 210 a 184 -- su dibujo mide 138 y el titulo 33, o sea
- * 171 + 8 de relleno = 179, asi que 184 es lo justo. */
+ * Los 464 utiles (480 menos los 4+4 de margen y los 4 de la junta) se reparten:
+ * 287 para la bateria (que es lo que ocupaban la franja de arriba y la barra de
+ * la T) y el resto, 173, para aguas y temperaturas, a partes iguales. */
 #define GPS_CARD_H      199
-/* La T de la bateria (9-oct-2026): la barra va arriba a todo lo ancho y el palo
- * cuelga del medio, para que aguas y temperaturas se queden a los lados y BAJEN
- * de alto (estaban en 348 px y el usuario las veia "muy muy grandes"). */
-#define BAT_BAR_H     84
-#define BAT_BAR_Y    (4 + GPS_CARD_H + 4)
-#define BAT_STEM_Y   (BAT_BAR_Y + BAT_BAR_H)
-#define BAT_STEM_W   260
-#define BAT_STEM_X   (UI_ANCHO / 2 - BAT_STEM_W / 2)
-#define BAT_STEM_H   (UI_ALTO - 4 - BAT_STEM_Y)
-#define BAT_CARD_H      184
+/* LA T YA NO EXISTE (14-oct-2026): se fue con la velocidad.
+ *
+ * Eran dos rectangulos pegados -- la barra arriba a todo lo ancho y el palo
+ * colgando del medio -- para dejar a los lados aguas y temperaturas. Sin la
+ * velocidad, el palo se quedaba vacio, asi que la tarjeta de la bateria vuelve a
+ * ser UNA sola, de lado a lado, y la fila de abajo se queda con dos anchos:
+ * aguas a la izquierda y temperaturas a la derecha, como en la 3,5".
+ *
+ * El alto de la tarjeta es la suma de las dos franjas que ocupaba la T (la de
+ * arriba mas la barra), asi que las dos de abajo se quedan practicamente igual
+ * (173 en vez de 181: los 8 px que faltan son de la franja que asomaba por
+ * debajo) y NO hay que retocar ninguna de sus posiciones. */
+#define BAT_CARD_H_TOTAL (GPS_CARD_H + 4 + 84)
 /* 246 era el alto fijo de la fila de abajo. Ya no se usa: esa fila es elastica
  * (LV_GRID_FR(1)) y se lleva todo el alto que sobre, que es lo que quita los
  * 12 px muertos del fondo. Se deja el numero documentado por si hay que volver. */
@@ -1412,21 +1414,6 @@ void view_info_diag_arbol(void)
     }
 }
 
-#if VELOCIDAD_DEMO
-/* Sube la velocidad de 0 a 118, de uno en uno, cada 600 ms. Se para sola al
- * llegar. DIAGNOSTICO: ver el comentario donde se arranca. */
-#define VEL_DEMO_TOPE 118
-static int s_vel_demo;
-static void vel_demo_cb(lv_timer_t *t)
-{
-    if (s_vel_demo >= VEL_DEMO_TOPE || !s_gps_vel) {
-        lv_timer_del(t);
-        return;
-    }
-    s_vel_demo++;
-    lv_label_set_text_fmt(s_gps_vel, "%d", s_vel_demo);
-}
-#endif
 
 void view_info_create(lv_obj_t *parent)
 {
@@ -1457,13 +1444,11 @@ void view_info_create(lv_obj_t *parent)
      * con las dos tarjetas a partes iguales. Aguas es la que sale ganando: con
      * 317 px la columna de fracciones mas la barra mas el bloque de grises
      * quedaba apretadisima. */
-    static lv_coord_t col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1),
+    static lv_coord_t col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1),
                                    LV_GRID_TEMPLATE_LAST};
-    /* La fila de abajo, con alto FIJO y no elastica: el usuario las veia
-     * "un poco menos altas". Los 23 px que sobran se los queda el palo de la
-     * bateria, que va colocado a mano y baja hasta el borde de la pantalla:
-     * asi la T asoma por debajo de las dos tarjetas. */
-    static lv_coord_t row_dsc[] = {GPS_CARD_H, LV_GRID_FR(1), 181,
+    /* La fila de abajo se lleva lo que sobre (173): es el mismo alto que tenian
+     * cuando la T asomaba por debajo, y por eso sus posiciones no se tocan. */
+    static lv_coord_t row_dsc[] = {BAT_CARD_H_TOTAL, LV_GRID_FR(1),
                                    LV_GRID_TEMPLATE_LAST};
 
     lv_obj_t *grid = lv_obj_create(parent);
@@ -1483,101 +1468,15 @@ void view_info_create(lv_obj_t *parent)
     /* Y el toque largo, que es lo que de verdad se consigue a la primera. */
     lv_obj_add_event_cb(parent, toque_largo_cb, LV_EVENT_LONG_PRESSED, NULL);
 
-    /* --- Bateria: toda la franja de arriba -------------------------------- */
-    /* --- BATERIA: la T, en DOS rectangulos pegados -------------------------
+    /* --- BATERIA: UNA tarjeta de lado a lado (14-oct-2026) -----------------
      *
-     * LVGL no sabe dibujar una T: sus objetos son rectangulos. Asi que la
-     * tarjeta son dos -- la BARRA (arriba, todo el ancho) y el PALO (abajo, en
-     * el medio) -- con el mismo fondo y el mismo borde, pegados el uno al otro
-     * y SIN LA LINEA DE LA JUNTA: a la barra se le quita el borde de abajo y al
-     * palo el de arriba, y como no hay hueco entre ellos se ven como una sola
-     * tarjeta con forma de T. El usuario lo pidio asi: "sin la ---- entre los
-     * campos de la bateria".
-     *
-     * Van FUERA de la rejilla (IGNORE_LAYOUT) y colocados a mano: la rejilla
-     * deja 4 px entre celdas y por ahi se colaria la raya que hay que evitar.
-     *
-     * El contenido: en la barra los numeros (V y A a la izquierda, MOTOR a la
-     * derecha); en el palo, el dibujo de la bateria con el % dentro. */
-    lv_obj_t *barra = lv_obj_create(grid);
-    lv_obj_add_flag(barra, LV_OBJ_FLAG_IGNORE_LAYOUT);
-    lv_obj_set_pos(barra, 4, BAT_BAR_Y);
-    lv_obj_set_size(barra, UI_ANCHO - 8, BAT_BAR_H);
-    lv_obj_set_style_bg_color(barra, COL_CARD_BG_TOP, 0);
-    lv_obj_set_style_bg_grad_color(barra, COL_CARD_BG_BOT, 0);
-    lv_obj_set_style_bg_grad_dir(barra, LV_GRAD_DIR_VER, 0);
-    lv_obj_set_style_bg_opa(barra, LV_OPA_COVER, 0);
-    paleta_borde_auto(barra, COL_BORDER_BAT);
-    lv_obj_set_style_border_width(barra, 2, 0);
-    lv_obj_set_style_border_side(barra, LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT |
-                                        LV_BORDER_SIDE_RIGHT, 0);
-    lv_obj_set_style_radius(barra, 10, 0);
-    lv_obj_set_style_pad_all(barra, 4, 0);
-    lv_obj_clear_flag(barra, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(barra, LV_OBJ_FLAG_EVENT_BUBBLE);
-    lv_obj_add_flag(barra, LV_OBJ_FLAG_HIDDEN);   /* la barra ya no se usa: su alto se lo queda el GPS */
-    s_bat_card = barra;
-
-    /* Y el palo, debajo y en el medio. */
-    lv_obj_t *palo = lv_obj_create(grid);
-    lv_obj_add_flag(palo, LV_OBJ_FLAG_IGNORE_LAYOUT);
-    lv_obj_set_pos(palo, BAT_STEM_X, BAT_STEM_Y);
-    lv_obj_set_size(palo, BAT_STEM_W, BAT_STEM_H);
-    lv_obj_set_style_bg_color(palo, COL_CARD_BG_BOT, 0);
-    lv_obj_set_style_bg_opa(palo, LV_OPA_COVER, 0);
-    paleta_borde_auto(palo, COL_BORDER_BAT);
-    lv_obj_set_style_border_width(palo, 2, 0);
-    /* BORDE COMPLETO. Estaba abierto por arriba para que la junta con la barra
-     * de la T no se viera; al desaparecer la barra (su alto se lo quedo el GPS)
-     * ese hueco se quedaba abierto y la tarjeta se veia como una U -- el
-     * usuario: "falta el marco de la T, solo sale en la parte inferior con
-     * forma de U". Ahora es una tarjeta cerrada. */
-    lv_obj_set_style_border_side(palo, LV_BORDER_SIDE_FULL, 0);
-    lv_obj_set_style_radius(palo, 10, 0);
-    lv_obj_set_style_pad_all(palo, 4, 0);
-    lv_obj_clear_flag(palo, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(palo, LV_OBJ_FLAG_EVENT_BUBBLE);
-
-    /* --- GPS: de momento SOLO EL MARCO ------------------------------------
-     *
-     * Va vacio a proposito: aqui iran la velocidad real, los satelites, los
-     * kilometros del viaje y el tiempo de conduccion, y esos datos HOY NO
-     * LLEGAN (el protocolo con la P4 solo manda el estado del GPS; ver
-     * mini_proto.h). Se reserva el sitio ya para que el reparto de la pantalla
-     * no haya que rehacerlo cuando lleguen.
-     *
-     * El titulo y el color son provisionales: cuando tenga contenido, este
-     * marco se cambia por una tarjeta de verdad. El gris es a proposito, para
-     * que se vea que esta sin estrenar y no parezca una tarjeta rota. */
-    s_gps_card = make_card(grid, COL_BORDER_BAT, "BATERIA", 0, 3, 0,
+     * Antes eran dos rectangulos pegados en forma de T (barra + palo) y el
+     * contenido se repartia entre ellos con lv_obj_set_parent. Con la velocidad
+     * fuera de la pantalla, el palo se quedaba vacio: se quito la T y esto es la
+     * tarjeta de siempre, con los numeros a la izquierda, el dibujo en medio y
+     * MOTOR a la derecha. */
+    s_gps_card = make_card(grid, COL_BORDER_BAT, "BATERIA", 0, 2, 0,
                            &s_bat_dot, true, &lv_font_montserrat_20);
-
-    /* La velocidad, CENTRADA y en grande (letra 48, la mayor que trae LVGL).
-     * Debajo y en gris, la unidad. Hoy pone "--": la P4 no manda la velocidad
-     * todavia -- su GPS no la saca del NMEA y el protocolo no tiene el campo.
-     * El sitio se reserva ya para que cuando llegue no haya que rehacer nada. */
-    s_gps_vel = lv_label_create(s_gps_card);
-    /* DEMO DE LA VELOCIDAD (9-oct-2026): la velocidad no llega todavia (la P4
-     * no la manda: su GPS no la saca del NMEA y el protocolo no tiene el
-     * campo), asi que se simula una subida de 0 a 118 para poder juzgar el
-     * tamano de la letra y el sitio del numero con un valor que se mueve.
-     * Poner VELOCIDAD_DEMO a 0 y borrar el temporizador cuando llegue el dato
-     * de verdad. */
-    lv_label_set_text(s_gps_vel, "0");
-#if VELOCIDAD_DEMO
-    lv_timer_create(vel_demo_cb, 600, NULL);
-#endif
-    lv_obj_set_style_text_font(s_gps_vel, &lv_font_montserrat_bold_144, 0);
-    lv_obj_set_style_text_color(s_gps_vel, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_clear_flag(s_gps_vel, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_gps_vel, LV_ALIGN_CENTER, 0, -10);
-
-    lv_obj_t *gps_u = lv_label_create(s_gps_card);
-    lv_label_set_text(gps_u, "km/h");
-    lv_obj_set_style_text_font(gps_u, &lv_font_montserrat_26, 0);
-    lv_obj_set_style_text_color(gps_u, lv_color_hex(0x888888), 0);
-    lv_obj_clear_flag(gps_u, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(gps_u, LV_ALIGN_CENTER, 0, 40);
 
     /* El dibujo va CENTRADO en la tarjeta y es el protagonista: los voltios y
      * amperios a su izquierda, la bateria del motor a su derecha.
@@ -1588,7 +1487,7 @@ void view_info_create(lv_obj_t *parent)
      * Ahora se calcula a partir del alto de la tarjeta (BAT_CARD_H, definida
      * junto a la rejilla en view_info_create): el bloque dibujo+bornes se
      * centra en el hueco que queda POR DEBAJO del titulo. */
-    lv_obj_t *dib = make_bateria_dibujo(palo);
+    lv_obj_t *dib = make_bateria_dibujo(s_gps_card);
     lv_obj_align(dib, LV_ALIGN_CENTER, 0, 4);
 
     /* Numero y UNIDAD van en etiquetas separadas, y no en un solo texto, para que
@@ -1596,7 +1495,7 @@ void view_info_create(lv_obj_t *parent)
      * hueco fijo, asi que crece hacia la izquierda y la unidad se queda clavada.
      * Juntos, "9.99 V" y "13.43 V" dejaban la V en sitios distintos y bailaba
      * cada vez que la tension cruzaba una decena. */
-    s_bat_volt = lv_label_create(s_bat_card);
+    s_bat_volt = lv_label_create(s_gps_card);
     lv_label_set_text(s_bat_volt, "--");
     lv_obj_set_style_text_color(s_bat_volt, COL_TEXT, 0);
     lv_obj_set_style_text_font(s_bat_volt, &lv_font_montserrat_32, 0);
@@ -1605,14 +1504,14 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_clear_flag(s_bat_volt, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(s_bat_volt, LV_ALIGN_LEFT_MID, 30, 0);   /* -- V, a la izquierda */
 
-    lv_obj_t *u_v = lv_label_create(s_bat_card);
+    lv_obj_t *u_v = lv_label_create(s_gps_card);
     lv_label_set_text(u_v, "V");
     paleta_texto(u_v, 0xCCCCCC, 0xFFFFFF);
     lv_obj_set_style_text_font(u_v, &lv_font_montserrat_24, 0);
     lv_obj_clear_flag(u_v, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(u_v, LV_ALIGN_LEFT_MID, 146, 4);
 
-    s_bat_amp = lv_label_create(s_bat_card);
+    s_bat_amp = lv_label_create(s_gps_card);
     lv_label_set_text(s_bat_amp, "");    lv_obj_set_style_text_color(s_bat_amp, COL_TEXT, 0);
     /* Mismo tamano que los voltios: los dos son el dato principal de su lado. */
     lv_obj_set_style_text_font(s_bat_amp, &lv_font_montserrat_32, 0);
@@ -1621,7 +1520,7 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_clear_flag(s_bat_amp, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(s_bat_amp, LV_ALIGN_LEFT_MID, 200, 0);  /* -- A, detras */
 
-    s_bat_amp_u = lv_label_create(s_bat_card);
+    s_bat_amp_u = lv_label_create(s_gps_card);
     lv_label_set_text(s_bat_amp_u, "A");
     paleta_texto(s_bat_amp_u, 0xCCCCCC, 0xFFFFFF);
     lv_obj_set_style_text_font(s_bat_amp_u, &lv_font_montserrat_24, 0);
@@ -1634,7 +1533,7 @@ void view_info_create(lv_obj_t *parent)
      * queda centrado sobre el numero SEA CUAL SEA su ancho -- y cambia, que no
      * es lo mismo "9.99 V" que "12.66 V". A mano habria que reajustarlo cada
      * vez que el valor cruza una decena. */
-    lv_obj_t *col_motor = lv_obj_create(s_bat_card);
+    lv_obj_t *col_motor = lv_obj_create(s_gps_card);
     lv_obj_set_size(col_motor, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(col_motor, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(col_motor, 0, 0);
@@ -1664,37 +1563,24 @@ void view_info_create(lv_obj_t *parent)
      * izquierda porque ahi ya esta el punto de enlace de la tarjeta (12 px de
      * punto + su margen). A la izquierda no cabe: ese hueco lo ocupa el icono
      * del GPS de la P4, que va en la pantalla, no en la tarjeta. */
-    al_icono_crear(palo, AL_INFO_BATERIA, LV_ALIGN_TOP_RIGHT, -6, 2);
+    al_icono_crear(s_gps_card, AL_INFO_BATERIA, LV_ALIGN_TOP_RIGHT, -6, 2);
     /* La tarjeta entera silencia. Va con EVENT_BUBBLE para que el toque suba
      * desde el dibujo y los numeros, que son objetos hijos (mismo patron que
      * usan los botones de la card camper). */
-    lv_obj_add_flag(s_bat_card, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(s_bat_card, al_card_cb_alarma, LV_EVENT_CLICKED,
+    /* El toque va en la tarjeta que SE VE: antes apuntaba a la barra de la T,
+     * que esta oculta desde el cambio de contenido del 9-oct -- o sea que el
+     * icono se veia pero callar la alarma tocando la tarjeta no hacia nada. */
+    lv_obj_add_flag(s_gps_card, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_gps_card, al_card_cb_alarma, LV_EVENT_CLICKED,
                         (void *)(intptr_t)AL_INFO_BATERIA);
 
-    /* ══ INTERCAMBIO DEL CONTENIDO DE LAS DOS TARJETAS (9-oct-2026) ═════════
+    /* EL CONTENIDO VA DIRECTO EN LA TARJETA (14-oct-2026).
      *
-     * Pedido del usuario: "mantienes la posicion y dimensiones de las cards e
-     * intercambias el contenido de gps y bateria, SOLO el contenido". Y despues:
-     * "la bateria en medio, -- V -- A a la izquierda y MOTOR -- a la derecha".
-     *
-     * O sea: el marco de ARRIBA (que era el de GPS) pasa a llevar la BATERIA
-     * --los numeros a la izquierda, el dibujo en medio y MOTOR a la derecha, la
-     * tarjeta de siempre-- y la barra y el palo se quedan con el GPS (la
-     * velocidad).
-     *
-     * Se hace con lv_obj_set_parent() y no reconstruyendo: los objetos ya estan
-     * creados con sus estilos y sus eventos, y reparentarlos no los toca. Solo
-     * hay que recolocarlos dentro de su caja nueva, que es lo de abajo. */
-    lv_obj_set_parent(s_bat_volt,   s_gps_card);
-    lv_obj_set_parent(u_v,          s_gps_card);
-    lv_obj_set_parent(s_bat_amp,    s_gps_card);
-    lv_obj_set_parent(s_bat_amp_u,  s_gps_card);
-    lv_obj_set_parent(col_motor,    s_gps_card);
-    lv_obj_set_parent(dib,          s_gps_card);
-    lv_obj_set_parent(s_gps_vel,    palo);
-    lv_obj_set_parent(gps_u,        palo);
-
+     * Aqui hubo un INTERCAMBIO de contenido entre dos marcos (9-oct): los
+     * numeros de la bateria subieron a la tarjeta de arriba y la velocidad se
+     * fue al "palo" de la T. Con la velocidad fuera de la pantalla, el palo se
+     * queda vacio, asi que se quita la T entera (barra y palo) y el contenido se
+     * crea ya en su sitio: nada de reparentar. */
     /* Ahora, cada uno en su caja nueva. El marco mide 800x183 y va a lo ancho:
      * numeros a la izquierda, dibujo CENTRADO y MOTOR a la derecha. */
     /* LOS DOS EN DOS LINEAS, a la izquierda: -- V arriba y -- A debajo
@@ -1706,21 +1592,11 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, 146, 29);
     lv_obj_align(col_motor,   LV_ALIGN_RIGHT_MID, -30, 0);
     lv_obj_align(dib,         LV_ALIGN_CENTER, 0, 10);
-    /* Y la velocidad, centrada en el palo (260x181). */
-    lv_obj_align(s_gps_vel, LV_ALIGN_CENTER, 0, -28);
-    lv_obj_align(gps_u,     LV_ALIGN_CENTER, 0, 74);
-
-    /* Rotulo de la tarjeta de abajo: el marco de arriba ya dice BATERIA, pero
-     * el palo no tenia titulo. */
-    /* El rotulo 'GPS' se quita: con la letra a 144 el numero se come el alto
-     * de la tarjeta y el titulo no cabe (pedido del usuario). */
-
-
     /* --- Abajo izquierda: aguas ------------------------------------------- */
-    make_water_cell(grid, 0, 1, 2);
+    make_water_cell(grid, 0, 1, 1);
 
     /* --- Abajo derecha: las dos temperaturas juntas ----------------------- */
-    lv_obj_t *temp_card = make_card(grid, COL_BORDER_COLD, "TEMPERATURAS", 2, 1, 2, NULL, true,
+    lv_obj_t *temp_card = make_card(grid, COL_BORDER_COLD, "TEMPERATURAS", 1, 1, 1, NULL, true,
                                        &lv_font_montserrat_20);
     /* El valor del frigo va en un hueco fijo y la flecha al borde: asi la
      * flecha no se mueve cuando el numero cambia de ancho ("-5.0" contra
