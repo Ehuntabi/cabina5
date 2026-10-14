@@ -467,10 +467,52 @@ static bool IRAM_ATTR bsp_rgb_vsync_cb(esp_lcd_panel_handle_t panel,
 
 /* LVGL dibuja DIRECTAMENTE en los framebuffers del panel (pantalla completa),
  * y el driver copia de ahi al bounce buffer por el que va el barrido. */
+#if PANTALLA_GIRADA_180
+/* GIRA UN TROZO 180 GRADOS, EN EL SITIO.
+ *
+ * POR QUE HAY QUE GIRARLO AQUI Y NO BASTA CON lv_display_set_rotation()
+ * (16-oct-2026, el usuario: "sigue como antes"): en LVGL 9 esa funcion solo
+ * APUNTA la rotacion en el display (y con ella gira las coordenadas del tactil,
+ * lv_indev.c); los PIXELES los tiene que girar quien hace el flush. Los ports
+ * (lvgl_port_add_disp_rgb) lo hacen ellos, pero esta placa NO usa ese camino
+ * --tiene su propio flush, ver el comentario de arriba-- asi que la rotacion se
+ * quedaba en el apunte y en la pantalla no cambiaba nada.
+ *
+ * Se gira por parejas de pixeles (el (0,0) con el (w-1,h-1)) para no necesitar
+ * ni un byte mas de memoria. Son 16 bits por pixel porque el formato es RGB565
+ * (intercambiar unidades de 16 bits no toca el orden de bytes dentro del pixel,
+ * que es como lo espera el panel). */
+static void girar_180_inplace(uint16_t *px, int w, int h)
+{
+    for (int y = 0; y < h; y++) {
+        uint16_t *fa = px + (size_t)y * (size_t)w;
+        uint16_t *fb = px + (size_t)(h - 1 - y) * (size_t)w;
+        for (int x = 0; x < w; x++) {
+            int x2 = w - 1 - x;
+            if (y > h - 1 - y || (y == h - 1 - y && x >= x2)) return;  /* ya intercambiado */
+            uint16_t t = fa[x];
+            fa[x] = fb[x2];
+            fb[x2] = t;
+        }
+    }
+}
+#endif
+
 static void bsp_lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
+#if PANTALLA_GIRADA_180
+    /* El area que pide LVGL viene en coordenadas de la UI; la del panel es la
+     * girada (lv_display_rotate_area, que es la misma cuenta que hace el port).
+     * Y los pixeles, girados aqui (ver arriba). */
+    lv_area_t a = *area;
+    lv_display_rotate_area(disp, &a);
+    girar_180_inplace((uint16_t *)px_map,
+                      (int)lv_area_get_width(area), (int)lv_area_get_height(area));
+    esp_lcd_panel_draw_bitmap(s_rgb_panel, a.x1, a.y1, a.x2 + 1, a.y2 + 1, px_map);
+#else
     esp_lcd_panel_draw_bitmap(s_rgb_panel, area->x1, area->y1,
                               area->x2 + 1, area->y2 + 1, px_map);
+#endif
     lv_display_flush_ready(disp);
     s_refrescos++;
 }
