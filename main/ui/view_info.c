@@ -1768,18 +1768,20 @@ void view_info_create(lv_obj_t *parent)
      * "Exterior" le quedaban 5 px de aire con "Vent." y se leian como una sola
      * cosa. Primero subieron 8 y 12; el usuario pidio "un poco mas" y suben
      * otros 6, SIN tocar la separacion entre ellas (40 px, que la dio por
-     * buena). La flecha de tendencia de cada fila va SIEMPRE 22 px por debajo de
+     * buena), y el 16-oct por la tarde SOLO Frigo otros 4 ("solo Frigo valor y
+     * tendencia unos pixeles para arriba"): se queda en 34 con su flecha en 56,
+     * 4 px mas cerca de Exterior, que no se toca. La flecha de tendencia de cada fila va SIEMPRE 22 px por debajo de
      * su valor (patron de toda la tarjeta), asi que sube con el. */
-    s_frigo_val = make_fila_dato(temp_card, "Frigo", &lv_font_montserrat_32, 38);
+    s_frigo_val = make_fila_dato(temp_card, "Frigo", &lv_font_montserrat_32, 34);
     lv_obj_set_width(s_frigo_val, TEMP_NUM_W);
     lv_obj_set_style_text_align(s_frigo_val, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(s_frigo_val, LV_ALIGN_TOP_RIGHT, -26, 38);
+    lv_obj_align(s_frigo_val, LV_ALIGN_TOP_RIGHT, -26, 34);
 
     s_frigo_trend = lv_label_create(temp_card);
     lv_label_set_text(s_frigo_trend, "");
     lv_obj_set_style_text_font(s_frigo_trend, &lv_font_montserrat_20, 0);
     lv_obj_clear_flag(s_frigo_trend, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_frigo_trend, LV_ALIGN_TOP_RIGHT, 0, 60);
+    lv_obj_align(s_frigo_trend, LV_ALIGN_TOP_RIGHT, 0, 56);
 
     s_ext_val   = make_fila_dato(temp_card, "Exterior", &lv_font_montserrat_32, 78);
     lv_obj_set_width(s_ext_val, TEMP_NUM_W);
@@ -1817,7 +1819,15 @@ void view_info_create(lv_obj_t *parent)
      * tarjeta por su cuenta: asi quedan a la misma altura pase lo que pase
      * con el alto exacto de cada una, sin ajustar offsets a ojo. */
     s_frigo_fan_track = lv_obj_create(temp_card);
-    lv_obj_set_size(s_frigo_fan_track, ESC(120), ESC(14));
+    /* 64x10 y no 120x14 (16-oct-2026, el usuario: "la tira de velocidad de Vent
+     * podria hacerse mas pequeña, no hace falta tanta precision, y quiero evitar
+     * que se ponga justo debajo del valor y tendencia de la temperatura
+     * exterior"). Con 120 px la barra llegaba hasta x=160, o sea justo debajo de
+     * la columna del valor de Exterior (que empieza en 162): con 64 se queda en
+     * la mitad izquierda, debajo del rotulo "Exterior" y lejos de su numero.
+     * De paso, al ser mas fina deja mas aire por encima. Para saber si el
+     * ventilador va a medio gas o a tope sobra con esto: no es un instrumento. */
+    lv_obj_set_size(s_frigo_fan_track, ESC(64), ESC(10));
     lv_obj_set_style_bg_color(s_frigo_fan_track, lv_color_hex(0x333333), 0);
     lv_obj_set_style_bg_opa(s_frigo_fan_track, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_frigo_fan_track, 0, 0);
