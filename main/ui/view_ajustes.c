@@ -12,7 +12,6 @@
  */
 #include "view_ajustes.h"
 #include "estilos.h"   /* la escala de fuentes y el ancho de columna */
-#include "../brillo.h"
 #include "view_info.h"
 #include "nav.h"       /* nav_close_ajustes(): salir de esta pantalla */
 #include "../net/udp_rx.h"
@@ -35,7 +34,6 @@ static lv_obj_t *s_wifi;
 
 static lv_obj_t *s_ver_lbl;
 static lv_obj_t *s_ssid_ta;
-static lv_obj_t *s_brillo_lbl;   /* texto del boton de brillo/contraste */
 static lv_obj_t *s_enlace;        /* estado del enlace con la P4 */
 static lv_timer_t *s_enlace_timer;
 static lv_obj_t *s_pass_ta;
@@ -188,21 +186,14 @@ static void enlace_timer_cb(lv_timer_t *t)
     }
 }
 
-/* Cambia SOLO el brillo, y actualiza el texto del boton.
+/* (aqui vivia brillo_btn_cb, el boton de brillo del menu: quitado el 16-oct-2026)
  *
- * Ya no toca el contraste (9-oct-2026): iban juntos -- 100 % ponia la pantalla
- * de datos en blanco y negro y el nivel bajo la dejaba en color -- y el usuario
- * lo vivio como que el brillo "es o encendido o apagado" en vez de dos niveles
- * del mismo cuadro. El color es siempre el mismo; ver view_info.c. */
-static void brillo_btn_cb(lv_event_t *e)
-{
-    (void)e;
-    uint8_t nivel = brillo_alternar();
-    if (s_brillo_lbl) {
-        lv_label_set_text_fmt(s_brillo_lbl, LV_SYMBOL_EYE_OPEN "   Brillo: %u%%",
-                              (unsigned)nivel);
-    }
-}
+ * El brillo se cambia con el DOBLE TOQUE en la pantalla de datos (y con el
+ * toque largo, que es lo que sale a la primera): los dos llaman a
+ * brillo_alternar() y alternan los dos niveles de brillo.h (85 % y 100 %). El
+ * boton existia porque el gesto no se descubre solo, pero en el menu sobraba.
+ * OJO: si algun dia se quita tambien el gesto, el brillo se queda sin forma de
+ * cambiarse en marcha. */
 
 static void wifi_back_cb(lv_event_t *e)
 {
@@ -377,20 +368,9 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(wlbl, &lv_font_montserrat_30, 0);
     lv_obj_center(wlbl);
 
-    /* Brillo. Existe porque el doble toque de la pantalla de datos no sale a la
-     * primera: aqui hay un boton y se acabaron las peripecias. Cambia SOLO la
-     * luz (ya no el contraste, ver brillo_btn_cb). 30-sep-2026. */
-    lv_obj_t *bbtn = lv_btn_create(s_menu);
-    lv_obj_set_size(bbtn, lv_pct(100), 110);
-    lv_obj_set_flex_grow(bbtn, 1);
-    lv_obj_set_style_bg_color(bbtn, lv_color_hex(0x37474F), 0);
-    lv_obj_add_event_cb(bbtn, brillo_btn_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *blbl = lv_label_create(bbtn);
-    lv_label_set_text_fmt(blbl, LV_SYMBOL_EYE_OPEN "   Brillo: %u%%",
-                          (unsigned)brillo_nivel());
-    lv_obj_set_style_text_font(blbl, &lv_font_montserrat_28, 0);
-    lv_obj_center(blbl);
-    s_brillo_lbl = blbl;
+    /* AQUI ESTABA EL BOTON DE BRILLO ("Brillo: 85 %" / "100 %"). El usuario lo
+     * mando quitar el 16-oct-2026: el brillo se cambia con el doble toque (y el
+     * toque largo) en la pantalla de datos, que es donde se esta mirando. */
 
     /* AQUI ESTABA EL BOTON "Ver todas las pantallas" (modo paseo). El usuario lo
      * mando quitar el 16-oct-2026: es una herramienta de taller y en el menu de
