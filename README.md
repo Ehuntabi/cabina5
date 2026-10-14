@@ -259,6 +259,10 @@ export IDF_TARGET=esp32s3
 . ~/.espressif/esp-idf-5.5/export.sh
 export PATH="$HOME/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/bin:$PATH"
 cd ~/joint/cabina5
+# LO COMODO: graba y ADEMAS comprueba que esta version este publicada
+scripts/grabar.sh                 # (usa /dev/ttyUSB0 y graba las DOS mitades de la OTA)
+
+# a mano, sin comprobaciones:
 idf.py -p /dev/ttyUSB0 flash monitor    # esta placa es la S3 por CH340
 ```
 

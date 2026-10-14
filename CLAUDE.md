@@ -80,3 +80,16 @@ que el primer arranque es una prueba, no una instalación.
 2. La UI, a 800×480 y con las fuentes por papel (16/20/24/28/32/40/48), en un
    fichero de estilo; nada de medidas sueltas por las vistas.
 3. `release.sh 0.1 "..."` para publicar la primera versión con su binario.
+
+## Grabar en la placa (16-oct-2026)
+
+Se graba con **`scripts/grabar.sh [puerto]`** (por defecto `/dev/ttyUSB0`), que
+escribe las DOS mitades de la OTA (ota_0 en 0x20000 y ota_1 en 0x410000) y, antes
+de nada, comprueba que lo que se va a grabar este publicado: arbol limpio, tag de
+la version y Release en GitHub. Si falta algo, no graba y dice como arreglarlo.
+
+El motivo: el 16-oct-2026 la P4 del banco estaba grabada con la v4.38 y en GitHub
+la ultima Release era la v4.37. Grabar es local e instantaneo; publicar depende de
+acordarse de lanzar `release.sh`. Que grabar EXIJA estar publicado es lo unico que
+cierra ese hueco. Para pruebas en el banco con algo sin publicar:
+`GRABAR_SIN_PUBLICAR=1 scripts/grabar.sh`.
