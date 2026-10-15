@@ -37,3 +37,15 @@ const char *diag_reset_resumen(void);
  * solo en el log. Esto los saca a la pantalla de Ajustes, siempre.
  * Devuelve "" solo si nadie llamo a diag_reset_anotar_arranque(). */
 const char *diag_reset_motivo_arranque(void);
+
+/* SEGUNDOS QUE LLEVA EN MARCHA esta vez (misma cuenta que el latido, ver
+ * heartbeat_task), y el mismo dato en texto para la pantalla de Ajustes:
+ * "12 min", "2 h 5 min", "3 dias"...
+ *
+ * Para que sirve (16-oct-2026): la linea de Ajustes dice POR QUE arranco, y con
+ * esto se ve ADEMAS si ha vuelto a arrancar desde la ultima vez que se miro --
+ * sin PC, sin log y sin abrir el puerto serie. En el banco la pantalla se
+ * reiniciaba por el cable USB y hacia falta justo eso. */
+uint32_t diag_reset_segundos(void);
+const char *diag_reset_hace_texto(void);
+

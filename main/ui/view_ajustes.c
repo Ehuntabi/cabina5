@@ -35,6 +35,7 @@ static lv_obj_t *s_wifi;
 static lv_obj_t *s_ver_lbl;
 static lv_obj_t *s_ssid_ta;
 static lv_obj_t *s_enlace;        /* estado del enlace con la P4 */
+static lv_obj_t *s_uptime_lbl;    /* cuanto lleva en marcha (ver diag_reset) */
 static lv_timer_t *s_enlace_timer;
 static lv_obj_t *s_pass_ta;
 static lv_obj_t *s_status_lbl;
@@ -230,6 +231,18 @@ static void enlace_timer_cb(lv_timer_t *t)
     (void)t;
     if (!s_enlace || lv_obj_has_flag(s_enlace, LV_OBJ_FLAG_HIDDEN)) return;
     if (!lv_obj_is_visible(s_enlace)) return;
+
+    /* Y de paso, cuanto lleva en marcha: es lo que deja ver de un vistazo si la
+     * pantalla ha vuelto a arrancar desde la ultima vez que se miro (16-oct-2026,
+     * en el banco se reiniciaba por el cable USB). Solo se toca el texto cuando
+     * cambia de verdad -- cada minuto, no cada segundo. */
+    if (s_uptime_lbl) {
+        char nuevo[24];
+        snprintf(nuevo, sizeof(nuevo), "En marcha: %s", diag_reset_hace_texto());
+        if (strcmp(lv_label_get_text(s_uptime_lbl), nuevo) != 0) {
+            lv_label_set_text(s_uptime_lbl, nuevo);
+        }
+    }
 
     char ssid[33] = {0};
     bool asociado = false;
@@ -532,6 +545,16 @@ void view_ajustes_create(lv_obj_t *parent)
             lv_obj_set_style_text_font(vmot, &lv_font_montserrat_16, 0);
         }
     }
+
+    /* CUANTO LLEVA EN MARCHA, siempre y en gris (16-oct-2026). Se actualiza sola
+     * con el temporizador del enlace (1 s, y solo con la pantalla visible). Si
+     * pone "En marcha: 2 min" cuando hace un rato ponia "1 h 10 min", es que ha
+     * arrancado otra vez: sin PC, sin log y sin tocar el puerto serie. */
+    s_uptime_lbl = lv_label_create(vcard);
+    lv_label_set_text_fmt(s_uptime_lbl, "En marcha: %s", diag_reset_hace_texto());
+    lv_obj_set_style_text_align(s_uptime_lbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(s_uptime_lbl, lv_color_hex(0x90A4AE), 0);
+    lv_obj_set_style_text_font(s_uptime_lbl, &lv_font_montserrat_16, 0);
 
     /* ── El formulario del WI-FI ─────────────────────────────────────────── */
     s_wifi = lv_obj_create(parent);

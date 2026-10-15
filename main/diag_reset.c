@@ -11,6 +11,7 @@
 
 #include "esp_system.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "nvs.h"
 
 static const char *TAG = "diag_reset";
@@ -129,6 +130,28 @@ void diag_reset_marcar_sw(const char *por_que)
 }
 
 bool        diag_reset_fue_fallo(void) { return s_fallo; }
+
+uint32_t diag_reset_segundos(void)
+{
+    return (uint32_t)(esp_timer_get_time() / 1000000ULL);
+}
+
+static char s_hace[32];
+const char *diag_reset_hace_texto(void)
+{
+    uint32_t s = diag_reset_segundos();
+    if (s < 60) {
+        snprintf(s_hace, sizeof(s_hace), "%lu s", (unsigned long)s);
+    } else if (s < 3600) {
+        snprintf(s_hace, sizeof(s_hace), "%lu min", (unsigned long)(s / 60));
+    } else if (s < 86400) {
+        snprintf(s_hace, sizeof(s_hace), "%lu h %lu min",
+                 (unsigned long)(s / 3600), (unsigned long)((s % 3600) / 60));
+    } else {
+        snprintf(s_hace, sizeof(s_hace), "%lu dias", (unsigned long)(s / 86400));
+    }
+    return s_hace;
+}
 
 const char *diag_reset_motivo_arranque(void) { return s_anotado ? s_motivo : ""; }
 
