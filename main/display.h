@@ -32,8 +32,13 @@
 
 /* ── LA PANTALLA, GIRADA 180 GRADOS (16-oct-2026) ───────────────────────────
  *
- * El soporte que ha preparado el usuario obliga a montar la pantalla al reves,
- * asi que lo que se dibuja tiene que ir girado media vuelta. Se hace con la
+ * AHORA MISMO A 0: el usuario rehizo el soporte para que la pantalla quede SIN
+ * girar, asi que se vuelve a la orientacion de siempre. El codigo se queda (el
+ * giro del flush, ver esp_bsp.c) porque cambiar el soporte otra vez es poner
+ * esto a 1 -- y ya esta probado en la placa: 24 fps, 39 Hz y el tactil fino.
+ *
+ * El caso que lo motivo: el soporte obligaba a montarla al reves, asi que lo que
+ * se dibuja tenia que ir girado media vuelta. Se hace con la
  * rotacion de LVGL, que en la version 9 gira LAS DOS COSAS: la imagen (al
  * volcar cada trozo al panel) y las COORDENADAS DEL TACTIL (lv_indev.c mira la
  * rotacion del display antes de repartir el evento), asi que no hay que tocar
@@ -48,7 +53,7 @@
  * Todo el diseño de la UI (posiciones, tarjetas, gestos) sigue igual: esto es
  * una vuelta a la imagen entera, no un rediseño. Para volver a la orientacion de
  * siempre, poner el 1 en 0. */
-#define PANTALLA_GIRADA_180     1
+#define PANTALLA_GIRADA_180     0
 
 /* Nombres que espera la aplicacion portada del satelite de 3,5" (alli el BSP
  * los llamaba asi). Se mantienen para no tocar la app en 30 sitios. */
