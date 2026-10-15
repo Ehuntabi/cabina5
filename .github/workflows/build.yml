@@ -108,6 +108,8 @@ jobs:
                    main/net/udp_rx.c \
                    main/data_model.c \
                    main/data_model.h \
+                   main/diag_reset.c \
+                   main/diag_reset.h \
                    main/reloj.c \
                    main/reloj.h \
                    main/net/mini_proto.h \

@@ -20,6 +20,7 @@ static const char *TAG = "diag_reset";
 #define K_SW_POR "sw_por"
 
 static bool     s_fallo;
+static bool     s_anotado;              /* ya se leyo el motivo del arranque */
 static char     s_motivo[48] = "";
 static uint32_t s_veces;
 
@@ -72,6 +73,7 @@ void diag_reset_anotar_arranque(void)
     esp_reset_reason_t r = esp_reset_reason();
     s_fallo = es_fallo(r);
     snprintf(s_motivo, sizeof(s_motivo), "%s", texto(r));
+    s_anotado = true;
 
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) {
@@ -127,6 +129,8 @@ void diag_reset_marcar_sw(const char *por_que)
 }
 
 bool        diag_reset_fue_fallo(void) { return s_fallo; }
+
+const char *diag_reset_motivo_arranque(void) { return s_anotado ? s_motivo : ""; }
 
 static char s_resumen[96];
 const char *diag_reset_resumen(void)

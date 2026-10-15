@@ -515,6 +515,22 @@ void view_ajustes_create(lv_obj_t *parent)
         lv_obj_set_style_text_align(vrein, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_color(vrein, lv_color_hex(0xE57373), 0);
         lv_obj_set_style_text_font(vrein, &lv_font_montserrat_16, 0);
+    } else {
+        /* SI EL ARRANQUE NO FUE UN FALLO, SE DICE IGUAL (16-oct-2026, el
+         * usuario: "si, en configuracion"). Un BAJON DE TENSION o un RESET POR
+         * EL CABLE USB no cuentan como fallo (es_fallo() los deja fuera a
+         * proposito: en la autocaravana el arranque del motor hunde la tension),
+         * asi que no salian en ninguna pantalla -- y son justo lo que hay que
+         * ver cuando la pantalla parece reiniciarse sola. En gris y pequenito:
+         * informa sin dar la alarma que da el chivato rojo de arriba. */
+        const char *motivo = diag_reset_motivo_arranque();
+        if (motivo && motivo[0]) {
+            lv_obj_t *vmot = lv_label_create(vcard);
+            lv_label_set_text_fmt(vmot, "Arranque: %s", motivo);
+            lv_obj_set_style_text_align(vmot, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_style_text_color(vmot, lv_color_hex(0x90A4AE), 0);
+            lv_obj_set_style_text_font(vmot, &lv_font_montserrat_16, 0);
+        }
     }
 
     /* ── El formulario del WI-FI ─────────────────────────────────────────── */

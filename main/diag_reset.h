@@ -27,3 +27,13 @@ bool diag_reset_fue_fallo(void);   /* el arranque anterior no lo provoco el cont
  * liberar). Devuelve "" si el ultimo arranque fue normal: quien la use debe
  * preguntar antes por diag_reset_fue_fallo(). */
 const char *diag_reset_resumen(void);
+
+/* POR QUE ARRANCO ESTA VEZ, en castellano llano, pase lo que pase (16-oct-2026,
+ * lo pidio el usuario: "si, en configuracion").
+ *
+ * diag_reset_resumen() solo habla de FALLOS, y hay dos motivos que no lo son y
+ * que son justo los que se quieren ver cuando la pantalla parece reiniciarse
+ * sola: un BAJON DE TENSION y un RESET POR EL CABLE USB. Los dos se quedaban
+ * solo en el log. Esto los saca a la pantalla de Ajustes, siempre.
+ * Devuelve "" solo si nadie llamo a diag_reset_anotar_arranque(). */
+const char *diag_reset_motivo_arranque(void);
