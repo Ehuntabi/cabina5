@@ -311,8 +311,10 @@ cambiar la escala entera es tocar **un fichero**.
 
 ## La pantalla se puede montar girada 180 grados
 
-`main/display.h` tiene `PANTALLA_GIRADA_180` (hoy a **1**): el soporte de la
-autocaravana obliga a montarla al revés, así que la imagen va girada media vuelta.
+`main/display.h` tiene `PANTALLA_GIRADA_180`, **hoy a 0**: el soporte pedía
+montarla al revés y la imagen iba girada media vuelta, pero el dueño rehizo el
+soporte para que quede sin girar, así que se volvió a la orientación de siempre.
+Ponerlo a 1 la gira otra vez (el código del giro se queda, y está probado).
 Se hace con la rotación de LVGL, que en la versión 9 gira **las dos cosas**: lo que
 se dibuja y las **coordenadas del táctil** (`lv_indev.c` mira la rotación del
 display), así que no hay que tocar el GT911.
