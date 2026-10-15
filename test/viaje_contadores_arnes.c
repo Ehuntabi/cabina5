@@ -18,10 +18,13 @@ typedef struct {
     uint16_t viaje_minutos;
 } destino_t;
 
-/* El 't' del ordenador de viaje de la P4: solo los dos campos que se mandan. */
+/* El 't' del ordenador de viaje de la P4: los campos que se miran al mandar los
+ * contadores. 'active' es el que distingue "viaje en marcha" de "sin viaje" (y
+ * por eso el codigo real manda el centinela 0xFFFF en vez de ceros). */
 typedef struct {
     double  km;
     int64_t seconds_driving;
+    bool    active;
 } viaje_t;
 
 static mini_msg_t src;
@@ -45,7 +48,7 @@ static int fallos = 0, pruebas = 0;
 static void caso(const char *que, double km, int64_t seg,
                  uint16_t km_dec_esperado, uint16_t min_esperado)
 {
-    viaje_t t = { .km = km, .seconds_driving = seg };
+    viaje_t t = { .km = km, .seconds_driving = seg, .active = true };
     codifica(t);
     decodifica();
     pruebas++;
@@ -59,12 +62,30 @@ static void caso(const char *que, double km, int64_t seg,
     }
 }
 
+/* SIN VIAJE ABIERTO: centinela en los dos contadores (ver main). */
+static void caso_sin_viaje(void)
+{
+    viaje_t t = { .km = 1234.5, .seconds_driving = 7200, .active = false };
+    codifica(t);
+    decodifica();
+    pruebas++;
+    if (dst.viaje_km_decimas != MINI_NO_DATA_U16 || dst.viaje_minutos != MINI_NO_DATA_U16) {
+        printf("FALLO  %-46s -> %u dec / %u min (esperado 0xFFFF en los dos)\n",
+               "sin viaje abierto (active = false)",
+               dst.viaje_km_decimas, dst.viaje_minutos);
+        fallos++;
+    } else {
+        printf("ok     %-46s centinela 0xFFFF en los dos\n",
+               "sin viaje abierto (active = false)");
+    }
+}
+
 /* Lo que de verdad se juega este test: que el byte alto y el bajo no se crucen.
- * Si se cruzan, los dos numeros siguen "pareciendo" numeros (un viaje de 1200 km
- * se lee como 4920) y no salta nada hasta que se mira el cuaderno en casa. */
+ * Si se cruzan, los dos numeros siguen "pareciendo" numeros (un viaje de 1200,0 km
+ * se lee como 5.739,0 km) y no salta nada hasta que se mira el cuaderno en casa. */
 static void caso_bytes(const char *que, double km, int64_t seg)
 {
-    viaje_t t = { .km = km, .seconds_driving = seg };
+    viaje_t t = { .km = km, .seconds_driving = seg, .active = true };
     codifica(t);
     uint16_t km_dec = (uint16_t)((uint16_t)src.viaje_km_hi << 8 | (uint16_t)src.viaje_km_lo);
     decodifica();
@@ -114,6 +135,13 @@ int main(void)
     } else {
         printf("ok     el centinela 0xFFFF (sin viaje abierto) llega tal cual\n");
     }
+
+    /* SIN VIAJE ABIERTO: el codificador tiene que mandar el CENTINELA, no ceros.
+     * Esta rama no la tocaba ninguna prueba hasta el 16-oct-2026 (la extraccion
+     * empezaba dentro del if), asi que cambiarla por ceros -- y que la pantalla
+     * enseñe "0,0 km / 0:00" de un viaje que no existe, en vez de "--" -- pasaba
+     * el test en verde. */
+    caso_sin_viaje();
 
     /* Y el orden de los bytes, con los valores que se cruzan si se cambia. */
     caso_bytes("1200,0 km",     1200.0, 0);

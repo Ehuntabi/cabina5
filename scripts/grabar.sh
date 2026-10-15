@@ -15,19 +15,34 @@
 # script es el camino comodo para grabar, y comprueba antes:
 #
 #   1. que el arbol este limpio (nada sin commitear),
-#   2. que la version de esta copia (el tag, o el ultimo tag +0.1) TENGA tag,
-#   3. que ese tag TENGA Release publicada en GitHub,
+#   2. que HEAD este EXACTAMENTE en un tag v*.* (nada de adivinar versiones),
+#   3. que ese tag este en 'origin' y apuntando al MISMO commit,
+#   4. que haya 'gh' y que ese tag TENGA Release publicada en GitHub, con .bin,
 # y solo entonces compila y graba. Si algo falla, dice que falta y como
 # arreglarlo (./release.sh X.Y "mensaje"), y NO graba nada.
 #
-# Para grabar a proposito algo sin publicar (una prueba en el banco) esta
-# GRABAR_SIN_PUBLICAR=1, que salta los pasos 2 y 3 y AVISA de que lo que queda en
-# la placa no esta en GitHub.
+# El paso 2 es de la auditoria del 15-oct-2026: antes la version se sacaba con
+# `git describe` y, si habia commits por encima del ultimo tag, se le sumaba 0.1
+# a mano. Asi se podia grabar trabajo en curso con el nombre de una version que
+# NO existe (paso con la P4, que decia v4.42 mientras la Release era la v4.41).
 #
-# Uso:  scripts/grabar.sh [puerto] [--rapido]
-#         puerto    por defecto /dev/ttyUSB0 (la 5"; la P4 es ttyACM0)
-#         --rapido  sin compilar: graba el build/ que ya hay
-set -eu
+# Para grabar a proposito algo sin publicar (una prueba en el banco) estan
+# GRABAR_SIN_PUBLICAR=1 y el argumento --sin-publicar, que saltan las
+# comprobaciones de publicacion (tag en 'origin' y Release) y AVISAN EN ROJO de
+# que lo que queda en la placa no esta en GitHub. El paso 2 (estar en un tag) NO
+# se salta: lo que se graba tiene que poder nombrarse con un tag de verdad, o no
+# sabriamos ni que version es.
+#
+# Uso:  scripts/grabar.sh [puerto] [--rapido] [--sin-publicar]
+#         puerto         por defecto /dev/ttyUSB0 (la 5"; la P4 es ttyACM0)
+#         --rapido       sin compilar: graba el build/ que ya hay (y comprueba
+#                        que ese .bin sea mas nuevo que el fuente de main/)
+#         --sin-publicar igual que GRABAR_SIN_PUBLICAR=1
+#
+# `pipefail` esta a proposito: aqui hay DOS escrituras con esptool y la segunda
+# va por un `| tail -3`, que sin pipefail se comia el fallo y el script decia
+# "GRABADO" con media OTA escrita.
+set -euo pipefail
 
 AQUI="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$AQUI/.." && pwd)"
@@ -35,14 +50,52 @@ REPO_GH="Ehuntabi/cabina5"
 IDF_EXPORT="${IDF_EXPORT:-$HOME/.espressif/esp-idf-5.5/export.sh}"
 APP_BIN="build/cabina5.bin"
 
+# Colores para los avisos gordos: solo si la salida va a un terminal (si no, los
+# codigos de escape acabarian dentro del fichero de log). Vale cualquiera de los
+# dos canales: grabando desde la consola, stdout Y stderr son el terminal.
+if [ -t 1 ] || [ -t 2 ]; then ROJO=$'\033[1;31m'; NORMAL=$'\033[0m'; else ROJO=""; NORMAL=""; fi
+
 PUERTO="/dev/ttyUSB0"
 RAPIDO=0
+SIN_PUBLICAR=0
+VIA_SIN=""
+[ "${GRABAR_SIN_PUBLICAR:-0}" = "1" ] && { SIN_PUBLICAR=1; VIA_SIN="GRABAR_SIN_PUBLICAR=1"; }
 for a in "$@"; do
     case "$a" in
-        --rapido) RAPIDO=1 ;;
-        *) PUERTO="$a" ;;
+        --rapido)       RAPIDO=1 ;;
+        --sin-publicar) SIN_PUBLICAR=1
+                        VIA_SIN="${VIA_SIN:+$VIA_SIN y }--sin-publicar" ;;
+        *)              PUERTO="$a" ;;
     esac
 done
+
+# ── EL PUERTO TIENE QUE SER EL DE ESTA PLACA (16-oct-2026) ──────────────────
+#
+# Esto grababa a ciegas: con las placas conectadas, lanzar este script SIN
+# argumentos apuntaba a un puerto que en este banco es la P4 o la 3,5 pulgadas (USB-JTAG). Resultado: el
+# firmware de la 5 pulgadas acababa en la P4 o la 3,5 pulgadas (USB-JTAG), y eso no se ve hasta que
+# la pantalla no arranca. Aqui se comprueba la CLASE de puerto: la 5 pulgadas sale
+# como /dev/ttyUSB* y la P4 o la 3,5 pulgadas (USB-JTAG) como /dev/ttyACM*.
+#
+# Si algun dia se graba con otro adaptador, se salta a proposito con
+# GRABAR_PUERTO_RARO=1 (y queda dicho en el log).
+case "$PUERTO" in
+    /dev/ttyACM*)
+        if [ "${GRABAR_PUERTO_RARO:-0}" = "1" ]; then
+            echo "${ROJO}AVISO:${NORMAL} grabando en $PUERTO, que NO es un puerto"
+            echo "       de la 5 pulgadas (CH340). Lo has pedido tu con GRABAR_PUERTO_RARO=1."
+        else
+            echo "NO GRABO: $PUERTO no es el puerto de la 5 pulgadas (CH340)."
+            echo "          En este banco, la 5 pulgadas (adaptador CH340) es /dev/ttyUSB0"
+            echo "          y /dev/ttyACM* es la P4 o la 3,5 pulgadas (USB-JTAG)."
+            echo "          Grabar aqui metia el firmware en la placa que no es."
+            echo
+            echo "          Si es a proposito (otro adaptador), repite con"
+            echo "          GRABAR_PUERTO_RARO=1"
+            exit 1
+        fi
+        ;;
+esac
 
 cd "$REPO"
 
@@ -58,49 +111,102 @@ if [ -n "$SUCIO" ]; then
     exit 1
 fi
 
-# ── 2) la version de esta copia, con la regla del CMakeLists ────────────────
-DESC="$(git describe --tags --match 'v*.*' 2>/dev/null || true)"
-if [ -z "$DESC" ]; then
-    echo "NO GRABO: este arbol no tiene ningun tag v*.* del que sacar la version."
+# ── 2) la version de esta copia: HEAD tiene que estar EN un tag ─────────────
+# ANTES esto sacaba la version con `git describe` y, si habia commits por encima
+# del ultimo tag, le sumaba 0.1 a mano (y de ahi salia tambien el "vv1.7" del
+# 16-oct, por anadirle otra "v" al tag). Eso dejaba grabar trabajo en curso con
+# el nombre de una version que NO existe: paso con la P4, que decia v4.42
+# mientras la Release publicada era la v4.41. Ahora la version es el tag TAL
+# CUAL: o HEAD esta exactamente en uno, o no se graba.
+VER="$(git describe --tags --exact-match --match 'v*.*' 2>/dev/null || true)"
+if [ -z "$VER" ]; then
+    echo "NO GRABO: HEAD no esta exactamente en un tag v*.*, asi que esta copia no"
+    echo "         es ninguna version publicada: tiene commits por encima del ultimo"
+    echo "         tag (o no hay tags). Antes se le sumaba 0.1 a mano y se grababa"
+    echo "         igual; asi se grabo la P4 diciendo v4.42 con la Release en v4.41."
+    echo
+    echo "         Publica esta tanda con ./release.sh (sin argumento coge el ultimo"
+    echo "         tag +0.1) y vuelve a grabar."
     exit 1
 fi
-case "$DESC" in
-    # OJO: el tag YA lleva la "v" ($1 es "v4"), asi que no se le anade otra
-    # (el 16-oct salia "vv1.7" y el script se negaba a grabar por su propio error).
-    *-*) VER="$(printf '%s' "$DESC" | awk -F'[.-]' '{ printf "%s.%d", $1, $2 + 1 }')" ;;
-    *)   VER="$DESC" ;;
-esac
-echo "[i] esta copia es la $VER   ($(git describe --tags --always --match 'v*.*'))"
+echo "[i] esta copia esta en el tag $VER   (HEAD $(git rev-parse --short HEAD))"
 
-if [ "${GRABAR_SIN_PUBLICAR:-0}" = "1" ]; then
-    echo "AVISO: GRABAR_SIN_PUBLICAR=1 -- me salto la comprobacion de que $VER este"
-    echo "       publicada. Lo que quede en la placa NO estara en GitHub."
+if [ "$SIN_PUBLICAR" = "1" ]; then
+    echo
+    echo "${ROJO}════════════════════════════════════════════════════════════════${NORMAL}"
+    echo "${ROJO}  AVISO: GRABO SIN COMPROBAR LA PUBLICACION ($VIA_SIN)${NORMAL}"
+    echo "${ROJO}  Me salto el tag en 'origin' y la Release de GitHub: lo que${NORMAL}"
+    echo "${ROJO}  quede en la placa NO estara publicado, y nadie podra${NORMAL}"
+    echo "${ROJO}  descargarlo. Es una prueba de banco, no una version.${NORMAL}"
+    echo "${ROJO}════════════════════════════════════════════════════════════════${NORMAL}"
+    echo
 else
-    if ! git rev-parse -q --verify "refs/tags/$VER" >/dev/null; then
+    # ── 3) ese tag tiene que estar en 'origin' y en el MISMO commit ─────────
+    # No se hace un `git fetch` obligatorio (tarda y no siempre hay red): se le
+    # pregunta al remoto por ESE tag. El "^{}" desempaqueta el tag anotado, que es
+    # lo que apunta al commit, y en local se compara lo mismo con "^{commit}". Un
+    # tag que solo existe en este PC no lo puede descargar nadie: eso no es estar
+    # publicado (que es lo que este script tiene que garantizar).
+    REMOTO="$(git ls-remote origin "refs/tags/$VER^{}" 2>/dev/null | awk 'NR==1{print $1}' || true)"
+    if [ -z "$REMOTO" ]; then
+        # Sin "^{}": o el tag es LIGERO (los de estos repos los crea `git tag -a`,
+        # o sea anotados, pero por si acaso) o el remoto no lo tiene. Se mira el
+        # tag plano para poder distinguir las dos cosas.
+        REMOTO="$(git ls-remote origin "refs/tags/$VER" 2>/dev/null | awk 'NR==1{print $1}' || true)"
+    fi
+    LOCAL="$(git rev-parse "refs/tags/$VER^{commit}" 2>/dev/null || true)"
+    if [ -z "$REMOTO" ]; then
         echo
-        echo "NO GRABO: la $VER NO tiene tag. El aparato se adelantaria al repo, que"
-        echo "         es justo lo que paso el 16-oct-2026 (la P4 con la v4.38 grabada"
-        echo "         y GitHub enseñando la v4.37)."
-        echo
-        echo "         Publica primero:   ./release.sh ${VER#v} \"mensaje\""
+        echo "NO GRABO: el tag $VER no esta en 'origin' (o no hay red para preguntarlo)."
+        echo "         Un tag que solo existe en este PC no lo puede descargar nadie,"
+        echo "         asi que la placa se adelantaria al repo sin que se note."
+        echo "         Subelo y vuelve:   git push origin $VER"
         exit 1
     fi
-    if command -v gh >/dev/null 2>&1; then
-        if ! gh release view "$VER" -R "$REPO_GH" >/dev/null 2>&1; then
-            echo
-            echo "NO GRABO: el tag $VER existe pero NO hay Release publicada en GitHub."
-            echo "         (Pasa cuando release.sh creo el tag y luego fallo el push o no"
-            echo "          estaba 'gh'.)"
-            exit 1
-        fi
-        echo "[ok] $VER tiene tag y Release publicada"
-    else
-        echo "AVISO: no hay 'gh', asi que no puedo comprobar la Release de $VER."
-        echo "       El tag esta; mira a mano que la Release exista antes de grabar."
+    if [ "$REMOTO" != "$LOCAL" ]; then
+        echo
+        echo "NO GRABO: el tag $VER del remoto apunta a OTRO commit que el de aqui."
+        echo "         remoto: $REMOTO"
+        echo "         local:  $LOCAL"
+        echo "         Sube el tag que toca (git push origin $VER) o comprueba que esta"
+        echo "         copia es la que se publico, antes de grabar."
+        exit 1
     fi
+    echo "[ok] $VER esta en origin y apunta al mismo commit ($(printf '%.7s' "$LOCAL"))"
+
+    # ── 4) sin 'gh' no hay comprobacion posible: no se graba ────────────────
+    # Antes, si no habia 'gh', el script AVISABA y seguia grabando: era la
+    # puerta por la que se colaba una version sin Release publicada.
+    if ! command -v gh >/dev/null 2>&1; then
+        echo
+        echo "NO GRABO: no hay 'gh' (GitHub CLI), asi que no puedo comprobar que la"
+        echo "         $VER tenga Release publicada, y sin eso no se graba."
+        echo "         Instala 'gh', autenticate (gh auth login) y vuelve a intentarlo."
+        echo "         Para una prueba de banco:  --sin-publicar  (o GRABAR_SIN_PUBLICAR=1)"
+        exit 1
+    fi
+    # ── 5) ¿tiene Release publicada, y con al menos un .bin? ────────────────
+    if ! gh release view "$VER" -R "$REPO_GH" >/dev/null 2>&1; then
+        echo
+        echo "NO GRABO: el tag $VER existe pero NO hay Release publicada en GitHub."
+        echo "         (Pasa cuando release.sh creo el tag y luego fallo el push o no"
+        echo "          estaba 'gh'. Si 'gh' no esta autenticado, esto tambien falla:"
+        echo "          mira 'gh auth status'.)"
+        exit 1
+    fi
+    BINS="$(gh release view "$VER" -R "$REPO_GH" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+    if ! printf '%s\n' "$BINS" | grep -q '\.bin$'; then
+        echo
+        echo "NO GRABO: la Release $VER existe pero NO tiene ningun asset .bin"
+        echo "         (visto: ${BINS:-ninguno}). Una Release sin firmware no es una"
+        echo "         version publicada: no hay nada que descargar."
+        echo "         Sube el .bin:  gh release upload $VER -R $REPO_GH <fichero.bin>"
+        exit 1
+    fi
+    echo "[ok] $VER tiene tag en origin, Release publicada y .bin ($(printf '%s' "$BINS" | tr '\n' ' '))"
 fi
 
-# ── 3) compilar y grabar ───────────────────────────────────────────────────
+# ── 6) compilar y grabar ───────────────────────────────────────────────────
 if [ "$RAPIDO" = "0" ]; then
     if [ ! -f "$IDF_EXPORT" ]; then
         echo "ERROR: no encuentro ESP-IDF en $IDF_EXPORT"; exit 1
@@ -120,6 +226,22 @@ fi
 if [ ! -f "$APP_BIN" ]; then
     echo "ERROR: no hay $APP_BIN (compila primero, sin --rapido)"; exit 1
 fi
+
+# ── 6b) con --rapido, el .bin tiene que ser MAS NUEVO que el fuente ─────────
+# Esta ruta se salta la compilacion a proposito (para grabar rapido lo que ya
+# esta hecho), pero no puede grabar un build/ viejo: si un fichero de main/ (o el
+# CMakeLists.txt o el sdkconfig.defaults) es mas nuevo que el .bin, ese binario
+# NO lleva ese cambio y se grabaria firmware antiguo con la version nueva.
+if [ "$RAPIDO" = "1" ]; then
+    MAS_NUEVO="$(find main CMakeLists.txt sdkconfig.defaults -type f -newer "$APP_BIN" -print -quit 2>/dev/null || true)"
+    if [ -n "$MAS_NUEVO" ]; then
+        echo "NO GRABO (--rapido): $APP_BIN es MAS ANTIGUO que $MAS_NUEVO, asi que"
+        echo "                     ese .bin no lleva los ultimos cambios."
+        echo "                     Compila (sin --rapido) y repite."
+        exit 1
+    fi
+fi
+
 V_BIN="$(python3 - "$APP_BIN" <<'PYBIN'
 import sys
 with open(sys.argv[1],'rb') as f: d=f.read(0x120)
@@ -149,14 +271,16 @@ echo "[..] grabando en $PUERTO"
 # otra se queda con la version de antes. Si despues la OTA falla y arranca la
 # copia de atras, la pantalla volveria a una version vieja sin que nadie lo
 # relacione. Se graban las dos para que no haya sorpresa.
+# El `| tail -3` de abajo solo acorta la salida de esptool: con `set -o pipefail`
+# (arriba), si esta escritura falla el script se entera igual y no dice "GRABADO".
 echo "[..] la otra mitad de la OTA (0x410000), para que no quede una version vieja"
 python3 -m esptool --chip esp32s3 -p "$PUERTO" -b 460800 \
     write_flash 0x410000 "$APP_BIN" | tail -3
 
 echo
 echo "GRABADO $V_BIN en $PUERTO (las dos mitades de la OTA)."
-if [ "${GRABAR_SIN_PUBLICAR:-0}" = "1" ]; then
-    echo "OJO: es una copia SIN PUBLICAR (GRABAR_SIN_PUBLICAR=1). GitHub no la tiene."
+if [ "$SIN_PUBLICAR" = "1" ]; then
+    echo "${ROJO}OJO: es una copia SIN PUBLICAR ($VIA_SIN). GitHub no la tiene.${NORMAL}"
 else
-    echo "Y publicado: release.sh la subio con su tag y su Release."
+    echo "Y publicado: el tag $V_BIN esta en origin, con su Release y su .bin."
 fi

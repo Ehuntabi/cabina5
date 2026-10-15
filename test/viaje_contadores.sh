@@ -13,8 +13,9 @@
 # estan leyendo.
 #
 # Ese reparto tiene un fallo posible que no salta a la vista: CRUZAR EL BYTE ALTO
-# CON EL BAJO. Los dos numeros siguen pareciendo numeros -- un viaje de 1200 km
-# se lee como 4920 -- y no se descubre hasta que uno mira el cuaderno en casa,
+# CON EL BAJO. Los dos numeros siguen pareciendo numeros -- un viaje de 1200,0 km
+# (12.000 decimas = 0x2EE0) se lee como 57.390 decimas = 5.739,0 km -- y no se
+# descubre hasta que uno mira el cuaderno en casa,
 # semanas despues. Aqui se comprueba el camino entero SIN PLACA: se saca de
 # udp_tx.c de la P4 el trozo que parte los contadores, de data_model.c de la
 # cabina el que los recompone, y se les pasan valores.
@@ -51,18 +52,49 @@ salida   = pathlib.Path(sys.argv[4])
 udp_tx = (repo_p4 / 'main/net/udp_tx.c').read_text()
 modelo = (repo_cab / 'main/data_model.c').read_text()
 
-# ── Lo que MANDA la P4: el trozo de build_msg() que pasa de km y segundos a los
-#    cuatro bytes. Se coge desde la primera linea del calculo hasta la ultima
-#    asignacion, y se cambia "out->" por "src." (el struct del arnes).
-m = re.search(r'^.*long km_dec = .*$', udp_tx, re.M)
+# ── Lo que MANDA la P4: el BLOQUE ENTERO de build_msg() que pasa de km y
+#    segundos a los cuatro bytes, CON SU if/else, y se cambia "out->" por "src."
+#    (el struct del arnes).
+#
+#    EMPIEZA EN EL if (t.active), NO EN "long km_dec", y eso importa (16-oct-2026):
+#    empezando en el calculo solo se ejecutaba la rama de "hay viaje abierto", asi
+#    que la rama del "sin dato" -- la que manda el centinela 0xFFFF para que la
+#    pantalla enseñe "--" -- NO la tocaba ninguna prueba. Cambiar ahi el centinela
+#    por ceros (y que la pantalla diga "0,0 km / 0:00" de un viaje que no existe)
+#    pasaba el test en verde. Lo comprobo un arbitraje el 16-oct-2026 saboteando
+#    justo esa rama.
+m = re.search(r'^[ \t]*if \(t\.active\) \{[ \t]*$', udp_tx, re.M)
 if not m:
-    raise SystemExit('no encuentro el calculo de km_dec en udp_tx.c de la P4')
+    raise SystemExit('no encuentro el if (t.active) de los contadores en udp_tx.c')
 i = m.start()
-k = udp_tx.index('out->viaje_min_lo', i)
-k = udp_tx.index('\n', k) + 1
+# Se cuenta desde el PROPIO if y, al cuadrar las llaves, se mira si detras viene
+# un "else": el bloque es if/else y hay que llevarse las DOS ramas. Parando en el
+# primer cierre (lo que hacia antes) solo entraba la rama del "hay viaje".
+nivel = 0
+k = None
+pos = i
+while pos < len(udp_tx):
+    c = udp_tx[pos]
+    if c == '{':
+        nivel += 1
+    elif c == '}':
+        nivel -= 1
+        if nivel == 0:
+            if udp_tx[pos + 1:pos + 40].lstrip().startswith('else'):
+                pos += 1
+                continue
+            k = pos + 1
+            break
+    pos += 1
+if k is None:
+    raise SystemExit('no encuentro el cierre del bloque de contadores en udp_tx.c')
 encode = udp_tx[i:k].replace('out->', 'src.')
 if 'viaje_km_hi' not in encode or 'viaje_min_lo' not in encode:
     raise SystemExit('el trozo sacado de udp_tx.c no tiene los cuatro bytes')
+# Y que de verdad venga el else del centinela: si alguien vuelve a estrechar la
+# extraccion, esto lo dice en vez de dejar la rama sin cubrir en silencio.
+if 'MINI_NO_DATA_U16' not in encode or 'else' not in encode:
+    raise SystemExit('el trozo sacado de udp_tx.c NO trae la rama del centinela')
 
 # ── Lo que RECOMPONE la cabina: las dos asignaciones de data_model.c.
 m = re.search(r'^.*dst\.viaje_km_decimas.*$|^.*tmp\.viaje_km_decimas.*$', modelo, re.M)

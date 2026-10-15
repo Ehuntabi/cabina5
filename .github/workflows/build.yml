@@ -106,6 +106,8 @@ jobs:
                    main/net/apunte.c \
                    main/net/apunte.h \
                    main/net/udp_rx.c \
+                   main/data_model.c \
+                   main/data_model.h \
                    main/reloj.c \
                    main/reloj.h \
                    main/net/mini_proto.h \
@@ -136,24 +138,31 @@ jobs:
 
       # Y la clasificacion de la que depende la garantia del cierre se PRUEBA
       # (saca la funcion real de viaje_cola.c y la compila).
+      #
+      # SE LANZA LA COPIA DE ESTE REPO (cabina5/test/...), no la de la 3,5"
+      # (16-oct-2026): los tests sacan el codigo del repo que tienen al lado
+      # ($AQUI/..), asi que lanzando la copia de 35cabina se probaba SIEMPRE el
+      # codigo de la 3,5" y el de la 5" solo se comparaba (con el job espejo). Una
+      # divergencia que el espejo no mire -- o que se cuele en el mismo push --
+      # pasaba en verde. Ahora cada CI prueba su propio codigo.
       - name: El cierre del viaje siempre cabe en la cola
-        run: bash 35cabina/test/viaje_cola_control.sh
+        run: bash cabina5/test/viaje_cola_control.sh
 
       # Y el parseo del hueco de la SD de la P4 (que llega en el cuerpo de la
       # respuesta HTTP que antes se tiraba).
       - name: El hueco de la tarjeta de la P4 se entiende
-        run: bash 35cabina/test/viaje_cola_libre.sh
+        run: bash cabina5/test/viaje_cola_libre.sh
 
       # Y que el cambio de horario no acorte una pernocta (el epoch_local da un
       # salto atras de 3600 s: la P4 manda su desfase y la cabina corrige).
       - name: El cambio de horario no acorta las pernoctas
-        run: bash 35cabina/test/viaje_horario.sh
+        run: bash cabina5/test/viaje_horario.sh
 
       # Y que los contadores del viaje (km y horas de conduccion) lleguen enteros
       # de la P4 a la cabina: van partidos en cuatro bytes sueltos del struct y
-      # cruzarlos no salta a la vista (un viaje de 1200 km se lee como 4920).
+      # cruzarlos no salta a la vista (un viaje de 1200,0 km se lee como 5.739,0).
       - name: Los km y las horas de conduccion llegan enteros
-        run: bash 35cabina/test/viaje_contadores.sh
+        run: bash cabina5/test/viaje_contadores.sh
 
       - name: El contrato del canal de viaje, contra la P4
         run: bash victron/test/protocolo_cabina.sh victron cabina5

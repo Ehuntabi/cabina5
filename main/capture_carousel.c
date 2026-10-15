@@ -98,12 +98,20 @@ typedef enum {
  * con el lock de LVGL ya tomado: nadie mas toca el framebuffer mientras
  * se lee.
  *
- * El frame sale de lv_port_snapshot() y no del draw_buf de LVGL (3.M5):
- * lo que hay que enseñar es lo que el panel esta viendo, o sea la copia
- * rotada que el flush manda al panel; draw_buf->buf_act esta sin rotar y
- * no es de fiar en el momento de la captura. El tamano sigue siendo el del
- * panel logico (480x320), asi que el formato del volcado y el decodificador
- * no cambian. */
+ * El frame sale de lv_port_snapshot() (que REDIBUJA el arbol de objetos en su
+ * propio buffer, ver lv_port_compat.c) y no del draw_buf de LVGL (3.M5):
+ * draw_buf->buf_act esta sin rotar y no es de fiar en el momento de la captura.
+ * DOS COSAS QUE SE DIJERON MAL Y SE CORRIGIERON EL 16-oct-2026:
+ *   1. Esto NO es "la copia rotada que el flush manda al panel". lv_snapshot_take()
+ *      redibuja en coordenadas de UI y SIN girar, asi que si algun dia se vuelve
+ *      a poner PANTALLA_GIRADA_180 a 1, este volcado y el de
+ *      bsp_volcar_framebuffer (que si lee el panel) saldran con 180 grados de
+ *      diferencia y con la MISMA cabecera, que es lo que despista.
+ *   2. El tamano es el del panel logico en RGB565: 2 BYTES por pixel, NO
+ *      sizeof(lv_color_t). En LVGL 9 lv_color_t son 3 bytes siempre (RGB888
+ *      empaquetado, lv_color.h), asi que declarar w*h*sizeof(lv_color_t) pedia
+ *      1.152.000 B para un buffer de 768.000 B: el fwrite se leia 384 KB de
+ *      PSRAM que no eran suyos (y salian las rayas que se achacaban al formato). */
 static void dump_screen_uart(const char *name)
 {
     uint16_t w = 0, h = 0;
@@ -117,7 +125,8 @@ static void dump_screen_uart(const char *name)
 
     uint32_t hres = w;
     uint32_t vres = h;
-    size_t raw_len = (size_t)hres * vres * sizeof(lv_color_t);
+    /* 2 B/px, que es lo que mide de verdad el buffer de lv_port_snapshot(). */
+    size_t raw_len = (size_t)hres * vres * 2;
     const uint8_t *fb = (const uint8_t *)pix;
 
     /* ── EL VOLCADO: BINARIO CON LONGITUD DECLARADA, no base64 ─────────────

@@ -11,6 +11,13 @@ se hablan por UDP.
 > **Trampas de esta placa**: son cuatro cosas que no se ven venir y que ya nos
 > costaron una tarde cada una. La aplicación del satélite se monta encima.
 
+## Antes de grabar: la P4 va PRIMERO
+
+La tarjeta del viaje lee cuatro bytes de la telemetría (km y horas de conducción).
+En una P4 anterior a la **v4.44** esos cuatro bytes eran relleno y llegan a cero,
+así que la tarjeta enseña `0,0 km / 0:00` en vez de `--`. **Graba la P4 primero** (o
+las dos a la vez) y no verás ese número raro.
+
 ## La placa
 
 | | |
@@ -327,8 +334,14 @@ sitio, sin memoria extra). Sin eso, la rotación se queda en el apunte y en la
 pantalla no cambia nada — que es exactamente lo que pasó al probarlo.
 
 180 y no 90/270 a propósito: al girar media vuelta el ancho y el alto no cambian,
-así que los buffers valen los mismos. Medido en la placa: 24 fps y 39 Hz, igual que
-sin girar.
+así que los buffers valen los mismos.
+
+Rendimiento medido en la placa: **39 Hz de barrido** (el panel) y el contador de
+«refrescos LVGL» a ~24/s, que **no son fotogramas**: ese contador suma llamadas al
+flush, y con trozos de 60 líneas una pantalla completa son 8 llamadas, así que
+vienen a ser unas 3 pantallas por segundo. Se corrigió el 16-oct-2026 (un
+arbitraje lo midió: los trozos son de 60 líneas y los buffers de 96 KB en PSRAM,
+no de 40 y 64 KB en RAM interna, porque en LVGL 9 `lv_color_t` son 3 bytes).
 
 ## Compilar en este PC (trampa del toolchain)
 

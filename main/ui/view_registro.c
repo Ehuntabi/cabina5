@@ -2805,8 +2805,12 @@ static void viaje_do_finalizar(void *ud)
  * la P4 al cerrar el viaje (ver p4_api_cuerpo_fin). */
 static void destino_nuevo_listo_cb(lv_event_t *e)
 {
-    if (lv_event_get_code(e) != LV_EVENT_READY) return;
+    (void)e;
+    if (entry_screen_mudo_ahora()) return;
     const char *txt = lv_textarea_get_text(s_destino_nuevo_ta);
+    /* En blanco: se queda el nombre que ya tenia. Vaciarlo y aceptar no puede
+     * dejar el viaje sin destino (la P4 se lo inventaria con la fecha). */
+    if (!txt || !txt[0]) return;
     snprintf(s_destino_nuevo, sizeof(s_destino_nuevo), "%s", txt);
     /* A NVS YA, no al cerrar: si se va la luz a mitad de viaje el nombre nuevo
      * tiene que seguir ahi (el usuario: "que perdure si se apaga"). */
@@ -2831,13 +2835,36 @@ static void destino_nuevo_listo_cb(lv_event_t *e)
     salida_tira_refresh();
 }
 
+/* ESCRIBIR EN UN CAMPO ESCONDIDO SIN QUE EL FLUJO SE CREA ACEPTADO.
+ *
+ * lv_textarea_set_text() manda VALUE_CHANGED por cada caracter que añade y otra
+ * vez al final (LVGL 9.2: lv_textarea.c:266 y :419), y los textareas escondidos
+ * del viaje escuchan ahi. Sin silenciarlo, limpiar el campo de km antes de
+ * pedirlo disparaba el paso siguiente con el texto vacio y armaba el cartel
+ * "Empezar el viaje?" con el destino del viaje ANTERIOR (s_viaje_destino no se
+ * limpia): aceptar arrancaba un viaje con el nombre viejo. Cazado el
+ * 16-oct-2026. Todo el flujo del viaje escribe por aqui. */
+static void ta_poner_texto(lv_obj_t *ta, const char *txt)
+{
+    if (!ta) return;
+    entry_screen_mudo(true);
+    lv_textarea_set_text(ta, txt);
+    entry_screen_mudo(false);
+}
+
 static void cambiar_destino_cb(lv_event_t *e)
 {
     (void)e;
     /* Se arranca con el nombre que tiene ahora, para retocar y no teclear de
-     * cero. Si ya se habia cambiado, con el nuevo. */
+     * cero. Si ya se habia cambiado, con el nuevo.
+     *
+     * CON ta_poner_texto, no con lv_textarea_set_text a pelo: el relleno dispara
+     * VALUE_CHANGED y este campo ahora ESCUCHA ahi (antes escuchaba a READY, que
+     * es un evento que el editor no manda al campo: "Cambiar destino" no hacia
+     * nada, fallo del 13-oct al 16-oct-2026). Sin silenciarlo, abrir el editor
+     * guardaba y encolaba el mismo destino otra vez. */
     const char *actual = s_destino_nuevo[0] ? s_destino_nuevo : salida_get()->nombre;
-    lv_textarea_set_text(s_destino_nuevo_ta, actual);
+    ta_poner_texto(s_destino_nuevo_ta, actual);
     entry_screen_open(s_destino_nuevo_ta, "Nuevo destino", false);
 }
 
@@ -2852,6 +2879,7 @@ static void viaje_km_listo_cb(lv_event_t *e);   /* ver abajo */
 static void viaje_destino_listo_cb(lv_event_t *e)
 {
     (void)e;
+    if (entry_screen_mudo_ahora()) return;
     const char *txt = lv_textarea_get_text(s_viaje_destino_ta);
     if (!txt || !txt[0]) return;      /* lo dejo en blanco: no se hace nada */
     snprintf(s_viaje_destino, sizeof(s_viaje_destino), "%s", txt);
@@ -2869,7 +2897,7 @@ static void viaje_destino_listo_cb(lv_event_t *e)
      * dentro del "Aceptar" del campo anterior, que todavia tiene que cerrarlo
      * (ver el comentario largo en entry_screen.c). Con el de siempre, el paso
      * nuevo nacia escondido y no se pedia nada (fallo del 16-oct-2026). */
-    lv_textarea_set_text(s_viaje_km_ta, "");
+    ta_poner_texto(s_viaje_km_ta, "");
     entry_screen_open_siguiente(s_viaje_km_ta, "Km que marca el cuadro (opcional)", true);
 }
 
@@ -2884,7 +2912,11 @@ static void viaje_destino_listo_cb(lv_event_t *e)
 static void viaje_km_listo_cb(lv_event_t *e)
 {
     (void)e;
-    const char *txt = lv_textarea_get_text(s_viaje_km_ta);
+    if (entry_screen_mudo_ahora()) return;
+    /* Sin campo de km (no deberia: se crea con la pantalla) se sigue como si se
+     * hubiera dejado en blanco en vez de petar: la llamada de arriba
+     * (viaje_destino_listo_cb) cuenta con que esto llega a la confirmacion. */
+    const char *txt = s_viaje_km_ta ? lv_textarea_get_text(s_viaje_km_ta) : NULL;
     unsigned long v = 0;
     if (txt && txt[0]) {
         char *fin = NULL;
@@ -2919,11 +2951,11 @@ static void viaje_iniciar_cb(lv_event_t *e)
         aviso_sin_hora();
         return;
     }
-    lv_textarea_set_text(s_viaje_destino_ta, "");
+    ta_poner_texto(s_viaje_destino_ta, "");
     /* El cuentakilometros del intento anterior, fuera: si esta vez se cancela o
      * se deja en blanco, no puede colarse el numero de la vez pasada. */
     s_viaje_km_cuadro = 0;
-    lv_textarea_set_text(s_viaje_km_ta, "");
+    ta_poner_texto(s_viaje_km_ta, "");
     entry_screen_open(s_viaje_destino_ta, "Destino", false);
 }
 
@@ -2942,7 +2974,7 @@ static void viaje_finalizar_cb(lv_event_t *e)
         return;
     }
     s_viaje_km_llegada = 0;
-    lv_textarea_set_text(s_viaje_km_fin_ta, "");
+    ta_poner_texto(s_viaje_km_fin_ta, "");
     entry_screen_open(s_viaje_km_fin_ta, "Km que marca el cuadro al llegar (opcional)",
                       true);
 }
@@ -2951,6 +2983,7 @@ static void viaje_finalizar_cb(lv_event_t *e)
 static void viaje_km_fin_listo_cb(lv_event_t *e)
 {
     (void)e;
+    if (entry_screen_mudo_ahora()) return;
     const char *txt = lv_textarea_get_text(s_viaje_km_fin_ta);
     unsigned long v = 0;
     if (txt && txt[0]) {
@@ -6028,8 +6061,15 @@ void view_registro_create(lv_obj_t *parent)
     lv_textarea_set_max_length(s_destino_nuevo_ta, 20);
     lv_textarea_set_accepted_chars(s_destino_nuevo_ta,
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 -_");
+    /* EN VALUE_CHANGED, NO EN READY (fallo del 13-oct al 16-oct-2026): el editor
+     * a pantalla completa vuelca el texto con lv_textarea_set_text y manda UN
+     * VALUE_CHANGED al campo (entry_screen.c); LV_EVENT_READY lo manda al teclado
+     * y a SU textarea, nunca al campo que se esta editando. Registrado en READY,
+     * este callback no se ejecutaba JAMAS: "Cambiar destino" no hacia nada (ni
+     * guardaba en NVS, ni avisaba a la P4, y al cerrar el viaje la carpeta se
+     * renombraba con el nombre viejo). */
     lv_obj_add_event_cb(s_destino_nuevo_ta, destino_nuevo_listo_cb,
-                        LV_EVENT_READY, NULL);
+                        LV_EVENT_VALUE_CHANGED, NULL);
 
     lv_obj_add_event_cb(s_viaje_destino_ta, viaje_destino_listo_cb,
                         LV_EVENT_VALUE_CHANGED, NULL);

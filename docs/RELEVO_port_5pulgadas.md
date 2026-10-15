@@ -140,9 +140,12 @@ de la pantalla).
 Sirve para revisar la UI sin estar delante de la placa, pero **hoy no es
 fiable**, y las dos razones están medidas:
 
-1. **`lv_snapshot_take()` devuelve ARGB8888, no RGB565**: para 800×480 son
-   **1.152.000 bytes** (3 por píxel), no 768.000. El volcado lo declara en su
-   cabecera, así que no hay que adivinar: el tamaño manda.
+1. **El volcado declaraba 1.152.000 bytes para un buffer de 768.000**, y este
+   documento lo achacaba a que `lv_snapshot_take()` devuelve ARGB8888. FALSO, y se
+   corrigió el 16-oct-2026: el snapshot es **RGB565** (2 bytes por píxel) y los
+   1.152.000 salían de multiplicar por `sizeof(lv_color_t)`, que en LVGL 9 son
+   **3 bytes** siempre. El volcado leía 384 KB de PSRAM que no eran suyos (de ahí
+   las rayas), y no era "el formato", era la cuenta.
 2. **A 115200 baudios se pierden bytes**: 1,15 MB tardan ~100 s en salir y el
    CH340 no los entrega todos (las imágenes salen con rayas horizontales). Por
    eso el volcado pasó a ser **binario con longitud declarada**

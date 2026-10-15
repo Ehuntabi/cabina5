@@ -12,6 +12,8 @@
 #      compilar: sin reconfigure se publicaría un binario con la versión vieja).
 #   4. VERIFICA que la versión embebida en el .bin coincide con el tag.
 #   5. Sube código y tag, y publica la Release en GitHub con el binario.
+#      Sin 'gh' no se publica: se exige ANTES de crear el tag, y al final se
+#      comprueba que la Release lleve su .bin de verdad.
 #
 # OJO (propio de este proyecto): hay que decirle a ESP-IDF que el target es
 # esp32s3 y poner el toolchain Xtensa en el PATH. En este PC el export.sh no lo
@@ -46,6 +48,18 @@ if ! printf '%s' "$VER" | grep -Eq '^[0-9]+\.[0-9]+$'; then
 fi
 TAG="v$VER"
 MSG="${2:-Release $TAG}"
+
+# ── 0b) hace falta 'gh': sin él no hay Release ──────────────────────────────
+# Se mira AQUÍ, antes de crear el tag y de compilar, que es cuando abortar no
+# cuesta nada. Antes se miraba al final y, si faltaba 'gh', el script se quedaba
+# en "AVISO" y seguía: código y tag subidos, Release sin publicar, o sea una
+# publicación a medias (auditoría del 15-oct-2026).
+if ! command -v gh >/dev/null 2>&1; then
+    echo "ERROR: no está 'gh' (GitHub CLI) y sin él no se puede publicar la Release."
+    echo "       Instálalo (https://cli.github.com), entra con 'gh auth login' y"
+    echo "       vuelve a lanzar ./release.sh $VER_IN. Todavía no se ha tocado nada."
+    exit 1
+fi
 
 # ── 1) el árbol, limpio ─────────────────────────────────────────────────────
 if [ -n "$(git status --porcelain)" ]; then
@@ -82,14 +96,29 @@ export IDF_TARGET=esp32s3
 export PATH="$XTENSA_BIN:$PATH"
 command -v xtensa-esp32s3-elf-gcc >/dev/null || { echo "ERROR: el compilador del S3 no está en el PATH"; exit 1; }
 
-# La cabecera con la clave del AP no está versionada: si falta, se crea desde la
-# plantilla para que el build no se pare (el binario con la clave de broma no se
-# publica nunca: la Release se hace solo si el árbol estaba limpio y el .bin lo
-# compila este script, con la cabecera de verdad).
+# ── LA CLAVE DEL AP, ANTES DE COMPILAR NADA (correccion del 16-oct-2026) ─────
+#
+# Este fichero no esta versionado (ni debe: el repo es publico), y su plantilla lo
+# dice con todas las letras: "sin este fichero el build falla a proposito: no debe
+# compilarse con una contrasena de broma".
+#
+# Aqui ponia lo contrario: si faltaba, copiaba la plantilla "para que el build no
+# se pare" y seguia. El comentario se justificaba diciendo que ese binario no se
+# publicaria nunca porque la Release exige el arbol limpio -- y es FALSO: este
+# fichero esta en .gitignore, asi que el arbol sigue limpio y el script publicaba
+# una Release con la clave de broma (WIFI_CRED_PASS "CAMBIAME") dentro. Ahora se
+# para aqui, que es lo que pide la plantilla.
 if [ ! -f main/wifi_credentials.h ]; then
-    echo "AVISO: falta main/wifi_credentials.h; lo creo desde la plantilla"
-    echo "       (el AP no conectará hasta que pongas los datos reales)"
-    cp main/wifi_credentials.h.example main/wifi_credentials.h
+    echo "ERROR: falta main/wifi_credentials.h (no versionado, ver .gitignore)."
+    echo "       Copia la plantilla y pon los datos REALES del AP de la P4:"
+    echo "           cp main/wifi_credentials.h.example main/wifi_credentials.h"
+    echo "       NO se publica un binario con la clave de broma."
+    exit 1
+fi
+if cmp -s main/wifi_credentials.h main/wifi_credentials.h.example; then
+    echo "ERROR: main/wifi_credentials.h es la PLANTILLA sin rellenar."
+    echo "       Pon los datos reales del AP antes de publicar una version."
+    exit 1
 fi
 
 idf.py reconfigure >/dev/null
@@ -120,8 +149,15 @@ echo "[ok] binario en $OUT"
 git push origin "$(git branch --show-current)" "$TAG"
 
 if ! command -v gh >/dev/null 2>&1; then
-    echo "AVISO: no está 'gh': la Release NO se ha publicado."
-    exit 0
+    # No debería llegar aquí (se comprueba en el paso 0b, antes de crear el tag),
+    # pero si pasa NO se sigue: el código y el tag YA están subidos, así que
+    # dejarlo así es una publicación a medias, que es lo que este script evita.
+    echo "ERROR: 'gh' ha desaparecido a mitad de la publicación (¿el PATH?)."
+    echo "       El código y el tag $TAG YA están subidos; falta la Release. Instala"
+    echo "       'gh', entra con 'gh auth login' y publícala con:"
+    echo "       gh release create $TAG -R $REPO --title \"cabina5 $TAG\" \\"
+    echo "          --notes-from-tag \"$OUT\""
+    exit 1
 fi
 if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
     echo "[ok] la Release $TAG ya existe, no la toco"
@@ -153,19 +189,38 @@ else
     # subido y el .bin en ~/joint-releases, pero nadie puede descargarlo -- y
     # scripts/grabar.sh no dejaria grabar la placa. Mejor decirlo aqui, con el
     # comando exacto para reintentarlo.
-    if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
-        echo "[ok] Release $TAG publicada"
-    else
+    if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
         echo
         echo "LA RELEASE $TAG NO ESTA PUBLICADA (el tag si). Reintenta con:"
         echo "  gh release create $TAG -R $REPO --title \"cabina5 $TAG\" \\"
         echo "     --notes-file $NOTAS_TMP \"$OUT\""
         exit 1
     fi
+    # Y ADEMÁS tiene que llevar su .bin: una Release sin asset no la puede
+    # descargar nadie, y scripts/grabar.sh la rechazaría (auditoría del
+    # 15-oct-2026). GitHub tarda un momento en procesar lo que acaba de subir
+    # `gh release create`, así que se hacen 5 comprobaciones con 2 s de espera
+    # (unos 10 s en total) antes de darla por incompleta.
+    ASSETS=""
+    for _ in 1 2 3 4 5; do
+        ASSETS="$(gh release view "$TAG" -R "$REPO" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+        if printf '%s\n' "$ASSETS" | grep -q '\.bin$'; then break; fi
+        sleep 2
+    done
+    if ! printf '%s\n' "$ASSETS" | grep -q '\.bin$'; then
+        echo
+        echo "ERROR: el tag $TAG quedó subido, pero la Release está INCOMPLETA: no"
+        echo "       tiene ningún asset .bin (visto: ${ASSETS:-ninguno}). El firmware"
+        echo "       está en $OUT; súbelo a mano:"
+        echo "  gh release upload $TAG -R $REPO \"$OUT\""
+        exit 1
+    fi
+    echo "[ok] Release $TAG publicada con su .bin ($(printf '%s' "$ASSETS" | tr '\n' ' '))"
 fi
 
 echo
 echo "────────────────────────────────────────────────────────────"
 echo "PUBLICADO $TAG. Solo queda grabar:"
-echo "  idf.py -p /dev/ttyACM1 flash    # la P4 es ttyACM0; esta placa es la S3"
+echo "  scripts/grabar.sh /dev/ttyUSB0     # la 5 pulgadas (CH340). La P4 es"\
+     " ttyACM0 y la 3,5 pulgadas ttyACM1"
 echo "────────────────────────────────────────────────────────────"

@@ -22,6 +22,22 @@ static lv_obj_t *s_value;
 static lv_obj_t *s_kb;
 static lv_obj_t *s_target;
 
+/* Profundidad de silencio mientras se escribe por codigo: ver
+ * entry_screen_mudo() en el .h. Lleva cuenta porque una zona muda puede
+ * contener a otra (p.ej. el flujo del viaje rellenando su campo). */
+static int s_mudo;
+
+void entry_screen_mudo(bool mudo)
+{
+    if (mudo) s_mudo++;
+    else if (s_mudo > 0) s_mudo--;
+}
+
+bool entry_screen_mudo_ahora(void)
+{
+    return s_mudo > 0;
+}
+
 static void close_overlay(void)
 {
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
@@ -33,13 +49,24 @@ void entry_screen_close(void)
     if (s_root) close_overlay();
 }
 
-/* Aceptar: vuelca el texto al campo original y avisa a quien escuche
- * VALUE_CHANGED (el precio/litro del repostaje cuelga de ahi). */
+/* Aceptar: vuelca el texto al campo original y avisa UNA VEZ a quien escuche
+ * VALUE_CHANGED (el precio/litro del repostaje cuelga de ahi, y el flujo del
+ * viaje encadena el paso siguiente).
+ *
+ * EL AVISO ES UNO, NO ONCE (auditoria del 16-oct-2026): lv_textarea_set_text()
+ * manda VALUE_CHANGED por CADA caracter que va añadiendo -- los campos del
+ * viaje tienen accepted_chars y max_length, asi que pasan por add_char -- y otra
+ * vez al final (LVGL 9.2: lv_textarea.c:266 y :419). Con un destino de 9 letras
+ * el que escucha recibia 11 avisos y disparaba 11 veces su flujo (11
+ * temporizadores de encadenado, 11 carteles). Se silencian los intermedios con
+ * entry_screen_mudo() y se manda UNO al final, ya con el texto puesto. */
 static void kb_ready_cb(lv_event_t *e)
 {
     (void)e;
     if (s_target) {
+        entry_screen_mudo(true);
         lv_textarea_set_text(s_target, lv_textarea_get_text(s_value));
+        entry_screen_mudo(false);
         lv_obj_send_event(s_target, LV_EVENT_VALUE_CHANGED, NULL);
     }
     close_overlay();

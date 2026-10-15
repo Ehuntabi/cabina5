@@ -314,8 +314,18 @@ static void bsp_touch_read_contado(lv_indev_t *indev, lv_indev_data_t *datos)
 static lv_display_t *s_disp = NULL;
 static lv_indev_t *s_indev = NULL;
 
-/* Pixels por buffer de dibujo: 800 x 40 lineas. 64 KB cada uno en RAM interna
- * (en PSRAM no caben dos de pantalla completa y ademas seria lentisimo). */
+/* Pixels por buffer de dibujo: 800 x 40 lineas DE ENTRADA.
+ *
+ * OJO CON LAS CUENTAS, que este comentario mentia (corregido el 16-oct-2026):
+ * el buffer NO son 64 KB ni vive en RAM interna. El malloc y
+ * lv_display_set_buffers() usan BSP_BUF_PX * sizeof(lv_color_t), y en LVGL 9
+ * lv_color_t son 3 BYTES siempre (RGB888 empaquetado, lv_color.h) aunque el
+ * display sea RGB565. Asi que cada buffer son 32.000 px * 3 B = 96.000 B
+ * (192 KB los dos, en PSRAM: el malloc pide MALLOC_CAP_SPIRAM) y LVGL los
+ * trocea por altura con el stride real de 2 B/px: 96.000 / 1.600 = 60 lineas
+ * por trozo, no 40. Comprobado en el .bin compilado (el literal es 0x17700).
+ * Se deja el reparto como estaba -- cambiar el tamano cambia el troceado y hay
+ * que volver a medir -- pero el log de abajo ya dice lo que hay de verdad. */
 #define BSP_BUF_PX      (LCD_H_RES * 40)
 
 /* Retrazo del panel. El driver RGB lo avisa desde su ISR. */
@@ -345,7 +355,14 @@ void bsp_mirar_framebuffer(const char *etiqueta)
     uint32_t negros = 0, suma = 0, muestras = 0, no_negro_ini = total;
     /* Se muestrea de 43 en 43 (primo, para no caer siempre en la misma columna)
      * y se busca ademas el primer pixel no negro, que dice si lo que se ve
-     * empieza arriba o mas abajo. */
+     * empieza arriba o mas abajo.
+     *
+     * OJO AL INDICE 0 (16-oct-2026): es el origen del FRAMEBUFFER DEL PANEL, no
+     * la esquina de arriba-izquierda de la UI. Sin giro coinciden; con
+     * PANTALLA_GIRADA_180 el panel va montado al reves, asi que el indice 0 es la
+     * esquina de ABAJO de la UI: la misma imagen fisica da "en 0" sin giro y "en
+     * 336002" con giro. El % de negros y el brillo no cambian con el giro; este
+     * numero si, y por eso se dice "del framebuffer". */
     for (uint32_t i = 0; i < total; i += 43) {
         const uint16_t v = px[i];
         const uint32_t r = (v >> 11) & 0x1F, g = (v >> 5) & 0x3F, b = v & 0x1F;
@@ -358,7 +375,7 @@ void bsp_mirar_framebuffer(const char *etiqueta)
         }
     }
     ESP_LOGI(TAG, "framebuffer [%s]: %u de %u muestras negras (%.0f%%), brillo medio %.1f, "
-             "primer pixel no negro en %u",
+             "primer pixel no negro (desde el origen del panel) en %u",
              etiqueta,
              (unsigned)negros, (unsigned)muestras,
              100.0 * negros / (muestras ? muestras : 1),
@@ -436,12 +453,19 @@ static bool IRAM_ATTR bsp_rgb_vsync_cb(esp_lcd_panel_handle_t panel,
     return despertar == pdTRUE;
 }
 
-/* LVGL avisa aqui de que tiene un trozo listo. Se espera al retrazo y se copia
- * inmediatamente: el panel empieza su barrido por la linea de arriba, asi que el
- * trozo nuevo se ve en ESTE cuadro y la costura se queda en una linea en vez de
- * pasearse por la pantalla. Si el retrazo tarda mas de lo razonable (panel
- * parado, driver raro) se copia igual: mas vale un desgarro que una pantalla
- * congelada. */
+/* LVGL avisa aqui de que tiene un trozo listo y se copia inmediatamente.
+ *
+ * ESTE COMENTARIO DECIA "se espera al retrazo" Y NO SE ESPERA A NADA
+ * (corregido el 16-oct-2026): no hay ni un xSemaphoreTake(s_vsync_sem) en todo
+ * el fichero. El semaforo se crea y la ISR del driver lo da, pero nadie lo toma
+ * (se deja ahi, muerto, a proposito: usarlo seria bloquear el flush hasta el
+ * retrazo y no esta medido). Lo que hay de verdad es: se copia ya, y el panel
+ * empieza su barrido por la linea de arriba, asi que el trozo nuevo se ve en
+ * ESTE cuadro y la costura se queda en una linea en vez de pasearse.
+ *
+ * Y CON PANTALLA_GIRADA_180 ESE ARGUMENTO SE DA LA VUELTA: el trozo de ARRIBA de
+ * la UI se escribe en la parte de ABAJO del panel (y = 420..479), que es lo
+ * ULTIMO que barre el panel; el trozo de abajo de la UI es el que llega a tiempo. */
 /* ── Bounce buffer: la solucion al "screen drift" ────────────────────────────
  *
  * SINTOMA: la imagen entera se va corriendo hacia un lado, sola, aunque el
@@ -465,8 +489,11 @@ static bool IRAM_ATTR bsp_rgb_vsync_cb(esp_lcd_panel_handle_t panel,
  * Ademas esta abierto XIP desde PSRAM (CONFIG_SPIRAM_FETCH_INSTRUCTIONS y
  * CONFIG_SPIRAM_RODATA), que es la otra recomendacion del mismo documento. */
 
-/* LVGL dibuja DIRECTAMENTE en los framebuffers del panel (pantalla completa),
- * y el driver copia de ahi al bounce buffer por el que va el barrido. */
+/* LVGL dibuja POR TROZOS en sus dos buffers de PSRAM (modo PARTIAL, 96 KB cada
+ * uno: ver BSP_BUF_PX) y este flush copia cada trozo al framebuffer del panel,
+ * que es de donde el driver tira para rellenar el bounce buffer. El trozo mide
+ * 800 x 60 px, asi que una pantalla completa son 8 flushes (y por eso el
+ * contador de "refrescos" que se enseña en el log NO son cuadros por segundo). */
 #if PANTALLA_GIRADA_180
 /* GIRA UN TROZO 180 GRADOS, EN EL SITIO.
  *
@@ -649,8 +676,12 @@ lv_display_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
     lv_display_set_buffers(s_disp, buf1, buf2, BSP_BUF_PX * sizeof(lv_color_t),
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(s_disp, bsp_lvgl_flush_cb);
-    ESP_LOGI(TAG, "LVGL: trozos de %d lineas (RAM interna) -> framebuffer -> bounce buffer",
-             (int)(BSP_BUF_PX / LCD_H_RES));
+    /* Los numeros de verdad, calculados y no supuestos (ver BSP_BUF_PX): LVGL
+     * trocea por altura con el stride de 2 B/px del RGB565, asi que la altura
+     * del trozo es (bytes del buffer) / (ancho * 2), y no BSP_BUF_PX/ancho. */
+    ESP_LOGI(TAG, "LVGL: 2 buffers de %u B en PSRAM, trozos de %d lineas",
+             (unsigned)(BSP_BUF_PX * sizeof(lv_color_t)),
+             (int)((BSP_BUF_PX * sizeof(lv_color_t)) / (LCD_H_RES * 2)));
 
     const lvgl_port_touch_cfg_t touch_cfg = {
         .disp = s_disp,

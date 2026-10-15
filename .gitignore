@@ -1,6 +1,10 @@
 # Artefactos de compilacion
 build/
-sdkconfig
+# sdkconfig SI se versiona (16-oct-2026): es la configuracion con la que se graba
+# esta placa y tiene que ser la misma que la del repo. Los otros dos proyectos
+# (victron, 35cabina) ya lo versionan. Se reescribe solo cuando cambia el Kconfig
+# de algun componente: si aparece modificado tras un build, se revierte antes de
+# commitear (y grabar.sh exige el arbol limpio, que es lo que lo recuerda).
 sdkconfig.old
 managed_components/
 dependencies.lock

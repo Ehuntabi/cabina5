@@ -43,10 +43,21 @@ static const char *TAG = "p4_api";
  * reasociarse. Corto se traduciria en fallos falsos. */
 #define P4_TIMEOUT_MS 8000
 
+/* Tamano maximo de un cuerpo de peticion a la P4.
+ *
+ * 224 y no 192 (auditoria del 16-oct-2026): los constructores de cuerpo
+ * (p4_api_cuerpo_*) escriben en buffers de 224 -- el inicio con cuentakilometros
+ * es el mas largo -- pero el trabajo que se lleva la tarea al heap copiaba a un
+ * campo de 192, asi que un cuerpo de mas de 191 caracteres se TRUNCABA en
+ * silencio: JSON roto, 400 de la P4 y el viaje sin empezar (o un apunte
+ * perdido), sin mas pista en pantalla. Con este unico numero, los dos sitios
+ * dicen lo mismo y el tope es el de verdad. */
+#define P4_API_CUERPO_MAX 224
+
 /* Trabajo de un envio. Se reserva en el heap y lo libera la tarea al terminar:
  * quien llama no espera y no puede ser el dueño de esta memoria. */
 typedef struct {
-    char           cuerpo[192];
+    char           cuerpo[P4_API_CUERPO_MAX];
     /* Copia de la URL y no un puntero: el trabajo sobrevive a quien llama (la
      * tarea se lleva el struct al heap), asi que no puede depender de que el
      * texto siga vivo. */
@@ -275,6 +286,22 @@ void p4_api_cuerpo_inicio(char *out, size_t n, uint32_t id,
                           const char *destino, uint32_t fecha_dias,
                           uint32_t km_cuadro)
 {
+    /* El destino lo teclea el usuario, asi que se escapan comillas y barras
+     * IGUAL QUE EN EL FIN (16-oct-2026: el fin ya lo hacia y el inicio no, y son
+     * el mismo dato). Hoy no hay nada que escapar -- el campo solo admite
+     * [A-Za-z0-9 -_] en las dos cabinas -- pero el dia que se amplie, sin esto
+     * el JSON del inicio queda roto, la P4 contesta 400 y el viaje NO arranca,
+     * sin mas pista que un "no se pudo empezar". */
+    char limpio[80] = {0};
+    if (destino && destino[0]) {
+        size_t j = 0;
+        for (size_t i = 0; destino[i] && j + 2 < sizeof(limpio); i++) {
+            if (destino[i] == '"' || destino[i] == '\\') limpio[j++] = '\\';
+            limpio[j++] = destino[i];
+        }
+        limpio[j] = 0;
+    }
+
     /* El cuentakilometros va SOLO si hay lectura (16-oct-2026): con 0 no se
      * manda el campo, que es como se dice "no apuntado". Mandarlo a 0 seria
      * mandar un dato que el usuario no ha dado, y la P4 no podria distinguir
@@ -284,13 +311,13 @@ void p4_api_cuerpo_inicio(char *out, size_t n, uint32_t id,
         snprintf(out, n,
                  "{\"op\":\"inicio\",\"id\":%lu,\"destino\":\"%s\",\"fecha_dias\":%lu,"
                  "\"km_cuadro\":%lu,\"dev\":\"%s\"}",
-                 (unsigned long)id, destino, (unsigned long)fecha_dias,
+                 (unsigned long)id, limpio, (unsigned long)fecha_dias,
                  (unsigned long)km_cuadro, p4_api_dev_id());
     } else {
         snprintf(out, n,
                  "{\"op\":\"inicio\",\"id\":%lu,\"destino\":\"%s\",\"fecha_dias\":%lu,"
                  "\"dev\":\"%s\"}",
-                 (unsigned long)id, destino, (unsigned long)fecha_dias, p4_api_dev_id());
+                 (unsigned long)id, limpio, (unsigned long)fecha_dias, p4_api_dev_id());
     }
 }
 
@@ -410,9 +437,9 @@ bool p4_api_alarma_sentido(uint8_t mask, int silenciar, p4_api_done_cb cb,
 bool p4_api_viaje_inicio(uint32_t id, const char *destino, uint32_t fecha_dias,
                          uint32_t km_cuadro, p4_api_done_cb cb)
 {
-    /* 224 y no 192: el inicio con cuentakilometros lleva 20 caracteres mas
+    /* El inicio con cuentakilometros lleva 20 caracteres mas que el resto
      * ("km_cuadro":999999,) y con el tope de 6 cifras el cuerpo llega a ~130. */
-    char cuerpo[224];
+    char cuerpo[P4_API_CUERPO_MAX];
     p4_api_cuerpo_inicio(cuerpo, sizeof(cuerpo), id, destino, fecha_dias, km_cuadro);
     return lanzar(cuerpo, cb);
 }
