@@ -1047,8 +1047,17 @@ static void make_check_money_row(lv_obj_t *parent, const char *label_text,
     lv_textarea_set_placeholder_text(ta, "0.00");
     lv_obj_set_size(ta, CHKMONEY_TA_W, alto - 6);
     lv_obj_align(ta, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_set_style_text_font(ta, alto >= 40 ? &lv_font_montserrat_24
-                                              : &lv_font_montserrat_20, 0);
+    /* LA LETRA SE ELIGE POR EL ALTO DE LA CAJA, no por el numero que se queria
+     * (16-oct-2026, el usuario: "los 0.00 estan descentrados en vertical"). Con
+     * los nombres viejos, "montserrat_24" acababa renderizando 40 px por la
+     * cadena de tamanos, dentro de una caja de alto-6 = 34: el numero no cabia y
+     * la caja recortaba por arriba y por abajo, que es justo lo que se veia.
+     * Ahora se pide un PAPEL y se comprueba que su alto de linea quepa. */
+    const lv_font_t *fuente_ta =
+        (lv_font_get_line_height(&FUENTE_GRANDE) + 2 <= alto - 6) ? &FUENTE_GRANDE :
+        (lv_font_get_line_height(&FUENTE_NORMAL) + 2 <= alto - 6) ? &FUENTE_NORMAL :
+                                                                   &FUENTE_PIE;
+    lv_obj_set_style_text_font(ta, fuente_ta, 0);
     /* Sin el relleno vertical del tema. El numero salia CORTADO por arriba en
      * las filas apretadas de servicios (visto en la placa, 24-ago): la letra 20
      * ocupa 23 px y el tema anade ~5 arriba y ~5 abajo, o sea 33 dentro de una
@@ -3027,8 +3036,12 @@ static void viaje_km_fin_listo_cb(lv_event_t *e)
  * 88 px, es el doble del minimo comodo para acertar con el dedo sin mirar.
  *
  * El tamano de FUENTE no se toca aqui: sigue siendo el 28 que ya llevaba. */
-#define SAVE_W  360
-#define SAVE_H   88
+/* 16-oct-2026: el usuario lo vio como "el boton de guardar roba mucho espacio".
+ * Estaba en 360x88, que en 800x480 y al lado de los botones de fila (que miden
+ * 64 de alto) parecia un cartel. 300x64 es un boton de accion normal y sigue
+ * siendo el mas grande de su fila. */
+#define SAVE_W  300
+#define SAVE_H   64
 
 static lv_obj_t *make_save_button(lv_obj_t *parent, const char *text, lv_event_cb_t cb, void *user_data)
 {
