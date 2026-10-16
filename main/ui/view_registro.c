@@ -1144,6 +1144,13 @@ static lv_obj_t *make_number_field(lv_obj_t *parent, const char *label_text)
  * NO vale: devuelve el ultimo pulsado, no el que quedo marcado. */
 static uint16_t btnmatrix_checked(lv_obj_t *bm, uint16_t count)
 {
+    /* SIN BOTONERA NO HAY NADA MARCADO (16-oct-2026). Esto reventaba la placa:
+     * "Guru Meditation ... LoadProhibited" en lv_buttonmatrix_has_button_ctrl,
+     * desde pern_cobro_actual() al guardar una noche -- y llevaba 417 panics
+     * contados en la NVS. Una botonera que no se ha creado (o que ya no existe)
+     * es NULL, y lv_buttonmatrix_has_button_ctrl(NULL, ...) desreferencia.
+     * Devolver 0 es lo correcto: 0 = el primer boton = la opcion de siempre. */
+    if (!bm) return 0;
     for (uint16_t i = 0; i < count; i++) {
         if (lv_buttonmatrix_has_button_ctrl(bm, i, LV_BTNMATRIX_CTRL_CHECKED)) return i;
     }
@@ -3440,6 +3447,10 @@ static lv_obj_t *make_precio_row(lv_obj_t *parent, precio_row_t *o,
 static uint8_t pern_cobro_actual(void)
 {
     if (s_pern_sitio == SITIO_CAMPING) return PARADA_COBRO_NOCHE;
+    /* Sin botonera (no se ha abierto el formulario de la pernocta, o el sitio es
+     * de los que no la enseñan) el cobro es POR NOCHES, que es la opcion de
+     * siempre y la primera de la botonera. Antes esto era un panic. */
+    if (!s_pern_cobro_bm) return PARADA_COBRO_NOCHE;
     return (uint8_t)btnmatrix_checked(s_pern_cobro_bm, 2);
 }
 
