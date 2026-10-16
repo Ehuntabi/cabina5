@@ -1399,6 +1399,8 @@ static void build_filtros_screen(void)
 
     lv_obj_t *t = lv_label_create(s_filtros_screen);
     lv_label_set_text(t, "FILTROS");
+    lv_obj_set_width(t, lv_pct(100));
+    lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, 0);   /* titulo centrado */
     lv_obj_set_style_text_color(t, lv_color_hex(COL_MANTENIMIENTO), 0);
     lv_obj_set_style_text_font(t, &lv_font_montserrat_22, 0);
     lv_obj_set_style_text_letter_space(t, 1, 0);

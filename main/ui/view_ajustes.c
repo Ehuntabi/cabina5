@@ -439,7 +439,7 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_label_set_text(mtitle, "CONFIGURACIÓN");
     lv_obj_set_style_text_color(mtitle, UI_COLOR_ORANGE, 0);
     lv_obj_set_style_text_font(mtitle, &lv_font_montserrat_22, 0);
-    lv_obj_align(mtitle, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_align(mtitle, LV_ALIGN_CENTER, 0, 0);   /* TODOS los titulos van centrados (usuario, 16-oct) */
 
     /* El unico boton, y grande: es lo unico que se toca aqui. */
     lv_obj_t *wbtn = lv_btn_create(s_menu);
