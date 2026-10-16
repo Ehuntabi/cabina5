@@ -1045,7 +1045,7 @@ static void make_check_money_row(lv_obj_t *parent, const char *label_text,
     lv_obj_set_style_bg_color(ta, color, 0);
     lv_textarea_set_one_line(ta, true);
     lv_textarea_set_placeholder_text(ta, "0.00");
-    lv_obj_set_size(ta, CHKMONEY_TA_W, alto - 6);
+    lv_obj_set_size(ta, CHKMONEY_TA_W, alto - 4);
     lv_obj_align(ta, LV_ALIGN_RIGHT_MID, 0, 0);
     /* LA LETRA SE ELIGE POR EL ALTO DE LA CAJA, no por el numero que se queria
      * (16-oct-2026, el usuario: "los 0.00 estan descentrados en vertical"). Con
@@ -3683,7 +3683,13 @@ static void build_pernocta(lv_obj_t *form)
  * campo mide 38 y el rotulo 33, y con el reparto centrado quedan en 1 y 3 px
  * de margen. Lo que NO se toca es el boton: la regla es que mida lo mismo en
  * todas las subpantallas, asi que el sitio lo tiene que dar el contenido. */
-#define SERV_ROW_H  40
+/* 44 y no 40 (16-oct-2026, el usuario: "ahora el tamaño de los 0.00 es muy
+ * pequeño"). Con la fila de 40 la caja quedaba en 34 y el unico papel que cabia
+ * era el de 18: ahora la caja es de 40 y el numero sale en el papel NORMAL (26),
+ * que es el mismo que el de los rotulos de la pantalla. Las seis filas crecen 4
+ * px cada una (24 en total) y el boton de guardar, que es mas pequeño desde hoy,
+ * sigue entrando sin que la pantalla tenga que deslizarse. */
+#define SERV_ROW_H  44
 
 static void build_servicios(lv_obj_t *form)
 {
