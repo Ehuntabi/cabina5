@@ -513,6 +513,7 @@ static void icon_click_cb(lv_event_t *e)
 
 static void set_hidden(lv_obj_t *obj, bool hidden)
 {
+    if (!obj) return;   /* misma leccion que btnmatrix_checked: NULL no se toca */
     if (hidden) lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
     else        lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
 }
@@ -1151,6 +1152,14 @@ static uint16_t btnmatrix_checked(lv_obj_t *bm, uint16_t count)
      * es NULL, y lv_buttonmatrix_has_button_ctrl(NULL, ...) desreferencia.
      * Devolver 0 es lo correcto: 0 = el primer boton = la opcion de siempre. */
     if (!bm) return 0;
+    /* Y TIENE QUE SER UNA BOTONERA DE VERDAD. Aqui no basta con mirar NULL: en
+     * la 5" alguien pasaba la FILA que contiene el selector (un lv_obj normal) y
+     * lv_buttonmatrix_has_button_ctrl() leia btn_cnt y ctrl_bits FUERA del
+     * bloque -> basura -> LoadProhibited. Es el reinicio del 16-oct-2026, que la
+     * guarda de NULL no tapaba porque el puntero no era NULL. Mismo patron que
+     * selector_reset(), que ya lo comprobaba desde el 9-oct (por un crash
+     * identico). */
+    if (!lv_obj_check_type(bm, &lv_buttonmatrix_class)) return 0;
     for (uint16_t i = 0; i < count; i++) {
         if (lv_buttonmatrix_has_button_ctrl(bm, i, LV_BTNMATRIX_CTRL_CHECKED)) return i;
     }
@@ -1284,7 +1293,15 @@ static void clear_forms(void)
 
     lv_textarea_set_text(s_pern_precio_ta, "");
     lv_dropdown_set_selected(s_pern_currency_dd, 0);
-    selector_reset(s_pern_cobro_bm);
+    /* El cobro, a "Noche". Aqui NO se llama a selector_reset(s_pern_cobro_bm):
+     * eso apuntaba a la FILA del precio, recorria sus hijos, marcaba el TEXTAREA
+     * del precio y DESmarcaba los dos botones, con lo que al volver al menu el
+     * selector se quedaba sin ninguna opcion marcada. */
+    for (int i = 0; i < 2; i++) {
+        if (!s_pern_cobro_btn[i]) continue;
+        if (i == PARADA_COBRO_NOCHE) lv_obj_add_state(s_pern_cobro_btn[i], LV_STATE_CHECKED);
+        else                         lv_obj_clear_state(s_pern_cobro_btn[i], LV_STATE_CHECKED);
+    }
 
     selector_reset(s_itv_resultado_bm);
     lv_textarea_set_text(s_itv_km_ta, "");
@@ -3447,11 +3464,16 @@ static lv_obj_t *make_precio_row(lv_obj_t *parent, precio_row_t *o,
 static uint8_t pern_cobro_actual(void)
 {
     if (s_pern_sitio == SITIO_CAMPING) return PARADA_COBRO_NOCHE;
-    /* Sin botonera (no se ha abierto el formulario de la pernocta, o el sitio es
-     * de los que no la enseñan) el cobro es POR NOCHES, que es la opcion de
-     * siempre y la primera de la botonera. Antes esto era un panic. */
-    if (!s_pern_cobro_bm) return PARADA_COBRO_NOCHE;
-    return (uint8_t)btnmatrix_checked(s_pern_cobro_bm, 2);
+    /* LOS DOS BOTONES DE VERDAD, no s_pern_cobro_bm. En esta placa el selector
+     * son dos lv_btn normales (se probo la botonera y sus botones se salian de la
+     * caja) y s_pern_cobro_bm apunta a la FILA que los contiene, que es un lv_obj
+     * cualquiera. Pasarsela a btnmatrix_checked() era leer un objeto como si
+     * fuera una botonera: panic garantizado en cuanto se guardaba una noche en
+     * area o parking (LoadProhibited). No lo tapaba la guarda de NULL porque el
+     * puntero NO era NULL. */
+    if (!s_pern_cobro_btn[PARADA_COBRO_24H]) return PARADA_COBRO_NOCHE;
+    return lv_obj_has_state(s_pern_cobro_btn[PARADA_COBRO_24H], LV_STATE_CHECKED)
+               ? PARADA_COBRO_24H : PARADA_COBRO_NOCHE;
 }
 
 /* El rotulo lo completa el boton marcado ("Precio por [Noche|24 h]"), salvo en
