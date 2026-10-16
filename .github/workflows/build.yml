@@ -121,6 +121,7 @@ jobs:
                    test/viaje_cola_libre_arnes.c test/viaje_cola_libre.sh \
                    test/viaje_horario_arnes.c test/viaje_horario.sh \
                    test/viaje_contadores.sh test/viaje_contadores_arnes.c \
+                   main/ui/ui_style.h \
                    test/estilo.sh ; do
             if [ ! -f "cabina5/$f" ] || [ ! -f "35cabina/$f" ]; then
               echo "FALTA $f en alguno de los dos repos"; fallo=1; continue
@@ -175,3 +176,83 @@ jobs:
 
       - name: El contrato del canal de viaje, contra la P4
         run: bash victron/test/protocolo_cabina.sh victron cabina5
+
+      # ── GUARDAS DE LOS SCRIPTS DE PUBLICAR Y GRABAR (16-oct-2026) ──────────
+      # El CI no graba ni publica (no hay placas ni secretos) y eso NO cambia: el
+      # .bin de la Release lo compila release.sh EN LOCAL, con la cabecera REAL
+      # del AP, mientras que este workflow compila con la PLANTILLA ("CAMBIAME").
+      # O sea que "lo compila el CI, luego esta bien" es falso justo para el .bin
+      # que se descarga. Lo que SI puede hacer el CI es vigilar que los scripts
+      # que graban y publican conserven sus comprobaciones: la auditoria del
+      # 16-oct encontro a la 3,5" sin el guard de wifi_credentials.h y a las dos
+      # con la comprobacion del .bin metida en el "else" de "la Release ya
+      # existe" (una Release sin asset acababa en "PUBLICADO" y exit 0). Que se
+      # caiga aqui es barato; que se caiga con la placa delante, no.
+      - name: El CI no publica, y release.sh no publica la clave de broma
+        run: |
+          for repo in cabina5 35cabina; do
+            if git -C "$repo" ls-files --error-unmatch main/wifi_credentials.h >/dev/null 2>&1; then
+              echo "$repo: main/wifi_credentials.h esta VERSIONADO (lleva la clave real del AP)"; exit 1
+            fi
+            grep -q 'wifi_credentials.h' "$repo/release.sh" \
+              || { echo "$repo: release.sh no comprueba la clave del AP"; exit 1; }
+          done
+          echo "el CI no publica binarios; release.sh exige la clave real antes de publicar"
+
+      - name: Los guardas de grabar/publicar siguen en su sitio (las dos cabinas)
+        run: |
+          fallo=0
+          for repo in cabina5 35cabina; do
+            g="$repo/scripts/grabar.sh"; r="$repo/release.sh"
+            for f in "$g" "$r"; do [ -f "$f" ] || { echo "FALTA $f"; fallo=1; }; done
+            for frase in 'git describe --tags --exact-match' 'git ls-remote origin' \
+                         'gh release download' 'sha256sum' 'chip_id' 'write_flash' \
+                         'xtensa-esp32s3-elf-gcc' 'components' 'partitions.csv' \
+                         'git checkout -- sdkconfig'; do
+              grep -qF -- "$frase" "$g" || { echo "$g: le falta '$frase'"; fallo=1; }
+            done
+            for frase in 'wifi_credentials.h' 'sha256sum' 'gh release upload' \
+                         'grep -qxF "$ASSET"' 'git checkout -- sdkconfig'; do
+              grep -qF -- "$frase" "$r" || { echo "$r: le falta '$frase'"; fallo=1; }
+            done
+            if grep -qE '^[[:space:]]*idf\.py +-p.*flash' "$g" "$r"; then
+              echo "$repo: ha vuelto 'idf.py flash' a los scripts (es el camino sin comprobaciones)"; fallo=1
+            fi
+          done
+          [ "$fallo" = 0 ] || { echo "Se han perdido guardas en los scripts de grabar/publicar"; exit 1; }
+          echo "guardas presentes en las dos cabinas"
+
+      - name: El esquema de alias de fuentes (alias -> fuente DEL PROYECTO)
+        run: |
+          # Los nombres viejos del SDK tienen que apuntar a una fuente del
+          # proyecto (lv_font_inter_*_es) o a un papel (FUENTE_*), nunca a otra
+          # del SDK ni a un nombre inventado: si apuntan mal, el texto sale con
+          # la fuente del SDK (tamaño literal) y no falla al compilar.
+          fallo=0
+          for repo in cabina5 35cabina; do
+            malos=$(grep -rhE '^#define +lv_font_montserrat_(bold_)?[0-9]+ +' "$repo/main" --include=*.h \
+                    | awk '{print $3}' | grep -vE '^(lv_font_inter_[a-z0-9_]*|FUENTE_[A-Z_]+)$' || true)
+            [ -z "$malos" ] || { echo "$repo: alias que NO apuntan a una fuente del proyecto: $malos"; fallo=1; }
+          done
+          [ "$fallo" = 0 ] || exit 1
+          echo "los alias de las dos cabinas apuntan a fuentes del proyecto"
+
+      - name: La captura de panicos esta versionada (nada de /tmp/cap2.py)
+        run: |
+          for repo in cabina5 35cabina; do
+            test -f "$repo/scripts/cap2.py" || { echo "$repo: falta scripts/cap2.py"; exit 1; }
+            grep -q 'AQUI/cap2.py' "$repo/scripts/vigilar_panicos.sh" \
+              || { echo "$repo: vigilar_panicos.sh no usa scripts/cap2.py"; exit 1; }
+            if grep -q '/tmp/cap2.py' "$repo/scripts/vigilar_panicos.sh"; then
+              echo "$repo: vigilar_panicos.sh sigue llamando a /tmp/cap2.py"; exit 1
+            fi
+          done
+          echo "la captura del serial esta en el repo"
+
+      - name: shellcheck de los scripts propios
+        run: |
+          shellcheck -S warning \
+            cabina5/scripts/grabar.sh cabina5/scripts/vigilar_panicos.sh cabina5/release.sh \
+            cabina5/test/estilo.sh \
+            35cabina/scripts/grabar.sh 35cabina/scripts/vigilar_panicos.sh 35cabina/release.sh \
+            35cabina/test/estilo.sh 35cabina/test/auditar.sh
