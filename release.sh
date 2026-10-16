@@ -6,14 +6,24 @@
 #   ej: ./release.sh 0.1 "Primer arranque en la placa: pantalla, táctil y UDP"
 #
 # Qué hace:
+#   0. Comprueba ANTES de tocar nada (ni tag ni build) que están 'gh', el
+#      entorno de ESP-IDF, el toolchain Xtensa y la clave REAL del AP
+#      (main/wifi_credentials.h): abortar con el tag ya creado deja un tag
+#      huérfano (16-oct-2026).
 #   1. Exige el árbol limpio (lo que se publica tiene que ser lo que hay).
 #   2. Crea el tag vX.Y, o reutiliza el que ya esté EN ESTE MISMO commit.
 #   3. Compila con reconfigure (la versión se calcula al CONFIGURAR, no al
 #      compilar: sin reconfigure se publicaría un binario con la versión vieja).
 #   4. VERIFICA que la versión embebida en el .bin coincide con el tag.
-#   5. Sube código y tag, y publica la Release en GitHub con el binario.
-#      Sin 'gh' no se publica: se exige ANTES de crear el tag, y al final se
-#      comprueba que la Release lleve su .bin de verdad.
+#   5. Sube código y tag, y publica la Release en GitHub con el binario, con el
+#      nombre EXACTO cabina5-vX.Y.bin. Sin 'gh' no se publica: se exige ANTES de
+#      crear el tag, y al final se comprueba que la Release lleve ESE asset (si la
+#      Release ya existía, también: antes decía "no la toco" y una Release sin
+#      .bin acababa en "PUBLICADO").
+#   6. Deja el .bin en ~/joint-releases SOLO cuando la Release está comprobada, y
+#      retira entonces el de la versión anterior. Antes se borraba ANTES del
+#      push: si el push fallaba se perdía el bueno y quedaba uno que nadie podía
+#      descargar (auditoría del 16-oct-2026).
 #
 # OJO (propio de este proyecto): hay que decirle a ESP-IDF que el target es
 # esp32s3 y poner el toolchain Xtensa en el PATH. En este PC el export.sh no lo
@@ -48,6 +58,10 @@ if ! printf '%s' "$VER" | grep -Eq '^[0-9]+\.[0-9]+$'; then
 fi
 TAG="v$VER"
 MSG="${2:-Release $TAG}"
+# El nombre EXACTO del asset que tiene que quedar colgado de la Release: es el
+# que scripts/grabar.sh exige antes de grabar (16-oct-2026). Se usa aquí para
+# comprobarlo también cuando la Release YA existía.
+ASSET="cabina5-$TAG.bin"
 
 # ── 0b) hace falta 'gh': sin él no hay Release ──────────────────────────────
 # Se mira AQUÍ, antes de crear el tag y de compilar, que es cuando abortar no
@@ -61,27 +75,20 @@ if ! command -v gh >/dev/null 2>&1; then
     exit 1
 fi
 
-# ── 1) el árbol, limpio ─────────────────────────────────────────────────────
-if [ -n "$(git status --porcelain)" ]; then
-    echo "ABORTADO: hay cambios sin commitear. Lo que se publica tiene que ser"
-    echo "          exactamente lo que hay en el repositorio."
-    git status --short
+# ── ¿estamos en una rama? (un HEAD desprendido no se puede publicar) ────────
+# `git push origin "$(git branch --show-current)"` con HEAD desprendido deja el
+# refspec vacio y el push muere con un error críptico ("refspec inválido: ''")
+# DESPUÉS de haber creado el tag. Se mira aquí, con lo demás (16-oct-2026).
+if [ -z "$(git branch --show-current)" ]; then
+    echo "ERROR: HEAD está desprendido (detached): no sé a qué rama subir el código."
+    echo "       Ponte en la rama de trabajo (git switch main) y vuelve a lanzarlo."
     exit 1
 fi
 
-# ── 2) el tag ───────────────────────────────────────────────────────────────
-if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-    if [ "$(git rev-list -n1 "$TAG")" != "$(git rev-parse HEAD)" ]; then
-        echo "ABORTADO: el tag $TAG existe y apunta a OTRO commit."
-        exit 1
-    fi
-    echo "[ok] el tag $TAG ya está en este commit, lo reutilizo"
-else
-    git tag -a "$TAG" -m "$MSG"
-    echo "[ok] tag $TAG creado"
-fi
-
-# ── 3) compilar ─────────────────────────────────────────────────────────────
+# ── 0c) el entorno y la clave del AP, ANTES DE CREAR EL TAG ────────────────
+# Todo lo que puede faltar se mira AQUI, antes del tag: abortar con el tag ya
+# creado deja un tag huerfano en el repo (y en la 3,5" pasaba: el toolchain se
+# comprobaba despues de crearlo -- auditoria del 16-oct-2026).
 if [ ! -f "$IDF_EXPORT" ]; then
     echo "ERROR: no encuentro ESP-IDF en $IDF_EXPORT"; exit 1
 fi
@@ -90,11 +97,6 @@ if [ ! -d "$XTENSA_BIN" ]; then
     echo "       Mira qué versión hay: ls ~/.espressif/tools/xtensa-esp-elf/"
     exit 1
 fi
-export IDF_TARGET=esp32s3
-# shellcheck disable=SC1090
-. "$IDF_EXPORT" >/dev/null 2>&1
-export PATH="$XTENSA_BIN:$PATH"
-command -v xtensa-esp32s3-elf-gcc >/dev/null || { echo "ERROR: el compilador del S3 no está en el PATH"; exit 1; }
 
 # ── LA CLAVE DEL AP, ANTES DE COMPILAR NADA (correccion del 16-oct-2026) ─────
 #
@@ -121,6 +123,44 @@ if cmp -s main/wifi_credentials.h main/wifi_credentials.h.example; then
     exit 1
 fi
 
+
+# sdkconfig se reescribe solo en cada build, asi que se restaura ANTES de mirar
+# si el arbol esta limpio. OJO con hacerlo en UNA sola orden: en cabina5
+# dependencies.lock NO esta versionado (esta en .gitignore) y `git checkout a b`
+# aborta ENTERO si un pathspec no existe... con el `|| true` eso pasaba
+# desapercibido y sdkconfig NO se restauraba, asi que cualquier churn del build
+# dejaba el arbol "sucio" y el script se negaba a grabar/publicar (auditoria del
+# 16-oct-2026). Dos ordenes separadas: cada una hace lo que puede.
+git checkout -- sdkconfig 2>/dev/null || true
+git checkout -- dependencies.lock 2>/dev/null || true
+
+# ── 1) el árbol, limpio ─────────────────────────────────────────────────────
+if [ -n "$(git status --porcelain)" ]; then
+    echo "ABORTADO: hay cambios sin commitear. Lo que se publica tiene que ser"
+    echo "          exactamente lo que hay en el repositorio."
+    git status --short
+    exit 1
+fi
+
+# ── 2) el tag ───────────────────────────────────────────────────────────────
+if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+    if [ "$(git rev-list -n1 "$TAG")" != "$(git rev-parse HEAD)" ]; then
+        echo "ABORTADO: el tag $TAG existe y apunta a OTRO commit."
+        exit 1
+    fi
+    echo "[ok] el tag $TAG ya está en este commit, lo reutilizo"
+else
+    git tag -a "$TAG" -m "$MSG"
+    echo "[ok] tag $TAG creado"
+fi
+
+# ── 3) compilar ─────────────────────────────────────────────────────────────
+export IDF_TARGET=esp32s3
+# shellcheck disable=SC1090
+. "$IDF_EXPORT" >/dev/null 2>&1
+export PATH="$XTENSA_BIN:$PATH"
+command -v xtensa-esp32s3-elf-gcc >/dev/null || { echo "ERROR: el compilador del S3 no está en el PATH"; exit 1; }
+
 idf.py reconfigure >/dev/null
 idf.py build >/dev/null
 echo "[ok] compilado"
@@ -139,11 +179,18 @@ if [ "$EMB" != "$TAG" ]; then
 fi
 echo "[ok] el binario dice '$EMB'"
 
-mkdir -p "$RELDIR"
-rm -f "$RELDIR"/cabina5-v*.bin
-OUT="$RELDIR/cabina5-$TAG.bin"
-cp "$APP_BIN" "$OUT"
-echo "[ok] binario en $OUT"
+# El binario que se sube a la Release se deja en build/ (gitignored) y NO se
+# toca ~/joint-releases todavía: esa carpeta es "lo que se lleva a la
+# autocaravana" y tiene que contener lo ULTIMO PUBLICADO. Antes se borraba la
+# versión anterior de ahí y se copiaba la nueva AQUÍ, antes del push: si el push
+# o la Release fallaban (pasó el 16-oct-2026 con un 5xx de GitHub), quedaba un
+# binario que nadie podía descargar y el bueno ya estaba borrado. Ahora la copia
+# y el borrado de la vieja se hacen al final (paso 6), cuando la Release está
+# comprobada (auditoría del 16-oct-2026).
+SUBIR="build/$ASSET"
+cp "$APP_BIN" "$SUBIR"
+OUT="$RELDIR/$ASSET"
+echo "[ok] binario para subir en $SUBIR"
 
 # ── 5) publicar ─────────────────────────────────────────────────────────────
 git push origin "$(git branch --show-current)" "$TAG"
@@ -156,11 +203,30 @@ if ! command -v gh >/dev/null 2>&1; then
     echo "       El código y el tag $TAG YA están subidos; falta la Release. Instala"
     echo "       'gh', entra con 'gh auth login' y publícala con:"
     echo "       gh release create $TAG -R $REPO --title \"cabina5 $TAG\" \\"
-    echo "          --notes-from-tag \"$OUT\""
+    echo "          --notes-from-tag \"$SUBIR\""
     exit 1
 fi
 if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
-    echo "[ok] la Release $TAG ya existe, no la toco"
+    # La Release YA existía: antes esto decía "[ok] no la toco" y seguía, así que
+    # una Release sin su .bin (creada a mano, o con el asset borrado) acababa en
+    # "PUBLICADO" -- y luego scripts/grabar.sh se negaba a grabar, sin decir por
+    # qué (auditoría del 16-oct-2026). Ahora se comprueba su asset, y si falta se
+    # sube.
+    echo "[ok] la Release $TAG ya existe, compruebo que tenga su $ASSET"
+    ASSETS="$(gh release view "$TAG" -R "$REPO" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+    if ! printf '%s\n' "$ASSETS" | grep -qxF "$ASSET"; then
+        echo "[..] le falta $ASSET (tiene: ${ASSETS:-nada}); lo subo"
+        gh release upload "$TAG" -R "$REPO" "$SUBIR" || true
+        ASSETS="$(gh release view "$TAG" -R "$REPO" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+    fi
+    if ! printf '%s\n' "$ASSETS" | grep -qxF "$ASSET"; then
+        echo
+        echo "ERROR: la Release $TAG existe pero NO tiene '$ASSET' (visto:"
+        echo "       ${ASSETS:-nada}). El firmware está en $SUBIR; súbelo a mano:"
+        echo "  gh release upload $TAG -R $REPO \"$SUBIR\""
+        exit 1
+    fi
+    echo "[ok] la Release $TAG ya tenía su $ASSET"
 else
     NOTAS_TMP="/tmp/notas-cabina5-$TAG.md"
     if [ -n "${2:-}" ]; then
@@ -180,43 +246,54 @@ else
     if gh release create "$TAG" -R "$REPO" \
          --title "cabina5 $TAG" \
          --notes-file "$NOTAS_TMP" \
-         "$OUT"; then
+         "$SUBIR"; then
         :
     else
         echo "AVISO: GitHub no ha creado la Release (¿un 5xx suyo? paso el 16-oct-2026)."
     fi
     # SE COMPRUEBA, no se da por hecho: si la Release no existe, el tag esta
-    # subido y el .bin en ~/joint-releases, pero nadie puede descargarlo -- y
+    # subido y el .bin en build/, pero nadie puede descargarlo -- y
     # scripts/grabar.sh no dejaria grabar la placa. Mejor decirlo aqui, con el
     # comando exacto para reintentarlo.
     if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
         echo
         echo "LA RELEASE $TAG NO ESTA PUBLICADA (el tag si). Reintenta con:"
         echo "  gh release create $TAG -R $REPO --title \"cabina5 $TAG\" \\"
-        echo "     --notes-file $NOTAS_TMP \"$OUT\""
+        echo "     --notes-file $NOTAS_TMP \"$SUBIR\""
         exit 1
     fi
-    # Y ADEMÁS tiene que llevar su .bin: una Release sin asset no la puede
-    # descargar nadie, y scripts/grabar.sh la rechazaría (auditoría del
-    # 15-oct-2026). GitHub tarda un momento en procesar lo que acaba de subir
-    # `gh release create`, así que se hacen 5 comprobaciones con 2 s de espera
-    # (unos 10 s en total) antes de darla por incompleta.
+    # Y ADEMÁS tiene que llevar SU .bin, con el nombre exacto: una Release sin
+    # asset (o con el .bin de otra versión) no la puede usar nadie, y
+    # scripts/grabar.sh la rechazaría (auditoría del 15/16-oct-2026). GitHub tarda
+    # un momento en procesar lo que acaba de subir `gh release create`, así que se
+    # hacen 5 comprobaciones con 2 s de espera (unos 10 s en total) antes de darla
+    # por incompleta.
     ASSETS=""
     for _ in 1 2 3 4 5; do
         ASSETS="$(gh release view "$TAG" -R "$REPO" --json assets --jq '.assets[].name' 2>/dev/null || true)"
-        if printf '%s\n' "$ASSETS" | grep -q '\.bin$'; then break; fi
+        if printf '%s\n' "$ASSETS" | grep -qxF "$ASSET"; then break; fi
         sleep 2
     done
-    if ! printf '%s\n' "$ASSETS" | grep -q '\.bin$'; then
+    if ! printf '%s\n' "$ASSETS" | grep -qxF "$ASSET"; then
         echo
         echo "ERROR: el tag $TAG quedó subido, pero la Release está INCOMPLETA: no"
-        echo "       tiene ningún asset .bin (visto: ${ASSETS:-ninguno}). El firmware"
-        echo "       está en $OUT; súbelo a mano:"
-        echo "  gh release upload $TAG -R $REPO \"$OUT\""
+        echo "       tiene '$ASSET' (visto: ${ASSETS:-ninguno}). El firmware está en"
+        echo "       $SUBIR; súbelo a mano:"
+        echo "  gh release upload $TAG -R $REPO \"$SUBIR\""
         exit 1
     fi
-    echo "[ok] Release $TAG publicada con su .bin ($(printf '%s' "$ASSETS" | tr '\n' ' '))"
+    echo "[ok] Release $TAG publicada con su $ASSET ($(printf '%s' "$ASSETS" | tr '\n' ' '))"
 fi
+
+# ── 6) ahora sí: ~/joint-releases solo con LO PUBLICADO ─────────────────────
+# Se llega aquí con el push y la Release ya comprobados, así que lo que se copia
+# es descargable. Se borra la versión anterior de esa carpeta justo después de
+# copiar la nueva (antes se borraba ANTES del push: auditoría del 16-oct-2026).
+mkdir -p "$RELDIR"
+rm -f "$RELDIR"/cabina5-v*.bin
+cp "$SUBIR" "$OUT"
+echo "[ok] $OUT ($(sha256sum "$OUT" | awk '{print $1}'))"
+echo "[ok] $RELDIR actualizado: solo el .bin de $TAG"
 
 echo
 echo "────────────────────────────────────────────────────────────"
