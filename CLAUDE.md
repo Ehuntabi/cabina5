@@ -88,6 +88,13 @@ escribe las DOS mitades de la OTA (ota_0 en 0x20000 y ota_1 en 0x410000) y, ante
 de nada, comprueba que lo que se va a grabar este publicado: arbol limpio, tag de
 la version y Release en GitHub. Si falta algo, no graba y dice como arreglarlo.
 
+Antes de escribir comprueba tres cosas mas (16-oct-2026): que la Release tenga el
+asset EXACTO de esta version (`cabina5-<tag>.bin`) con su sha256, que en el puerto
+haya un ESP32-S3 (la P4 es un ESP32-P4 y tambien sale como `/dev/ttyACM*`: con los
+cables cambiados el script se niega), y que el .bin sea el publicado -- si no lo es
+byte a byte, graba EL PUBLICADO para que la placa lleve justo lo descargable.
+`--seco` hace todas las comprobaciones SIN escribir (util para probar el script).
+
 El motivo: el 16-oct-2026 la P4 del banco estaba grabada con la v4.38 y en GitHub
 la ultima Release era la v4.37. Grabar es local e instantaneo; publicar depende de
 acordarse de lanzar `release.sh`. Que grabar EXIJA estar publicado es lo unico que
