@@ -92,6 +92,27 @@
 #define FUENTE_NEGRITA_GRANDE  lv_font_inter_bold_34_es
 #define FUENTE_NEGRITA_TITULAR lv_font_inter_bold_40_es
 
+/* ── Traduccion de los nombres que ya usaba la UI ───────────────────────────
+ *
+ * ESTO NO ES OPCIONAL, y se descubrio de la peor manera (16-oct-2026, el
+ * usuario: "el texto pequeñisimo"): la UI llama a las fuentes por su nombre
+ * viejo en mas de 100 sitios (lv_font_montserrat_16 es la de los botones
+ * pequeños, la 20 la de los rotulos...). Si estos alias NO estan, esos nombres
+ * no dan error de compilacion: tiran de las Montserrat que trae el SDK, que
+ * siguen compiladas, y el texto sale al tamaño LITERAL (16 px) en vez del papel
+ * que le tocaba (30). Al reescribir la escala plana se quedaron fuera y media
+ * interfaz se puso con la letra pequeña.
+ *
+ * Cada nombre viejo apunta al papel que YA renderizaba (la 16 y la 22 acababan
+ * las dos en 30, la 14 y la 20 en 26, la 24 y la 32 en 40), asi que con esto la
+ * placa se ve como se veia antes de tocar nada. */
+#define lv_font_montserrat_14   FUENTE_MUY_PEQUENA
+#define lv_font_montserrat_16   FUENTE_PEQUENA
+#define lv_font_montserrat_20   FUENTE_NORMAL
+#define lv_font_montserrat_22   FUENTE_MEDIA
+#define lv_font_montserrat_24   FUENTE_MEDIA_GRANDE
+#define lv_font_montserrat_32   FUENTE_GRANDE
+
 /* ── La ESCALA de la pantalla ────────────────────────────────────────────────
  *
  * LA CLAVE DE TODO ESTO, y conviene entenderla porque explica los bandazos de
