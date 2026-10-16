@@ -49,12 +49,14 @@
  *
  * LIMITE CONOCIDO: LVGL no trae Montserrat 56 (su fuente mas grande es la 48),
  * asi que el titular de 48 no puede subir. Si algun dia hace falta, hay que
- * generar la fuente a mano (el comando esta en fonts/montserrat_bold.h), no
- * basta con activarla en sdkconfig.
+ * generar la fuente a mano con lv_font_conv (el comando exacto va en la
+ * cabecera de cada fichero de fonts/), no basta con activarla en sdkconfig.
  *
- * NEGRITA: la negrita es generada a mano (ver fonts/montserrat_bold.h) y sube
- * el mismo escalon que el resto, con sus propios nombres de papel (FUENTE_*
- * _NEGRITA) para que se lea en la vista QUE es, no cuanto mide.
+ * NEGRITA: la negrita va con su propio nombre de papel (FUENTE_*_NEGRITA) para
+ * que se lea en la vista QUE es, no cuanto mide. Desde el 16-oct-2026 es la
+ * Inter-Bold generada con el mismo comando que las demas (los ficheros
+ * lv_font_montserrat_bold_*) se borraron: los alias de fonts/fonts_es.h apuntan
+ * ya a las Inter).
  *
  * Este fichero lo incluye lvgl.h... no: lo incluye ui/estilos.h, que a su vez
  * incluyen todas las vistas. Si anades una vista nueva, incluye estilos.h.
@@ -62,37 +64,32 @@
 #pragma once
 
 #include "lvgl.h"
-#include "fonts/montserrat_bold.h"
+#include "fonts/fonts_es.h"
 #include <string.h>
 
-/* ── Escala nueva ─────────────────────────────────────────────────────────── */
-
-/* La 48 es el techo de LVGL: el splash y los titulos grandes se quedan igual. */
-#define FUENTE_TITULAR      lv_font_montserrat_48
-#define FUENTE_GRANDE       lv_font_montserrat_40
-#define FUENTE_MEDIA_GRANDE lv_font_montserrat_32
-#define FUENTE_MEDIA        lv_font_montserrat_30
-#define FUENTE_NORMAL       lv_font_montserrat_26
-#define FUENTE_PEQUENA      lv_font_montserrat_22
-#define FUENTE_MUY_PEQUENA  lv_font_montserrat_20
-
-/* Negrita: mismos escalones, pero con nombre de papel (ver montserrat_bold.h).
- * La 20 y la 32 viejas siguen declaradas porque hay quien las pide por su
- * nombre; las nuevas (26/34/40) son las que usa la UI al subir la escala. */
-#define FUENTE_NEGRITA      lv_font_montserrat_bold_26
-#define FUENTE_NEGRITA_GRANDE lv_font_montserrat_bold_34
-#define FUENTE_NEGRITA_TITULAR lv_font_montserrat_bold_40
-
-/* ── Traduccion de los nombres que ya usaba la UI ─────────────────────────── */
-/* Cuidado: estas macros SUSTITUYEN a los simbolos de LVGL dentro de la UI, asi
- * que no se pueden usar en un fichero que necesite el tamano de verdad. */
-#define lv_font_montserrat_14   FUENTE_MUY_PEQUENA
-#define lv_font_montserrat_16   FUENTE_PEQUENA
-#define lv_font_montserrat_20   FUENTE_NORMAL
-#define lv_font_montserrat_22   FUENTE_MEDIA
-#define lv_font_montserrat_24   FUENTE_MEDIA_GRANDE
-#define lv_font_montserrat_32   FUENTE_GRANDE
-/* La 40 y la 48 ya son el techo: se quedan donde estan. */
+/* ── La escala, PLANA (16-oct-2026) ─────────────────────────────────────────
+ *
+ * Antes esto tenia DOS traducciones encadenadas: lv_font_montserrat_16 ->
+ * FUENTE_PEQUENA -> lv_font_montserrat_22 -> (macro otra vez) FUENTE_MEDIA ->
+ * lv_font_montserrat_30. Resultado real: la UI renderizaba 26, 30 y 40 donde el
+ * diseno decia cinco tamanos, y "subir un escalon" a veces no cambiaba nada (o
+ * cambiaba de mas). Se queda EL MISMO RESULTADO en pantalla -- no se mueve ni un
+ * pixel, esta medido sobre el codigo -- pero escrito de una vez, para que el
+ * nombre diga lo que se ve.
+ *
+ * Los nombres viejos siguen valiendo (los alias estan en fonts/fonts_es.h), asi
+ * que las ~100 llamadas de la UI no se han tocado. Y la familia pasa a ser la
+ * misma que la de la P4 (Inter), que ademas trae acentos y la n. */
+#define FUENTE_TITULAR         lv_font_inter_48_es
+#define FUENTE_GRANDE          lv_font_inter_40_es
+#define FUENTE_MEDIA_GRANDE    lv_font_inter_40_es   /* antes: 32 -> 40 por la cadena */
+#define FUENTE_MEDIA           lv_font_inter_30_es
+#define FUENTE_NORMAL          lv_font_inter_26_es
+#define FUENTE_PEQUENA         lv_font_inter_30_es   /* antes: 22 -> 30 por la cadena */
+#define FUENTE_MUY_PEQUENA     lv_font_inter_26_es   /* antes: 20 -> 26 por la cadena */
+#define FUENTE_NEGRITA         lv_font_inter_bold_26_es
+#define FUENTE_NEGRITA_GRANDE  lv_font_inter_bold_34_es
+#define FUENTE_NEGRITA_TITULAR lv_font_inter_bold_40_es
 
 /* ── La ESCALA de la pantalla ────────────────────────────────────────────────
  *
