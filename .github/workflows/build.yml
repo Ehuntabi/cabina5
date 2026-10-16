@@ -120,7 +120,8 @@ jobs:
                    test/viaje_cola_control_arnes.c test/viaje_cola_control.sh \
                    test/viaje_cola_libre_arnes.c test/viaje_cola_libre.sh \
                    test/viaje_horario_arnes.c test/viaje_horario.sh \
-                   test/viaje_contadores.sh test/viaje_contadores_arnes.c ; do
+                   test/viaje_contadores.sh test/viaje_contadores_arnes.c \
+                   test/estilo.sh ; do
             if [ ! -f "cabina5/$f" ] || [ ! -f "35cabina/$f" ]; then
               echo "FALTA $f en alguno de los dos repos"; fallo=1; continue
             fi
@@ -165,6 +166,12 @@ jobs:
       # cruzarlos no salta a la vista (un viaje de 1200,0 km se lee como 5.739,0).
       - name: Los km y las horas de conduccion llegan enteros
         run: bash cabina5/test/viaje_contadores.sh
+
+      # Y el estilo de la UI: ningun nombre de fuente sin alias (si se queda,
+      # tira de la del SDK y el texto sale al tamaño literal: el fallo que se
+      # colo el 16-oct-2026), ningun color a mano y los titulos centrados.
+      - name: El estilo de la UI (fuentes, paleta, titulos)
+        run: bash cabina5/test/estilo.sh
 
       - name: El contrato del canal de viaje, contra la P4
         run: bash victron/test/protocolo_cabina.sh victron cabina5
