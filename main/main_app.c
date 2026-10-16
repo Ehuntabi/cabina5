@@ -1,6 +1,6 @@
-/* main.c
+/* main_app.c
  *
- * 35cabina — satelite tactil de la P4 (ver README.md). Bring-up de
+ * cabina5 — satelite tactil de la P4 (ver README.md). Bring-up de
  * hardware (pantalla+tactil+LVGL), recepcion UDP del broadcast de la P4,
  * el carrusel de 3 pantallas (nav.c) y el canal de vuelta hacia la P4
  * (viajes y registros sueltos, main/net/p4_api.c + viaje_cola.c).
@@ -39,7 +39,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-static const char *TAG = "35CABINA";
+/* El TAG llevaba "35CABINA" desde que este fichero se copio de la 3,5": en el
+ * log de ESTA placa (la de 5") todas las lineas de arranque salian firmadas por
+ * la otra pantalla, que es justo lo que despista al leer un log de banco
+ * (auditoria del 16-oct-2026). */
+static const char *TAG = "CABINA5";
 #define logSection(section) ESP_LOGI(TAG, "\n\n***** %s *****\n", section)
 #define LVGL_PORT_ROTATION_DEGREE 90
 

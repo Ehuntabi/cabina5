@@ -1,4 +1,4 @@
-/* udp_rx.c - Receiver UDP de 35cabina, asociado al SoftAP de la P4 como STA.
+/* udp_rx.c - Receiver UDP del satelite (la cabina), asociado al SoftAP de la P4 como STA.
  *
  * Portado del satelite viejo C6 (victron_mini/main/net/udp_rx.c, retirado el
  * 17-sep-2026): mismo protocolo, mismo patron de reconexion.

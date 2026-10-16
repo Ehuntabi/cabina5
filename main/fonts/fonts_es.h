@@ -1,5 +1,5 @@
 /* Fuentes Inter (Regular y Bold) con rango ASCII + acentos espanoles + n + ¿¡° y
- * los 33 iconos FontAwesome que ya usa la P4. Generadas con lv_font_conv y la
+ * los 38 iconos FontAwesome que ya usa la P4. Generadas con lv_font_conv y la
  * MISMA receta que la P4: el comando exacto va escrito en la cabecera de cada
  * .c generado.
  *
