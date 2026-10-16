@@ -284,6 +284,76 @@ void udp_rx_get_credentials(char *ssid_out, size_t ssid_len, char *pass_out, siz
     }
 }
 
+/* ── Aplicar el cambio de red SIN bloquear a quien lo pide ─────────────────
+ *
+ * POR QUE UNA TAREA APARTE (16-oct-2026, medido en el banco). El guardado desde
+ * Ajustes llamaba al driver (desconectar, configurar, conectar y, si el driver
+ * rechaza el cambio, rearmar la radio con esp_wifi_stop/start) DESDE LA TAREA DE
+ * LVGL, que es la que dibuja y la que escribe el log. Son llamadas que pueden
+ * bloquear, y lo que se vio fue la pantalla de la 3,5" MUDA -- ni un byte por el
+ * puerto serie -- durante minutos justo despues de guardar una clave
+ * equivocada. Sin panic y sin coredump: un bloqueo, no un crash.
+ *
+ * La peticion se deja marcada (s_aplicar_pendiente) y se avisa a la tarea; la
+ * tarea se crea UNA vez, en udp_rx_start. Si llega otra peticion mientras se
+ * aplica, se coge al terminar (la marca se limpia ANTES de aplicar y los
+ * valores buenos son los de s_ssid/s_pass, ya actualizados por quien pidio).
+ *
+ * El orden de la secuencia es el canonico de IDF y esta comentado alli abajo:
+ * es lo que hace que un cambio guardado se aplique SIN reiniciar. */
+static TaskHandle_t s_aplicar_task = NULL;
+static volatile bool s_aplicar_pendiente = false;
+
+static void wifi_aplicar_ahora(void)
+{
+    /* DESCONECTAR -> CONFIGURAR -> CONECTAR (16-oct-2026, aviso del usuario:
+     * "un cambio guardado en ajustes wifi implica un reinicio para que se
+     * aplique"). Antes se configuraba ANTES de desconectar y sin mirar un solo
+     * retorno: si el driver rechazaba el cambio (ESP_ERR_WIFI_STATE con la radio
+     * a medio asociar) el aviso de la pantalla decia "Guardado, reconectando..."
+     * y la placa seguia en la red anterior hasta el proximo arranque. */
+    esp_err_t e = esp_wifi_disconnect();
+    if (e != ESP_OK && e != ESP_ERR_WIFI_NOT_CONNECT)
+        ESP_LOGW(TAG, "no he podido desconectar antes de aplicar el cambio (%s): sigo",
+                 esp_err_to_name(e));
+
+    esp_err_t e_cfg = wifi_configure_sta();
+    if (e_cfg != ESP_OK) {
+        /* Ni asi: se rearma la radio entera, que es lo que hace un reinicio pero
+         * sin reiniciar (los manejadores de eventos y el socket UDP no se
+         * pierden: el socket esta atado a INADDR_ANY y el netif sigue ahi). */
+        ESP_LOGW(TAG, "el driver no acepta el cambio en caliente: rearmo la radio");
+        esp_wifi_stop();
+        e_cfg = wifi_configure_sta();
+        if (e_cfg == ESP_OK) e_cfg = esp_wifi_start();
+    }
+    if (e_cfg == ESP_OK) {
+        /* Si connect() devuelve error no se da por fallo: la configuracion nueva
+         * YA esta puesta y el reintento de 0,5 s del evento de desconexion la
+         * usa. Antes se llamaba sin mirar nada y, cuando fallaba, la pantalla se
+         * quedaba sin red hasta el reinicio. */
+        esp_err_t ec = esp_wifi_connect();
+        if (ec != ESP_OK)
+            ESP_LOGW(TAG, "connect devolvio %s: lo reintenta el temporizador (la "
+                          "configuracion nueva ya esta puesta)", esp_err_to_name(ec));
+        ESP_LOGI(TAG, "Credenciales aplicadas y reconectando a '%s'", s_ssid);
+    } else {
+        ESP_LOGE(TAG, "NO he podido aplicar las credenciales nuevas (%s): la pantalla "
+                      "sigue con la red anterior", esp_err_to_name(e_cfg));
+    }
+}
+
+static void wifi_aplicar_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (!s_aplicar_pendiente) continue;
+        s_aplicar_pendiente = false;   /* la peticion se coge AHORA */
+        wifi_aplicar_ahora();
+    }
+}
+
 bool udp_rx_set_credentials(const char *ssid, const char *pass)
 {
     if (!ssid || !pass) return false;
@@ -310,42 +380,30 @@ bool udp_rx_set_credentials(const char *ssid, const char *pass)
                       "el cambio solo durara hasta el proximo apagado",
                  esp_err_to_name(err));
     }
-    /* APLICARLO YA, SIN REINICIAR (16-oct-2026, aviso del usuario). La
-     * secuencia canonica de IDF es DESCONECTAR -> CONFIGURAR -> CONECTAR, y aqui
-     * se configuraba ANTES de desconectar y sin mirar un solo retorno: si el
-     * driver rechazaba el cambio (ESP_ERR_WIFI_STATE con la radio a medio
-     * asociar) el aviso de la pantalla decia "Guardado, reconectando..." y la
-     * placa seguia en la red anterior hasta el proximo arranque. */
-    esp_err_t e = esp_wifi_disconnect();
-    if (e != ESP_OK && e != ESP_ERR_WIFI_NOT_CONNECT)
-        ESP_LOGW(TAG, "no he podido desconectar antes de aplicar el cambio (%s): sigo",
-                 esp_err_to_name(e));
-
-    esp_err_t e_cfg = wifi_configure_sta();
-    if (e_cfg != ESP_OK) {
-        /* Ni asi: se rearma la radio entera, que es lo que hace un reinicio pero
-         * sin reiniciar (los manejadores de eventos y el socket UDP no se
-         * pierden: el socket esta atado a INADDR_ANY y el netif sigue ahi). */
-        ESP_LOGW(TAG, "el driver no acepta el cambio en caliente: rearmo la radio");
-        esp_wifi_stop();
-        e_cfg = wifi_configure_sta();
-        if (e_cfg == ESP_OK) e_cfg = esp_wifi_start();
-    }
-    if (e_cfg == ESP_OK) {
-        /* Si esto devuelve error no se da por fallo: la configuracion nueva YA
-         * esta puesta y el reintento de 0,5 s del evento de desconexion la usa.
-         * Antes se llamaba a connect() sin mirar nada y, cuando fallaba, la
-         * pantalla se quedaba sin red hasta el reinicio. */
-        esp_err_t ec = esp_wifi_connect();
-        if (ec != ESP_OK)
-            ESP_LOGW(TAG, "connect devolvio %s: lo reintenta el temporizador (la "
-                          "configuracion nueva ya esta puesta)", esp_err_to_name(ec));
-        ESP_LOGI(TAG, "Credenciales aplicadas y reconectando a '%s'", s_ssid);
+    /* EL TRABAJO DEL DRIVER VA EN SU PROPIA TAREA (16-oct-2026). Aqui se hacia
+     * entero, en la tarea que llama -- que al guardar desde Ajustes es LA DE
+     * LVGL, la que dibuja --, y el banco enseño el precio: justo despues de
+     * guardar con una clave equivocada, la 3,5" se quedo MUDA por el puerto
+     * serie durante minutos (sin panic y sin coredump: no fue un crash, se
+     * quedo bloqueada). Aqui solo se deja PEDIDO; la secuencia (desconectar,
+     * configurar, conectar y, si el driver rechaza el cambio, rearmar la radio)
+     * la hace wifi_aplicar_task, donde bloquearse no deja la pantalla sin
+     * refrescar ni al log sin escribir.
+     *
+     * OJO: por eso el resultado de APLICAR ya no se puede devolver (es
+     * asincrono). Lo que se devuelve es si quedo GUARDADO en NVS; lo que pase al
+     * aplicarlo sale en el log y en la etiqueta del enlace ("P4: sin red (busco
+     * X)"), que es donde el usuario lo mira. */
+    if (s_aplicar_task) {
+        s_aplicar_pendiente = true;
+        xTaskNotifyGive(s_aplicar_task);
+        ESP_LOGI(TAG, "Credenciales guardadas: aplicando el cambio a '%s'", s_ssid);
     } else {
-        ESP_LOGE(TAG, "NO he podido aplicar las credenciales nuevas (%s): la pantalla "
-                      "sigue con la red anterior", esp_err_to_name(e_cfg));
+        /* Sin tarea (no deberia: se crea en udp_rx_start) se hace aqui, que es
+         * como se hacia antes. */
+        wifi_aplicar_ahora();
     }
-    return err == ESP_OK && e_cfg == ESP_OK;
+    return err == ESP_OK;
 }
 
 /* Corre en la tarea del esp_timer, no en sys_evt: aqui si es seguro que el
@@ -828,6 +886,16 @@ void udp_rx_start(void)
         /* Sin esto la pantalla se queda sin telemetria de la P4 para
          * siempre, en silencio -- STA conectada y todo, pero muda. */
         ESP_LOGE(TAG, "xTaskCreate(rx_task) fallo: SIN telemetria de la P4");
+    }
+
+    /* La tarea que aplica los cambios de red (ver wifi_aplicar_task): existe
+     * para que el guardado desde Ajustes no llame al driver desde la tarea de
+     * LVGL. Sin ella, udp_rx_set_credentials() aplica el cambio el mismo, que
+     * es como se hacia antes. */
+    if (xTaskCreate(wifi_aplicar_task, "wifi_aplicar", 4096, NULL, 3,
+                    &s_aplicar_task) != pdPASS) {
+        s_aplicar_task = NULL;
+        ESP_LOGW(TAG, "sin tarea para aplicar credenciales: se aplicaran en quien llame");
     }
 }
 
