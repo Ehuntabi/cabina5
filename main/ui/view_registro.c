@@ -355,7 +355,6 @@ static lv_obj_t *s_pern_precio_row;    /* oculta si el sitio es gratis */
 static lv_obj_t *s_pern_precio_lbl;
 static lv_obj_t *s_pern_precio_ta;
 static lv_obj_t *s_pern_currency_dd;
-static lv_obj_t *s_pern_cobro_bm;      /* contenedor del selector; oculto en camping */
 static lv_obj_t *s_pern_cobro_btn[2];  /* Noche | 24 h, botones normales */
 static uint8_t   s_pern_sitio;
 static uint32_t  s_pern_ini, s_pern_fin;
@@ -3487,7 +3486,14 @@ static void pern_refresh_precio(void)
     bool gratis  = !parada_sitio_es_de_pago(s_pern_sitio);
     bool camping = (s_pern_sitio == SITIO_CAMPING);
     set_hidden(s_pern_precio_ta, gratis);
-    set_hidden(s_pern_cobro_bm, camping || gratis);
+    /* SE ESCONDEN LOS DOS BOTONES, NO LA FILA (16-oct-2026, arbitraje). La fila
+     * lleva dentro el importe, la moneda y los botones: escondiendola entera, en
+     * un CAMPING no se podia teclear lo que ha costado la noche (el apunte se
+     * guardaba con "precio":"" y el resumen ponia "--") y en un sitio GRATIS
+     * desaparecia el desplegable de moneda, justo lo contrario de lo que dice el
+     * comentario de arriba ("la moneda se queda"). */
+    set_hidden(s_pern_cobro_btn[PARADA_COBRO_NOCHE], camping || gratis);
+    set_hidden(s_pern_cobro_btn[PARADA_COBRO_24H], camping || gratis);
     if (gratis) {
         lv_label_set_text(s_pern_precio_lbl, "Moneda de los servicios");
         return;
@@ -3636,9 +3642,10 @@ static void build_pernocta(lv_obj_t *form)
         if (i == PARADA_COBRO_NOCHE) lv_obj_add_state(b, LV_STATE_CHECKED);
         s_pern_cobro_btn[i] = b;
     }
-    /* El contenedor del selector es la propia fila del precio: pern_refresh_
-     * precio() lo oculta en camping. */
-    s_pern_cobro_bm = s_pern_precio_row;
+    /* AQUI ESTABA `s_pern_cobro_bm = s_pern_precio_row`, y fue el origen del
+     * panic: una variable que decia "botonera" apuntando a una FILA, que acabo
+     * pasandosele a btnmatrix_checked(). Ya no existe: lo unico que se lee de
+     * verdad son los dos botones (s_pern_cobro_btn[]). */
 
     /* --- Servicios, en su propia fila --- */
     lv_obj_t *acciones = lv_obj_create(form);
