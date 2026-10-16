@@ -221,7 +221,7 @@ static void log_redes_visibles(void)
     free(aps);
 }
 
-static void wifi_configure_sta(void)
+static esp_err_t wifi_configure_sta(void)
 {
     wifi_config_t wc = {0};
     /* Copia a mano y con el cero GARANTIZADO (migracion a IDF 5.5.5,
@@ -258,8 +258,18 @@ static void wifi_configure_sta(void)
      * 7" ("AP en la radio: ssid=... authmode=..."). */
     wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     wc.sta.pmf_cfg.required = false;
-    esp_wifi_set_config(WIFI_IF_STA, &wc);
+    /* EL RETORNO SE MIRA (16-oct-2026): es lo unico que dice si el driver ha
+     * aceptado la configuracion nueva. Antes se tiraba, y con la radio a medio
+     * asociar el cambio se quedaba sin aplicar en silencio: la pantalla decia
+     * "Guardado, reconectando..." y seguia en la red vieja hasta el proximo
+     * arranque (que es lo que reporto el usuario: "un cambio guardado en ajustes
+     * wifi implica un reinicio para que se aplique"). */
+    esp_err_t e = esp_wifi_set_config(WIFI_IF_STA, &wc);
+    if (e != ESP_OK)
+        ESP_LOGW(TAG, "esp_wifi_set_config no acepta el cambio ahora mismo: %s",
+                 esp_err_to_name(e));
     ESP_LOGI(TAG, "AP SSID='%s'", s_ssid);
+    return e;
 }
 
 void udp_rx_get_credentials(char *ssid_out, size_t ssid_len, char *pass_out, size_t pass_len)
@@ -300,11 +310,42 @@ bool udp_rx_set_credentials(const char *ssid, const char *pass)
                       "el cambio solo durara hasta el proximo apagado",
                  esp_err_to_name(err));
     }
-    wifi_configure_sta();
-    ESP_LOGI(TAG, "Credenciales actualizadas, reconectando a '%s'", s_ssid);
-    esp_wifi_disconnect();
-    esp_wifi_connect();
-    return err == ESP_OK;
+    /* APLICARLO YA, SIN REINICIAR (16-oct-2026, aviso del usuario). La
+     * secuencia canonica de IDF es DESCONECTAR -> CONFIGURAR -> CONECTAR, y aqui
+     * se configuraba ANTES de desconectar y sin mirar un solo retorno: si el
+     * driver rechazaba el cambio (ESP_ERR_WIFI_STATE con la radio a medio
+     * asociar) el aviso de la pantalla decia "Guardado, reconectando..." y la
+     * placa seguia en la red anterior hasta el proximo arranque. */
+    esp_err_t e = esp_wifi_disconnect();
+    if (e != ESP_OK && e != ESP_ERR_WIFI_NOT_CONNECT)
+        ESP_LOGW(TAG, "no he podido desconectar antes de aplicar el cambio (%s): sigo",
+                 esp_err_to_name(e));
+
+    esp_err_t e_cfg = wifi_configure_sta();
+    if (e_cfg != ESP_OK) {
+        /* Ni asi: se rearma la radio entera, que es lo que hace un reinicio pero
+         * sin reiniciar (los manejadores de eventos y el socket UDP no se
+         * pierden: el socket esta atado a INADDR_ANY y el netif sigue ahi). */
+        ESP_LOGW(TAG, "el driver no acepta el cambio en caliente: rearmo la radio");
+        esp_wifi_stop();
+        e_cfg = wifi_configure_sta();
+        if (e_cfg == ESP_OK) e_cfg = esp_wifi_start();
+    }
+    if (e_cfg == ESP_OK) {
+        /* Si esto devuelve error no se da por fallo: la configuracion nueva YA
+         * esta puesta y el reintento de 0,5 s del evento de desconexion la usa.
+         * Antes se llamaba a connect() sin mirar nada y, cuando fallaba, la
+         * pantalla se quedaba sin red hasta el reinicio. */
+        esp_err_t ec = esp_wifi_connect();
+        if (ec != ESP_OK)
+            ESP_LOGW(TAG, "connect devolvio %s: lo reintenta el temporizador (la "
+                          "configuracion nueva ya esta puesta)", esp_err_to_name(ec));
+        ESP_LOGI(TAG, "Credenciales aplicadas y reconectando a '%s'", s_ssid);
+    } else {
+        ESP_LOGE(TAG, "NO he podido aplicar las credenciales nuevas (%s): la pantalla "
+                      "sigue con la red anterior", esp_err_to_name(e_cfg));
+    }
+    return err == ESP_OK && e_cfg == ESP_OK;
 }
 
 /* Corre en la tarea del esp_timer, no en sys_evt: aqui si es seguro que el
