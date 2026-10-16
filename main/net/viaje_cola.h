@@ -78,15 +78,23 @@ typedef enum {
                                       * intentos y se limpia solo cuando vuelve. Existe
                                       * para que con la cola llena el usuario vea POR QUE
                                       * y tenga la salida de apartar el mas antiguo. */
+    VIAJE_COLA_ATASCO_REZAGADO,      /* 409 del APUNTE: la P4 lo dice en el cuerpo --
+                                      * "es de un viaje ya cerrado" (ver id_rezagado()
+                                      * en op_registro). NO es un choque de numeracion:
+                                      * la numeracion esta bien, lo que pasa es que ese
+                                      * apunte es del viaje ANTERIOR y no va a entrar
+                                      * nunca en el que hay abierto. Al final del enum
+                                      * a proposito: los valores de arriba no se mueven. */
 } viaje_cola_atasco_t;
 
 viaje_cola_atasco_t viaje_cola_atasco(void);
 
 /* true si el apunte de cabeza lleva mucho rato recibiendo 409 de la P4 sin
- * avanzar (ver el comentario de INTENTOS_409_ATASCO en el .c) -- sintoma de
- * un choque de numeracion entre los dos dispositivos, no de que la P4 este
- * apagada. No se pierde el apunte: sigue en cola y se reintenta igual, esto
- * es solo para poder avisar de verdad en vez de dejarlo mudo. */
+ * avanzar (ver el comentario de INTENTOS_409_ATASCO en el .c): o es un choque de
+ * numeracion entre los dos dispositivos, o un apunte del viaje anterior
+ * (VIAJE_COLA_ATASCO_REZAGADO). Lo que NO significa es que la P4 este apagada.
+ * No se pierde el apunte: sigue en cola y se reintenta igual, esto es solo para
+ * poder avisar de verdad en vez de dejarlo mudo. */
 bool viaje_cola_bloqueada(void);
 
 /* true si el ultimo tramo de intentos viene fallando con 401 (credenciales

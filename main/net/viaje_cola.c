@@ -333,15 +333,21 @@ static bool leer_cabeza(char *out, size_t n)
 
 /* Un 409 sostenido sobre el MISMO apunte durante mucho rato (no unos pocos
  * ciclos: eso es normal mientras el inicio, que puede ir justo delante en la
- * cola, termina de procesarse) es la señal de un caso concreto: si se borro
- * la NVS de esta 35cabina a mitad de viaje, next_trip_seq() vuelve a
- * numerar desde 1 mientras la P4 sigue recordando un id mucho mas alto del
- * viaje de antes -- y como el inicio de un viaje nuevo choca con el viaje que
- * la P4 cree que sigue abierto, ningun apunte de este vuelve a entrar nunca
- * mientras no se intervenga a mano. 20 intentos (~5 min a 15s) no lo dispara
- * nunca en el caso normal, pero si detecta el atasco de verdad. NO se toca
- * el protocolo entre dispositivos: solo se avisa mejor de lo que ya pasaba
- * en silencio. Detectado auditando el 07-sep-2026. */
+ * cola, termina de procesarse) es la señal de un atasco que no se arregla solo.
+ * Hay DOS casos y se distinguen por el cuerpo de la respuesta (16-oct-2026):
+ *
+ *   - choque de numeracion: si se borro la NVS de esta cabina a mitad de viaje,
+ *     next_trip_seq() vuelve a numerar desde 1 mientras la P4 sigue recordando
+ *     un id mucho mas alto del viaje de antes -- y como el inicio de un viaje
+ *     nuevo choca con el viaje que la P4 cree que sigue abierto, ningun apunte
+ *     de este vuelve a entrar nunca mientras no se intervenga a mano;
+ *   - apunte REZAGADO del viaje anterior: la P4 lo dice con todas las letras
+ *     ("ese apunte es de un viaje ya cerrado"). Aqui la numeracion esta bien.
+ *
+ * 20 intentos (~5 min a 15s) no lo dispara nunca en el caso normal, pero si
+ * detecta el atasco de verdad. NO se toca el protocolo entre dispositivos: solo
+ * se avisa mejor de lo que ya pasaba en silencio. Detectado auditando el
+ * 07-sep-2026 (y el segundo caso, el 16-oct-2026). */
 #define INTENTOS_409_ATASCO 20
 /* POR QUE ESTA ATASCADA LA COLA.
  *
@@ -375,7 +381,8 @@ viaje_cola_atasco_t viaje_cola_atasco(void)
 bool viaje_cola_bloqueada(void)
 {
     viaje_cola_atasco_t a = (viaje_cola_atasco_t)s_atasco;
-    return a == VIAJE_COLA_ATASCO_NUMERACION || a == VIAJE_COLA_ATASCO_RECHAZO;
+    return a == VIAJE_COLA_ATASCO_NUMERACION || a == VIAJE_COLA_ATASCO_RECHAZO ||
+           a == VIAJE_COLA_ATASCO_REZAGADO;   /* 409 del apunte: tambien se atasca */
 }
 
 bool viaje_cola_credenciales_mal(void)
@@ -491,6 +498,17 @@ static int parsea_libre_mb(const char *respuesta)
 static bool parsea_sin_sitio_nvs(const char *respuesta)
 {
     return respuesta && strstr(respuesta, "sin_sitio=nvs") != NULL;
+}
+
+/* ¿Dice la P4 que ese apunte es de un viaje YA CERRADO? Es el 409 de un
+ * 'registro' rezagado (ver id_rezagado() en su op_registro, que responde "ese
+ * apunte es de un viaje ya cerrado: no lo meto en el que hay abierto"). Se mira
+ * el cuerpo porque el codigo HTTP es el mismo 409 que un choque de numeracion, y
+ * los dos casos piden un cartel DISTINTO: aqui la numeracion esta perfecta y lo
+ * que sobra es el apunte. */
+static bool parsea_rezagado(const char *respuesta)
+{
+    return respuesta && strstr(respuesta, "viaje ya cerrado") != NULL;
 }
 
 /* Lo ultimo que dijo la P4, y cuando lo dijo. -1 = no se sabe.
@@ -620,6 +638,13 @@ static void reparto_task(void *arg)
                 ESP_LOGE(TAG, "la cabeza de la cola no se puede leer: la salto "
                               "para no atascar lo que viene detras");
                 descartar_cabeza();
+                /* CON ESPERA A PROPOSITO (auditoria del 16-oct-2026): si
+                 * indices_escribir() falla de forma persistente, la entrada se
+                 * borra pero la cabeza NO avanza, asi que esta rama se repite en
+                 * bucle cerrado sin dormir -- el repartidor se comia la CPU (y con
+                 * ella el resto de tareas) sin avanzar nada. Con la espera, como
+                 * mucho se reintenta cada REINTENTO_MS. */
+                vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
                 continue;
             }
             /* Cola vacia: dormir hasta REINTENTO_MS, pero SIN esperar a que
@@ -714,18 +739,36 @@ static void reparto_task(void *arg)
                 intentos_409 = 1;
                 s_atasco = VIAJE_COLA_ATASCO_NO;   /* apunte distinto: cuenta desde cero */
             }
-            if (intentos_409 >= INTENTOS_409_ATASCO &&
-                viaje_cola_atasco() != VIAJE_COLA_ATASCO_NUMERACION) {
-                s_atasco = VIAJE_COLA_ATASCO_NUMERACION;
-                ESP_LOGE(TAG, "409 sostenido %d veces sobre el mismo apunte: "
-                              "probable choque de numeracion con la P4 (se "
-                              "borro la NVS a mitad de viaje?). No se pierde "
-                              "nada, sigue en cola, pero no entrara solo.",
-                         intentos_409);
-                /* El numero de pendientes no ha cambiado (sigue siendo el
-                 * mismo apunte atascado), asi que sin esto la pantalla no se
-                 * enteraria hasta el siguiente cambio real de la cola. */
-                avisar_cambio();
+            /* DOS CAUSAS DISTINTAS DETRAS DEL MISMO 409 (auditoria del
+             * 16-oct-2026). La P4 contesta 409 tanto si el apunte es del viaje
+             * ANTERIOR (y lo dice en el cuerpo: "viaje ya cerrado") como si lo
+             * que rechaza es el viaje entero (ya tiene otro abierto). Antes se
+             * anunciaba "hemos perdido la numeracion" para los dos, y en el caso
+             * del apunte rezagado eso es FALSO: la numeracion esta bien.
+             *
+             * El estado que manda es el de la cabeza, asi que si ya habia uno
+             * marcado y la cabeza NO ha cambiado, no se vuelve a avisar (de ahi
+             * el "ya esta en ese estado"): pero si el motivo cambio -- p.ej.
+             * entro un apunte rezagado detras de un viaje rechazado -- hay que
+             * corregirlo, o el cartel seguiria contando la historia vieja. */
+            if (intentos_409 >= INTENTOS_409_ATASCO) {
+                viaje_cola_atasco_t nuevo = parsea_rezagado(resp)
+                                          ? VIAJE_COLA_ATASCO_REZAGADO
+                                          : VIAJE_COLA_ATASCO_NUMERACION;
+                if (viaje_cola_atasco() != nuevo) {
+                    s_atasco = nuevo;
+                    ESP_LOGE(TAG, "409 sostenido %d veces sobre el mismo apunte: %s. "
+                                  "No se pierde nada, sigue en cola, pero no entrara "
+                                  "solo.",
+                             intentos_409, nuevo == VIAJE_COLA_ATASCO_REZAGADO
+                                 ? "es de un viaje YA CERRADO (lo dice la P4)"
+                                 : "probable choque de numeracion con la P4 (se "
+                                   "borro su NVS a mitad de viaje?)");
+                    /* El numero de pendientes no ha cambiado (sigue siendo el
+                     * mismo apunte atascado), asi que sin esto la pantalla no se
+                     * enteraria hasta el siguiente cambio real de la cola. */
+                    avisar_cambio();
+                }
             }
             vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
             continue;
@@ -766,6 +809,12 @@ static void reparto_task(void *arg)
                               "tambien en el cierre, y un aviso no puede bloquear "
                               "los apuntes ni el fin que vienen detras");
                 descartar_cabeza();
+                /* La marca de atasco era de ESE apunte (el aviso) y se va con el:
+                 * la cabeza nueva es un apunte SANO y no puede nacer con la
+                 * pastilla roja puesta, o "Descartarlo" -- que solo exige
+                 * atasco != NO -- borraria un apunte bueno. Mismo motivo que en
+                 * viaje_cola_descartar_cabeza(). */
+                s_atasco = VIAJE_COLA_ATASCO_NO;
                 idx_400 = UINT32_MAX;
                 intentos_400 = 0;
                 continue;
@@ -805,6 +854,11 @@ static void reparto_task(void *arg)
                     ESP_LOGW(TAG, "el aviso de destino no entra (%d): lo suelto, "
                                   "que el destino va tambien en el cierre", estado);
                     descartar_cabeza();
+                    /* Ver el mismo arreglo en la rama del 400: la marca de
+                     * atasco se va con el apunte que la puso (si no, la cabeza
+                     * nueva, que es sana, nace con la pastilla roja y se puede
+                     * borrar con "Descartarlo"). */
+                    s_atasco = VIAJE_COLA_ATASCO_NO;
                     continue;
                 }
             }

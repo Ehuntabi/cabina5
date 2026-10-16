@@ -11,46 +11,32 @@
  * siguen escribiendo lv_font_montserrat_20 y lo que sale es el 26; no hay que
  * tocar ni una linea de las vistas.
  *
- * ESCALA (un escalon cada uno). Los tamanos nuevos NO son inventados: LVGL trae
- * Montserrat de 2 en 2 hasta 48, asi que el escalon siguiente al 22 es el 26 y
- * al 24 el 30, aunque la UI no los usara nunca antes:
- *     viejo   ->  nuevo (LO QUE DICE LA IDEA)
- *      14     ->   20
- *      16     ->   22
- *      20     ->   26
- *      22     ->   30
- *      24     ->   34
- *      32     ->   40
- *      40     ->   48
- *      48     ->   56   (AQUI NO HAY: LVGL solo llega a 48; se queda en 48)
+ * ── HISTORIA: LA ESCALA ENCADENADA (hasta el 16-oct-2026) ───────────────────
  *
- * ── ⚠ LO QUE PASA DE VERDAD, COMPROBADO EL 9-oct-2026 (gcc -E sobre este mismo
- *    bloque), porque las macros se ENCADENAN: el nombre nuevo de una linea es a
- *    su vez una macro de las de arriba, asi que el preprocesador traduce DOS
- *    VECES. `lv_font_montserrat_16` -> FUENTE_PEQUENA -> lv_font_montserrat_22
- *    -> (¡macro otra vez!) FUENTE_MEDIA -> lv_font_montserrat_30. Resultado real:
+ * Aqui vivia una tabla que subia cada nombre viejo un escalon (14->20, 16->22,
+ * 20->26, 22->30, 24->34, 32->40, 40->48, 48->56). NO ERA LO QUE PASABA: los
+ * nombres nuevos eran a su vez macros de esa misma tabla, asi que el
+ * preprocesador traducia DOS VECES y la UI renderizaba 26, 30 y 40 donde el
+ * diseno decia cinco tamanos:
  *
  *      14 -> 26      16 -> 30      20 -> 26
  *      22 -> 30      24 -> 40      32 -> 40
  *
- *    O sea: la 14 y la 20 acaban en la MISMA (26), la 16 y la 22 en la MISMA
- *    (30), y la 24 y la 32 en la MISMA (40). La UI tiene hoy tres tamanos
- *    efectivos donde el diseno dice cinco.
+ * De ahi venian dos cosas que han costado tiempo: "subir un escalon" a veces no
+ * cambiaba nada (o cambiaba de mas), y al pedir "al siguiente tamaño" hubo que
+ * escribir un tamaño LITERAL (lv_font_montserrat_28, que no era macro) en vez de
+ * subir el nombre viejo. La medicion de la linea que se ve en cada widget esta
+ * en el volcado del arbol (form_volcar imprime el alto real de cada rotulo).
  *
- *    LA PLACA SE VE ASI Y AL USUARIO LE GUSTA, asi que esto NO se toca sin
- *    medir antes y despues: "arreglarlo" a una sola traduccion ENCOGE la letra
- *    de media interfaz (14 pasaria de 26 a 20). Pero conviene saberlo, porque
- *    explica dos cosas que han costado tiempo: por que "subir un escalon" a
- *    veces no cambia nada o cambia de mas, y por que al pedir "al siguiente
- *    tamano" hubo que escribir un tamano LITERAL (lv_font_montserrat_28, que no
- *    es macro y por eso se queda en 28) en vez de subir el nombre viejo.
- *    La medicion de la linea que se ve en cada widget esta en el volcado del
- *    arbol (form_volcar imprime el alto real de cada rotulo).
+ * ESTA TABLA YA NO MANDA: se quito al escribir LA ESCALA PLANA (el bloque de
+ * abajo, mismo dia). Aquel cambio dejo EL MISMO RESULTADO en pantalla -- medido
+ * sobre el codigo, no se movio un pixel -- pero con una sola traduccion, para
+ * que el nombre diga lo que se ve. Si hay que reajustar un tamaño, se toca el
+ * bloque de abajo, no este.
  *
- * LIMITE CONOCIDO: LVGL no trae Montserrat 56 (su fuente mas grande es la 48),
- * asi que el titular de 48 no puede subir. Si algun dia hace falta, hay que
- * generar la fuente a mano con lv_font_conv (el comando exacto va en la
- * cabecera de cada fichero de fonts/), no basta con activarla en sdkconfig.
+ * (El "limite conocido" de entonces -- LVGL solo trae Montserrat hasta la 48 --
+ * tampoco aplica ya: desde el 16-oct-2026 las fuentes son Inter generadas con
+ * lv_font_conv para este proyecto, y la mayor es la 48.)
  *
  * NEGRITA: la negrita va con su propio nombre de papel (FUENTE_*_NEGRITA) para
  * que se lea en la vista QUE es, no cuanto mide. Desde el 16-oct-2026 es la
@@ -261,16 +247,23 @@ static inline uint32_t fila_color_alterna(uint8_t indice)
  * traza repitiendo lv_obj_redraw -> rotulo_ajustar_cb -> lv_obj_set_style_text_font).
  * Por eso ahora se hace con LV_EVENT_SIZE_CHANGED / STYLE_CHANGED y con un
  * cerrojo de reentrada: fuera del pintado y una sola vez por cambio. */
+/* ── Medir un texto: CARACTERES, no BYTES (corregido el 16-oct-2026) ─────────
+ *
+ * La version anterior recorria la cadena byte a byte y sumaba
+ * lv_font_get_glyph_width() por byte. Con texto ASCII da igual, pero las
+ * etiquetas SI llevan acentos (y las Inter los traen), y una letra acentuada son
+ * DOS bytes en UTF-8: cada byte de mas contaba como un glifo de relleno. Medido
+ * con las metricas reales: "Configuración" mide 200,5 px y la cuenta por bytes
+ * estimaba 222,5 (+11 %), asi que el auto-ajuste elegia un escalon MENOS del que
+ * cabia y el rotulo salia mas pequeno de lo necesario.
+ *
+ * lv_text_get_width() ya recorre la cadena como UTF-8 (un caracter por letra) y
+ * es la misma herramienta que usan moneda_dd_ancho() aqui al lado y
+ * rotulo_ajustar(). */
 static inline lv_coord_t texto_ancho(const lv_font_t *f, const char *txt)
 {
-    lv_coord_t w = 0;
     if (!f || !txt) return 0;
-    while (*txt) {
-        uint32_t letra = (uint32_t)(unsigned char)*txt;
-        w += lv_font_get_glyph_width(f, letra, (uint32_t)(unsigned char)txt[1]);
-        txt++;
-    }
-    return w;
+    return lv_text_get_width(txt, (uint32_t)strlen(txt), f, 0);
 }
 
 /* Escalones que se prueban, de mayor a menor. El ultimo es el tope inferior:
@@ -309,65 +302,27 @@ static inline lv_coord_t texto_ancho(const lv_font_t *f, const char *txt)
  *
  * Se decide SIEMPRE por el ancho del BOTON, que no depende de la fuente del
  * rotulo, asi que no puede oscilar entre dos escalones. */
-#define ROTULO_MAX 64
+/* ── API del autoajuste (el CODIGO vive en ui/rotulos.c) ────────────────────
+ *
+ * POR QUE NO ESTA AQUI, si el diseno se explica en este mismo fichero
+ * (auditoria del 16-oct-2026): esto eran una tabla y unas funciones `static`
+ * DENTRO DE UNA CABECERA, y una cabecera con `static` no es "un solo sitio":
+ * cada .c que la incluye se queda con SU COPIA. La incluyen 7 unidades de
+ * compilacion, asi que habia 7 tablas s_rotulos distintas -- y el temporizador
+ * lo crea el BSP (esp_bsp.c), que iteraba SU lista vacia mientras los botones
+ * se apuntaban a la copia de quien los creaba (view_registro.c,
+ * confirm_screen.c...). Resultado: el reajuste periodico NO corria nunca, y
+ * confirm_screen.c cuenta con el para reajustar sus botones cuando cambia el
+ * TEXTO (su cache solo mira el ancho).
+ *
+ * Con un .c de verdad hay UNA tabla y UN temporizador. El porque de cada pieza
+ * (temporizador y no evento, escalones, cache por ancho) esta en el bloque de
+ * arriba, encima de ROTULO_ESCALONES. */
+void rotulos_arrancar(void);
 
-static lv_obj_t *s_rotulos[ROTULO_MAX];
-static int       s_rotulos_n = 0;
-
-/* Pone en el rotulo la letra mas grande que quepa en el ancho de su boton. */
-static void rotulo_ajustar(lv_obj_t *btn, lv_obj_t *lbl)
-{
-    if (!btn || !lbl) return;
-
-    const lv_coord_t disponible = lv_obj_get_content_width(btn) - 8;
-    if (disponible <= 0) return;
-
-    /* Si el ancho no ha cambiado desde la ultima vez, no hay nada que hacer:
-     * esto es lo que evita estar midiendo en cada tic. */
-    if ((lv_coord_t)(lv_intptr_t)lv_obj_get_user_data(lbl) == disponible) return;
-    lv_obj_set_user_data(lbl, (void *)(lv_intptr_t)disponible);
-
-    const char *txt = lv_label_get_text(lbl);
-    const lv_font_t *escalones[] = ROTULO_ESCALONES;
-    const lv_font_t *elegida = &lv_font_montserrat_18;   /* red de seguridad */
-    for (size_t i = 0; i < sizeof(escalones) / sizeof(escalones[0]); i++) {
-        if (texto_ancho(escalones[i], txt) <= disponible) {
-            elegida = escalones[i];
-            break;
-        }
-    }
-    lv_obj_set_style_text_font(lbl, elegida, 0);
-}
-
-static void rotulo_timer_cb(lv_timer_t *t)
-{
-    (void)t;
-    for (int i = 0; i < s_rotulos_n; i++) {
-        lv_obj_t *btn = s_rotulos[i];
-        if (!btn) continue;
-        rotulo_ajustar(btn, (lv_obj_t *)lv_obj_get_user_data(btn));
-    }
-}
-
-/* Arranca el temporizador que ajusta los rotulos. Lo llama el BSP al montar
- * LVGL (ver esp_bsp.c): asi este fichero no necesita saber nada del arranque y
- * el ajuste existe antes de que se cree ningun boton. */
-static inline void rotulos_arrancar(void)
-{
-    static bool ya = false;
-    if (ya) return;
-    ya = true;
-    lv_timer_create(rotulo_timer_cb, 200, NULL);
-}
-
-/* Deja el rotulo de un boton apuntado para que el temporizador lo ajuste. */
-static inline void rotulo_autoajustable(lv_obj_t *btn, lv_obj_t *lbl)
-{
-    if (!btn || !lbl) return;
-    lv_obj_set_user_data(btn, lbl);
-    if (s_rotulos_n < ROTULO_MAX) s_rotulos[s_rotulos_n++] = btn;
-    rotulo_ajustar(btn, lbl);
-}
+/* Deja el rotulo de un boton apuntado para que el temporizador lo ajuste (y le
+ * aplica ya el escalon que le toca). */
+void rotulo_autoajustable(lv_obj_t *btn, lv_obj_t *lbl);
 
 /* ── Medidas de la pantalla (8-oct-2026) ──────────────────────────────────────
  *

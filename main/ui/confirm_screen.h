@@ -39,17 +39,25 @@ void confirm_screen_open(const char *title, const char *body,
                          uint32_t color, const char *ok_text, const char *no_text,
                          confirm_cb_t cb, void *user_data);
 
-/* Pinta el boton del SI en ROJO y el del NO en VERDE. Para los dialogos donde
- * lo destructivo es decir que si: "Anotado" (cuyo si es Deshacer), borrar un
- * apunte, finalizar o apartar un viaje, descartar apuntes abiertos.
+/* Le da una ACCION al boton de la IZQUIERDA (el rojo), que por defecto solo
+ * cierra. Hace falta en el cartel "Anotado": alli el rojo tiene que ser
+ * "Deshacer" -- lo que deshace el apunte -- y el verde "Vale", que solo cierra.
+ * Antes iba al reves (Deshacer en el verde de la derecha), que es justo lo que
+ * vio el dueño en la placa.
  *
- * Existe porque el color iba pegado a la POSICION y no a lo que hace el boton:
- * el de la derecha siempre verde y el de la izquierda siempre rojo. En esos
- * cinco dialogos eso pintaba de verde lo que borra y de rojo lo inofensivo --
- * "Vale" en rojo y "Deshacer" en verde, justo al reves de lo que dice el color.
+ * Mismo tipo de callback que el del boton de aceptar (confirm_cb_t), para que
+ * los dos botones se usen igual: recibe el user_data, no el evento de LVGL.
+ * Llamar DESPUES de confirm_screen_open(): cada apertura limpia la accion del
+ * "no", asi que no hay que deshacerla. */
+void confirm_screen_no_accion(confirm_cb_t cb, void *user_data);
+
+/* YA NO HACE NADA, y es a proposito (norma del dueño, 16-oct-2026): "el boton
+ * que cancela, ROJO; el de aceptar, VERDE, en todos los casos". El aviso de que
+ * una accion es destructiva va en el TEXTO del cartel, no en su color.
  *
- * Llamar DESPUES de confirm_screen_open(); cada apertura vuelve a los colores
- * normales, asi que no hay que deshacerlo. */
+ * Antes repintaba el boton del SI de rojo, y el resultado era que "Anotado"
+ * salia con "Deshacer" en verde y "Vale" en rojo. Se queda vacia porque la
+ * llaman varios sitios; ver el comentario largo en confirm_screen.c. */
 void confirm_screen_ok_destructivo(void);
 
 /* Cierra sin confirmar. Lo llama view_registro_reset() cuando el usuario se va

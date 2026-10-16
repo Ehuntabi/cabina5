@@ -44,12 +44,19 @@ static lv_obj_t *s_ok_lbl;
 
 static confirm_cb_t s_cb;
 static void        *s_user_data;
+/* Accion opcional del boton de la IZQUIERDA (el que cancela). Ver
+ * confirm_screen_no_accion(). Va aparte del de aceptar porque en casi todos los
+ * dialogos el "no" solo cierra. */
+static confirm_cb_t s_no_cb;
+static void        *s_no_user_data;
 
 static void close_overlay(void)
 {
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
     s_cb = NULL;
     s_user_data = NULL;
+    s_no_cb = NULL;
+    s_no_user_data = NULL;
 }
 
 static void ok_cb(lv_event_t *e)
@@ -66,7 +73,12 @@ static void ok_cb(lv_event_t *e)
 static void no_cb(lv_event_t *e)
 {
     (void)e;
+    /* Igual que ok_cb(): la accion del "no" tambien puede abrir otro dialogo, y
+     * para entonces estos punteros ya tienen que estar a salvo. */
+    confirm_cb_t cb = s_no_cb;
+    void *ud = s_no_user_data;
     close_overlay();
+    if (cb) cb(ud);
 }
 
 /* El color de un boton, con su tono de pulsado. Aparte porque los dos botones
@@ -153,6 +165,12 @@ void confirm_screen_open(const char *title, const char *body,
 
     s_cb = cb;
     s_user_data = user_data;
+    /* El dialogo es UNO solo y se reutiliza: cada apertura tiene que empezar sin
+     * accion en el "no". Sin esto, el callback de un cartel anterior (el
+     * "Deshacer" de "Anotado") seguiria guardado y dispararia al pulsar el "no"
+     * del siguiente. */
+    s_no_cb = NULL;
+    s_no_user_data = NULL;
 
     lv_label_set_text(s_title, title ? title : "");
     lv_obj_set_style_text_color(s_title, lv_color_hex(color), 0);
@@ -197,16 +215,38 @@ void confirm_screen_open(const char *title, const char *body,
     lv_obj_set_user_data(s_ok_lbl, (void *)(lv_intptr_t)-1);
     lv_obj_set_user_data(s_no_lbl, (void *)(lv_intptr_t)-1);
 
-    /* El dialogo se muda a la pantalla que este activa. Nace colgado de la de
-     * registros (confirm_screen_init), pero Ajustes vive en OTRA pantalla del
-     * carrusel y alli no se veria nada. Reparentar en cada apertura sale mas
-     * barato que tener un dialogo por pantalla, y deja el widget siempre donde
-     * el usuario esta mirando. */
-    lv_obj_t *scr = lv_scr_act();
-    if (scr && lv_obj_get_parent(s_root) != scr) lv_obj_set_parent(s_root, scr);
+    /* DONDE VIVE EL DIALOGO MIENTRAS ESTA ABIERTO: en lv_layer_top(), la capa
+     * que va por ENCIMA de todas las pantallas. Nace colgado de la de registros
+     * (confirm_screen_init) y antes se mudaba a lv_scr_act() en cada apertura;
+     * con eso fallaban dos cosas, las dos vistas:
+     *
+     *  1. lv_scr_load_anim() NO cambia la pantalla activa hasta que acaba la
+     *     animacion (220 ms, NAV_ANIM_MS): justo despues de nav_ir_a_info() --
+     *     que es como se abre el aviso "Salida abierta" -- lv_scr_act()
+     *     devolvia la pantalla VIEJA, asi que el cartel se reparentaba a ella y
+     *     se iba con la pantalla al terminar la animacion: no lo veia nadie. Y
+     *     peor: confirm_screen_is_open() seguia diciendo que si, con lo que el
+     *     temporizador de preguntas del arranque (parada_boot_timer_cb) dejaba
+     *     de preguntar por los eventos sin cerrar en ese encendido.
+     *  2. La pantalla de FILTROS vive en lv_layer_top() y tapa TODO: un dialogo
+     *     reparentado a la pantalla activa se quedaba DEBAJO, invisible
+     *     mientras los filtros estuvieran abiertos.
+     *
+     * En la capa de arriba las dos desaparecen: el dialogo se ve con cualquier
+     * pantalla cargada (o cargandose) y por encima de los filtros. */
+    lv_obj_t *arriba = lv_layer_top();
+    if (arriba && lv_obj_get_parent(s_root) != arriba) lv_obj_set_parent(s_root, arriba);
 
     lv_obj_clear_flag(s_root, LV_OBJ_FLAG_HIDDEN);
+    /* Por delante de lo que ya hubiera en esa capa (la pantalla de filtros). */
     lv_obj_move_foreground(s_root);
+}
+
+void confirm_screen_no_accion(confirm_cb_t cb, void *user_data)
+{
+    /* Se llama DESPUES de confirm_screen_open(), que es quien limpia esto. */
+    s_no_cb = cb;
+    s_no_user_data = user_data;
 }
 
 void confirm_screen_aviso(const char *title, const char *body,

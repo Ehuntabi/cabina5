@@ -569,6 +569,12 @@ esp_err_t load_wifi_config(char *ssid_out, size_t *ssid_len,
 esp_err_t save_wifi_config(const char *ssid, const char *pass)
 {
     if (!ssid || !pass) return ESP_ERR_INVALID_ARG;
+    /* Un SSID VACIO no es una red y no se guarda (16-oct-2026). Esta capa es la
+     * que decide que es una configuracion "leible despues", y guardar la cadena
+     * vacia la dejaba perfectamente leible pero inutil: el driver no se asocia a
+     * nada, y el que lee (udp_rx.c) no puede distinguir "guardado" de "sin
+     * configurar". Se rechaza aqui, ademas de en udp_rx_set_credentials(). */
+    if (ssid[0] == '\0') return ESP_ERR_INVALID_ARG;
 
     nvs_handle_t h;
     esp_err_t err = nvs_open(WIFI_NAMESPACE, NVS_READWRITE, &h);

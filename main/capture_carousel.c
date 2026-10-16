@@ -1,5 +1,13 @@
 #include "capture_carousel.h"
 #include "ui/ui_style.h"   /* la paleta, en un solo sitio */
+/* LOS ALIAS DE FUENTE, y esto es un arreglo de verdad (auditoria del
+ * 16-oct-2026): este fichero NO incluye ui/estilos.h -- por donde el resto de
+ * las vistas reciben fonts/fonts_es.h --, asi que su &lv_font_montserrat_48 no
+ * era el alias de la Inter 48 sino la MONTSERRAT 48 DEL SDK, que sigue
+ * compilada. El texto de la PRUEBA-BRILLO salia con otra tipografia y otro
+ * tamaño, y nada avisaba: es el mismo fallo del "texto pequeñisimo" del
+ * 16-oct, aqui en el modo captura. */
+#include "fonts/fonts_es.h"
 
 /* Estos van aqui arriba y no dentro del bloque del carrusel: la inyeccion de
  * datos de ejemplo (modo banco) se compila tambien con el carrusel apagado. */

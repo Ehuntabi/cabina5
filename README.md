@@ -273,6 +273,13 @@ scripts/grabar.sh                 # (usa /dev/ttyUSB0 y graba las DOS mitades de
 idf.py -p /dev/ttyUSB0 flash monitor    # esta placa es la S3 por CH340
 ```
 
+`grabar.sh` comprueba ademas (16-oct-2026) que la Release tenga el asset EXACTO de
+esta version (`cabina5-<tag>.bin`, con su sha256), que en el puerto haya un
+**ESP32-S3** (la P4 es un ESP32-P4 y tambien es `/dev/ttyACM*`: con los cables
+cambiados se niega a grabar) y que el `.bin` de aqui sea el publicado -- si no lo
+es byte a byte, graba EL PUBLICADO. Con `--seco` hace todas las comprobaciones sin
+escribir nada en la placa.
+
 Esta placa tiene **dos huecos de OTA**: si solo se graba el de arranque, tras un
 OTA la placa arranca el otro y parece que "no grabó nada". Para dejarla
 coherente se graban las dos:
@@ -310,11 +317,16 @@ mide con las métricas reales de la fuente y se le baja el escalón que haga
 falta. Las vistas siguen pidiendo `lv_font_montserrat_20` y lo que sale es el 26:
 cambiar la escala entera es tocar **un fichero**.
 
-- La negrita es **generada a mano** (`main/fonts/montserrat_bold.h`, con la
-  receta): solo existen los tamaños que se usan.
+- La negrita es **generada a mano** con `lv_font_conv` (ficheros
+  `main/fonts/lv_font_inter_bold_*_es.c`; la receta va en la cabecera de cada uno
+  y los alias, con el papel de cada tamaño, en `main/fonts/fonts_es.h`). Hasta el
+  16-oct-2026 esto apuntaba a `main/fonts/montserrat_bold.h`, que ya no existe:
+  ahora toda la familia es la misma Inter que la de la P4.
 - Los iconos son una fuente propia a 44 px (`main/icons/iconos.h`).
-- LVGL **no trae Montserrat 56** (llega hasta la 48): ese escalón no existe y el
-  titular de 48 se queda como está.
+- Las fuentes son **Inter generadas para este proyecto** (no las del SDK), así
+  que traen los acentos del castellano: la UI los usa y se pintan bien. Lo que
+  no traen son símbolos de moneda (€, £), y por eso la lista de monedas va con
+  códigos.
 
 ## La pantalla se puede montar girada 180 grados
 

@@ -378,15 +378,19 @@ static const char *const SITIO_CLAVE[SITIO_COUNT] = {
 /* Monedas de la Europa continental que puede pisar la autocaravana.
  * Por defecto EUR (indice 0). Mismo orden en las dos listas.
  *
- * SOLO ASCII, y no es un descuido: las fuentes Montserrat que trae LVGL se
- * compilan con el rango "0x20-0x7F,0xB0,0x2022" (ver la cabecera de
- * lv_font_montserrat_24.c), o sea ASCII + grado + bullet. El simbolo del euro
- * (U+20AC), la libra, la "z" polaca con barra y la "c" checa con hacek NO
- * existen en la fuente y salian como un cuadrado vacio. Por eso "zl" y "Kc" van
- * sin diacriticos y EUR/GBP se quedan solo con el codigo.
+ * SOLO ASCII, y no es un descuido: los simbolos de moneda NO estan en las
+ * fuentes compiladas. El euro (U+20AC), la libra, la "z" polaca con barra
+ * (U+0142) y la "c" checa con hacek (U+010D) no tienen glifo y saldrian como un
+ * cuadrado vacio, asi que "zl" y "Kc" van sin diacriticos y EUR/GBP se quedan
+ * solo con el codigo. (Comprobado sobre las fuentes de main/fonts: cubren el
+ * castellano y el grado, pero no esas cuatro.)
  *
- * Vale igual para el resto de la interfaz: nada de acentos ni "n" con virgulilla
- * en los textos que se pintan, o apareceran cuadrados. */
+ * ESTO YA NO VALE PARA EL RESTO DE LA INTERFAZ (corregido el 16-oct-2026): aqui
+ * ponia "nada de acentos ni n con virgulilla en los textos que se pintan", y eso
+ * era verdad con las Montserrat del SDK. Desde que las fuentes son las Inter de
+ * main/fonts (que SI traen acentos, ver fonts/fonts_es.h), la UI esta llena de
+ * ellos -- "CONFIGURACIÓN", "Kilómetros" -- y se pintan bien. Lo que sigue sin
+ * haber son simbolos de moneda. */
 /* La lista de opciones y la regla de ancho (moneda_dd_ancho) viven en
  * estilos.h: es la primera "regla de diseno comun", para no tener 5 anchos
  * distintos inventados a mano. CURRENCY_OPTIONS se queda como alias para no
@@ -1463,6 +1467,16 @@ static void filtros_screen_close(void)
     if (s_filtros_screen) lv_obj_add_flag(s_filtros_screen, LV_OBJ_FLAG_HIDDEN);
 }
 
+/* La casilla "Otros" va PEGADA AL TEXTO: marcada si hay motivo escrito, sin
+ * marcar si no lo hay. Es la unica forma de que "otros=1 con motivo vacio" no
+ * llegue nunca al CSV. */
+static void otros_sincroniza_casilla(void)
+{
+    const char *t = s_mant_otros_ta ? lv_textarea_get_text(s_mant_otros_ta) : NULL;
+    if (t && t[0]) lv_obj_add_state(s_mant_chk[MANT_IDX_OTROS], LV_STATE_CHECKED);
+    else           lv_obj_clear_state(s_mant_chk[MANT_IDX_OTROS], LV_STATE_CHECKED);
+}
+
 /* "Otros": no es un si/no, lleva motivo escrito. Igual que "destino del
  * viaje" (view_info.c mas abajo), el texto vive en un textarea invisible de
  * tamano 0 y se edita con el editor a pantalla completa (entry_screen.c); la
@@ -1470,7 +1484,24 @@ static void filtros_screen_close(void)
 static void otros_click_cb(lv_event_t *e)
 {
     (void)e;
+    /* Y de verdad no se toca: el checkbox de LVGL se conmuta SOLO al pulsarlo
+     * (lo hace su manejador de clase, que corre antes que este callback), asi
+     * que si el usuario CANCELABA el editor la casilla se quedaba marcada con
+     * el motivo vacio -- otros=1 en el CSV, justo lo contrario de lo que dice
+     * el comentario de arriba. Se pone como estaba segun el texto y el editor
+     * decide: al aceptar con motivo, el VALUE_CHANGED del textarea la marca. */
+    otros_sincroniza_casilla();
     entry_screen_open(s_mant_otros_ta, "Motivo", false);
+}
+
+/* El texto cambio (lo acaba de volcar el editor al aceptar). No usa
+ * precio_marca_cb a proposito: aquel SOLO marca, y esta bien que sea asi en los
+ * precios de aguas/servicios, donde el importe es opcional y borrarlo no puede
+ * deshacer el "se hizo". Aqui el motivo ES el dato, asi que tambien desmarca. */
+static void otros_motivo_cb(lv_event_t *e)
+{
+    (void)e;
+    otros_sincroniza_casilla();
 }
 
 /* === Valoracion del sitio ================================================= */
@@ -3266,8 +3297,8 @@ static void build_mantenimiento(lv_obj_t *form)
     lv_obj_set_size(s_mant_otros_ta, 0, 0);
     lv_textarea_set_one_line(s_mant_otros_ta, true);
     lv_textarea_set_max_length(s_mant_otros_ta, 40);
-    lv_obj_add_event_cb(s_mant_otros_ta, precio_marca_cb,
-                        LV_EVENT_VALUE_CHANGED, s_mant_chk[MANT_IDX_OTROS]);
+    lv_obj_add_event_cb(s_mant_otros_ta, otros_motivo_cb,
+                        LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(s_mant_chk[MANT_IDX_OTROS], otros_click_cb,
                         LV_EVENT_CLICKED, NULL);
 
@@ -3287,6 +3318,13 @@ static void build_mantenimiento(lv_obj_t *form)
     /* Km y coste comparten linea: los dos son numeros cortos y asi caben los
      * dos grandes sin robarle altura a las seis casillas. */
     make_dual_number_row(form, "Km", &s_mant_km_ta, "Coste", &s_mant_coste_ta, true);
+    /* El "Km" tampoco lleva decimales: make_half_number acepta "0123456789."
+     * porque lo comparte con Coste (que si los necesita), asi que sin esto el
+     * apunte se iba al CSV con "km":"123.45" -- el mismo fallo que en el
+     * repostaje, y aqui ni siquiera hay un atol() que lo delate. Mismo arreglo
+     * en la 3,5". */
+    lv_textarea_set_accepted_chars(s_mant_km_ta, "0123456789");
+    lv_textarea_set_max_length(s_mant_km_ta, 6);
 
     form_rellenar_alto(form);
     make_save_button(form, "Guardar mantenimiento", save_generic_cb, (void *)(uintptr_t)CAT_MANTENIMIENTO);
@@ -3836,8 +3874,16 @@ static void build_valoracion(lv_obj_t *form)
      * seleccion". Lo marcado ya se guarda solo (viaja con la pernocta), pero
      * salir por "Volver" no dice nada: con el boton, el gesto de guardar es
      * explicito y ademas vuelve a Servicios. Mismo patron que "Guardar
-     * servicios". */
-    make_save_button(form, "Guardar pegas", back_click_cb, (void *)(uintptr_t)CAT_SERVICIOS);
+     * servicios".
+     *
+     * Y CON EL +1 DE LA CONVENCION DE back_click_cb, que es la mitad que
+     * fallaba: el destino viaja +1 para que el 0 (CAT_VIAJE) no se confunda con
+     * "sin dato". Sin el, el destino era CAT_SERVICIOS - 1 = CAT_MANTENIMIENTO,
+     * asi que pulsar "Guardar pegas" abria el formulario de MANTENIMIENTO en
+     * blanco -- y quien lo rellenara anotaba un apunte que no habia hecho.
+     * Regresion del 16-oct-2026, cazada por el arbitraje final. */
+    make_save_button(form, "Guardar pegas", back_click_cb,
+                     (void *)(intptr_t)(CAT_SERVICIOS + 1));
 }
 
 /* === Menus de la salida ===================================================
@@ -4484,9 +4530,13 @@ static bool declarar(evento_tipo_t tipo, uint8_t sub, uint8_t sub2)
     }
 
     /* El cartel no es solo para enterarse: lleva DESHACER. El evento se abre de
-     * un toque, y sin esto un dedo equivocado no tendria vuelta atras. Va en
-     * rojo y a la derecha, que es donde estan el resto de acciones que
-     * descartan. */
+     * un toque, y sin esto un dedo equivocado no tendria vuelta atras.
+     *
+     * "Deshacer" va en el boton IZQUIERDO (el rojo) y "Vale" en el derecho (el
+     * verde). Es la norma del dueño -- el que cancela, rojo; el que acepta,
+     * verde -- y ademas el rojo de la izquierda es donde estan el resto de
+     * acciones que descartan. Antes estaba al reves: "Deshacer" en el verde de
+     * la derecha, que es lo que el dueño vio en la placa. */
     static char cuerpo[96];
     snprintf(cuerpo, sizeof(cuerpo),
              "Queda abierto: %s.\nCuando vuelvas a dar el\ncontacto te pedire los datos.",
@@ -4494,7 +4544,8 @@ static bool declarar(evento_tipo_t tipo, uint8_t sub, uint8_t sub2)
     /* El titulo en VERDE: "Anotado" es una buena noticia, y en rojo parecia que
      * algo habia salido mal. */
     confirm_screen_open("Anotado", cuerpo, COL_ACCION_OK,
-                        "Deshacer", "Vale", deshacer_ultimo, NULL);
+                        "Vale", "Deshacer", NULL, NULL);
+    confirm_screen_no_accion(deshacer_ultimo, NULL);
     confirm_screen_ok_destructivo();
     volver_al_menu();
     return true;
@@ -4599,12 +4650,13 @@ static void inicio_puntual_resultado_cb(bool ok, int estado, void *user_data)
     /* Y ADEMAS cambia de PAGINA del carrusel a la de info: es la que trae
      * datos (bateria, aguas, temperaturas...) y la pastilla de "toca al
      * llegar" -- quedarse en Registro tras abrir la salida no aporta nada
-     * mientras conduces hacia el sitio. El aviso se muestra DESPUES de
-     * cambiar de pagina (y no antes) porque se reengancha el a la pantalla
-     * que este activa en ESE momento (ver el comentario de
-     * confirm_screen_open sobre "reparentar"); si se mostrase antes, se
-     * quedaria colgado de Registro y desaparecia de la vista al cambiar de
-     * pagina sin que el usuario llegase a leerlo. */
+     * mientras conduces hacia el sitio. El aviso se muestra DESPUES de cambiar
+     * de pagina, que es el orden natural (primero se deja al usuario donde
+     * tiene que mirar y luego se le cuenta), y desde el 16-oct-2026 el cartel
+     * vive en lv_layer_top() (ver confirm_screen_open), asi que ya da igual que
+     * la animacion de la pantalla haya terminado o no: antes se reparentaba a
+     * lv_scr_act(), que durante los 220 ms de la animacion TODAVIA es la
+     * pantalla vieja, y este aviso se iba con ella sin que nadie lo leyese. */
     nav_ir_a_info();
     confirm_screen_aviso("Salida abierta",
                          "Toca el aviso de abajo en\ncuanto llegues al sitio.",
@@ -5070,7 +5122,16 @@ static void parada_terminar(void *ud)
     u = apunte_campo_txt(cuerpo, sizeof(cuerpo), u, "inicio", hi);
     u = apunte_campo_txt(cuerpo, sizeof(cuerpo), u, "fin", hf);
     u = apunte_campo_num(cuerpo, sizeof(cuerpo), u, "minutos",
-                         (long)((ahora - ev->epoch_ini) / 60));
+                         (long)((ahora > (uint32_t)((int32_t)ev->epoch_ini + reloj_delta_horario()))
+                              ? (ahora - (uint32_t)((int32_t)ev->epoch_ini + reloj_delta_horario())) / 60
+                              : 0));
+    /* La guarda NO es adorno (misma razon que en la pernocta, ver
+     * pernocta_guardar): los dos son uint32 y salen de epoch_local, que NO es
+     * monotono -- al entrar en el horario de invierno el mismo reloj da 3599 s
+     * MENOS --, asi que la resta a pelo daba 71582778 "minutos" (1193045 h) en
+     * paradas.csv tras un cambio de horario o una correccion del GPS. Las rutas
+     * hermanas (pernocta y parada con texto) ya llevaban la guarda; a esta se le
+     * habia quedado sin ella. */
 
     char resumen[96];
     snprintf(resumen, sizeof(resumen), "Parada: %s, %s a %s",
@@ -6119,10 +6180,13 @@ void view_registro_create(lv_obj_t *parent)
     /* 20 caracteres: es el limite del diseno, y la ruta en la SD de la P4 no
      * debe crecer sin control. */
     lv_textarea_set_max_length(s_viaje_destino_ta, 20);
-    /* SOLO ASCII, y no es un descuido: las fuentes Montserrat compiladas no
-     * traen acentos ni la n con virgulilla, y saldrian cuadrados. Ademas esto
-     * acaba siendo un NOMBRE DE CARPETA, asi que los caracteres que romperian
-     * la ruta no se dejan ni teclear. La P4 vuelve a filtrar por su cuenta. */
+    /* SOLO ASCII, y ahora por UN motivo, no por dos (corregido el 16-oct-2026):
+     * esto acaba siendo un NOMBRE DE CARPETA en la SD de la P4, asi que los
+     * caracteres que romperian la ruta no se dejan ni teclear (y la P4 vuelve a
+     * filtrar por su cuenta). Lo que ya NO es verdad es lo que ponia antes
+     * ("las fuentes compiladas no traen acentos"): desde que son las Inter de
+     * main/fonts, los acentos se pintan bien en toda la UI -- lo que no traen es
+     * los simbolos de moneda (ver el comentario de CURRENCY_OPTIONS). */
     lv_textarea_set_accepted_chars(s_viaje_destino_ta,
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 -_");
     /* Gemelo del anterior para CAMBIAR el destino de un viaje ya empezado: el

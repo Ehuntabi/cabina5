@@ -103,3 +103,31 @@ CONFIG_ESP_CONSOLE_UART_BAUDRATE=460800
 # ...y el USB nativo APAGADO. No hace falta (la placa se lee por el CH340) y
 # ademas en este banco el /dev/ttyACM* que aparece es la P4, no esta placa.
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# ── Diagnostico de cuelgues: que el watchdog REINICIE y deje volcado ─────────
+# Esto lo tenia bien la 3,5" y aqui estaba al reves (auditoria del 16-oct-2026),
+# y es de las cosas que solo se notan el dia que hacen falta:
+#
+#   * CONFIG_ESP_TASK_WDT_PANIC: en IDF 5.5, SIN esto el Task WDT NO reinicia
+#     (solo imprime "task_wdt: Task watchdog got triggered"). Y esta pantalla
+#     depende de ese reinicio: main_app.c deja de alimentar el watchdog A
+#     PROPOSITO cuando la UI lleva rato sin avanzar (lvgl_wdog_task), con el
+#     comentario "dejando saltar el Task WDT". Sin PANIC, el resultado era una
+#     pantalla congelada PARA SIEMPRE, sin panic ni reinicio.
+#   * CONFIG_ESP_COREDUMP_*: sin volcado no hay forma de saber donde se quedo.
+#     El volcado va a la particion 'coredump' de partitions.csv (por eso existe
+#     ahi) y se saca con esptool/monitor en el banco.
+#   * IDLE a 0: con las tareas IDLE vigiladas, un borrado de flash largo (OTA)
+#     reinicia la placa. Mismo criterio que en la 3,5".
+#   * 5 s de retardo antes de reiniciar, para que el volcado llegue a escribirse.
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_SHA256=y
+CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=64
+CONFIG_ESP_COREDUMP_USE_STACK_SIZE=y
+CONFIG_ESP_COREDUMP_STACK_SIZE=1792
+CONFIG_ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS=5

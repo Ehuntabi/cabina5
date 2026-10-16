@@ -192,11 +192,13 @@ void entry_screen_open(lv_obj_t *target, const char *label, bool numeric)
     lv_keyboard_set_mode(s_kb, numeric ? LV_KEYBOARD_MODE_NUMBER
                                        : LV_KEYBOARD_MODE_TEXT_LOWER);
 
-    /* Se muda a la pantalla que este activa. Nace colgado de la de registros
-     * (entry_screen_init), pero Ajustes vive en OTRA pantalla del carrusel y
-     * alli no se veria. Mismo apano que confirm_screen. */
-    lv_obj_t *scr = lv_scr_act();
-    if (scr && lv_obj_get_parent(s_root) != scr) lv_obj_set_parent(s_root, scr);
+    /* Se muda a lv_layer_top() (la capa de arriba de todo), NO a la pantalla
+     * activa: mismo apano y mismos dos motivos que confirm_screen_open() -- alli
+     * esta el comentario largo. En resumen: lv_scr_load_anim() no cambia la
+     * pantalla activa hasta que acaba la animacion, y la pantalla de FILTROS
+     * (que tambien vive en esa capa) taparia el editor. */
+    lv_obj_t *arriba = lv_layer_top();
+    if (arriba && lv_obj_get_parent(s_root) != arriba) lv_obj_set_parent(s_root, arriba);
 
     lv_obj_clear_flag(s_root, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_root);

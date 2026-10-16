@@ -246,10 +246,17 @@ static void tarea(void *arg)
      * fallaria por impaciencia y asustaria sin motivo. */
     vTaskDelay(pdMS_TO_TICKS(12000));
 
-    /* Que se vea lo que hace el cliente HTTP por dentro: sin esto, un fallo suyo
-     * solo dice "no se pudo entregar" y no hay forma de saber por que. */
-    esp_log_level_set("esp_http_client", ESP_LOG_DEBUG);
-    esp_log_level_set("HTTP_CLIENT", ESP_LOG_DEBUG);
+    /* AQUI SE PONIA EL LOG DEL CLIENTE HTTP EN DEBUG, Y NO SE PUEDE (auditoria
+     * del 16-oct-2026): esp_http_client imprime la peticion ENTERA, incluida la
+     * cabecera "Authorization: Basic <usuario:clave en base64>", asi que subirle
+     * el nivel vuelca la clave del portal de la P4 en el log de serie -- que es
+     * justo lo que se copia y se pega cuando algo falla. Con
+     * CONFIG_LOG_MAXIMUM_LEVEL=3 (el de este proyecto) esas dos lineas no hacian
+     * nada, porque los ESP_LOGD de la libreria ya vienen compilados fuera; el
+     * peligro era el dia que alguien subiera el nivel para depurar y se
+     * encontrase la clave en el log sin saber de donde salia. Para saber por que
+     * falla una entrega ya esta el diagnostico de abajo (codigo HTTP, y el
+     * volcado del cuerpo de la respuesta), que no lleva credenciales. */
 
     /* Y lo primero que hay que saber: hay credenciales guardadas? La placa nueva
      * viene con la NVS vacia, y SIN credenciales la P4 responde 401 y los

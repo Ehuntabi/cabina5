@@ -740,7 +740,7 @@ lv_display_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
         /* 500 ms: el primer tic es la comprobacion del tactil (ver arriba) y a
          * partir de ahi el informe de refrescos cada 2 s. */
         lv_timer_create(bsp_display_fps_cb, 500, NULL);
-        /* El ajuste de rotulos de los botones (ver ui/estilos.h) va en su
+        /* El ajuste de rotulos de los botones (ver ui/rotulos.c) va en su
          * propio temporizador, NO en un evento: dentro de un evento se
          * realimenta y cuelga la placa. */
         rotulos_arrancar();

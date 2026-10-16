@@ -55,8 +55,15 @@ pantalla de 800×480 ocupaba los dos tercios de la izquierda, y de ahí que
   **La 56 no existe en LVGL** (su fuente más grande es la 48), así que el
   titular de 48 se queda en 48: si algún día hace falta, hay que generar la
   fuente a mano.
+  *(ACTUALIZADO el 16-oct-2026: la escala encadenada que describe este punto ya
+  no existe — se reescribió plana en `estilos.h`, con el mismo resultado en
+  pantalla. Y el límite de la 56 tampoco aplica: las fuentes son ahora Inter
+  generadas con `lv_font_conv`, no las Montserrat del SDK.)*
 - **Negritas**: se generaron las que faltaban (**26, 34 y 40**) con
-  `lv_font_conv`; la receta exacta está en `main/fonts/montserrat_bold.h`.
+  `lv_font_conv`; la receta exacta está en la cabecera de cada fichero de
+  `main/fonts/` y los alias en `main/fonts/fonts_es.h`. (Hasta el 16-oct-2026
+  aquí decía `main/fonts/montserrat_bold.h`, que ya no existe: las Montserrat
+  propias se borraron al pasar toda la familia a las Inter de la P4.)
 - **`view_info`**: rejilla a pantalla completa (filas de 210 + 246 px), dibujo
   de la batería y LEDs de aguas más grandes, temperaturas repartidas en el alto
   nuevo y el icono del GPS dentro de la tarjeta (antes caía sobre el borde).

@@ -49,9 +49,18 @@ size_t apunte_cabecera(char *out, size_t n, uint32_t id, const char *tipo)
 {
     uint32_t ts = 0;
     bool exacta = reloj_ahora(&ts);
-    return (size_t)snprintf(out, n,
+    int w = snprintf(out, n,
         "{\"op\":\"registro\",\"id\":%lu,\"tipo\":\"%s\",\"ts\":%lu,\"aprox\":%s,\"datos\":{",
         (unsigned long)id, tipo, (unsigned long)ts, exacta ? "false" : "true");
+    /* Misma regla que sus tres hermanas (apunte_campo_txt/num/cerrar), que ya la
+     * tenian: si el snprintf NO cupo, se devuelve 0 y ese 0 se arrastra por todas
+     * las llamadas siguientes -- quien llama lo ve (u == 0) y avisa, en vez de
+     * mandar un JSON cortado a medias que la P4 rechaza con un 400 y la cola
+     * acaba descartando. Aqui hoy no se llega nunca (la cabecera mide <= 89 B y
+     * el buffer mas pequeño de los dos que la usan es de 384), pero era la unica
+     * de las cuatro sin la comprobacion y el fallo habria sido mudo otra vez.
+     * Auditoria del 16-oct-2026. */
+    return (w > 0 && (size_t)w < n) ? (size_t)w : 0;
 }
 
 size_t apunte_campo_txt(char *out, size_t n, size_t used,

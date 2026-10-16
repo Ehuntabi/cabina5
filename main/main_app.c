@@ -486,9 +486,22 @@ void setup(void) {
         ESP_LOGW(TAG, "sin cerrojo de LVGL: la reconciliacion se queda sin reintento");
     }
 
-    /* Y en cuanto la UI lleve un rato en pie, si se perdio algo se dice. */
-    lv_timer_t *aviso = lv_timer_create(aviso_perdidas_cb, 12000, NULL);
-    if (aviso) lv_timer_set_repeat_count(aviso, 1);
+    /* Y en cuanto la UI lleve un rato en pie, si se perdio algo se dice.
+     *
+     * CON CERROJO, como el de arriba (auditoria del 16-oct-2026): crear un
+     * temporizador TOCA las listas internas de LVGL, y esto corre en la tarea de
+     * arranque, no en la de LVGL -- tres lineas despues de crear otro
+     * temporizador SI bajo cerrojo. Sin el, la carrera esta servida: basta que
+     * la tarea de LVGL este recorriendo su lista de temporizadores en ese
+     * instante para corromperla. El sintoma de eso es un cuelgue sin panic, que
+     * es justo lo que el watchdog de la UI acaba de dejar cubierto. */
+    if (lvgl_port_lock(2000)) {
+        lv_timer_t *aviso = lv_timer_create(aviso_perdidas_cb, 12000, NULL);
+        if (aviso) lv_timer_set_repeat_count(aviso, 1);
+        lvgl_port_unlock();
+    } else {
+        ESP_LOGW(TAG, "sin cerrojo de LVGL: no creo el aviso de apuntes perdidos");
+    }
 
     /* Auto-test del canal de subida (cabina -> P4 por HTTP): deja en el log si
      * la ruta existe, si las credenciales del portal valen y si acepta POST.

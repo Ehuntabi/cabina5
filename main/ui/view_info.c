@@ -1990,9 +1990,9 @@ static void pendientes_aplicar(void *arg)
      * el aviso tiene que saltar contra ESE tope, no contra 16. */
     bool casi = s_pend_valor + 3 >= VIAJE_COLA_APUNTES_MAX;
     /* Un 409 sostenido no se arregla solo aunque la P4 este encendida y
-     * respondiendo (es un choque de numeracion, no que este apagada) -- por
-     * eso lleva su propio aviso, distinto de "casi llena". Ver el comentario
-     * de INTENTOS_409_ATASCO en viaje_cola.c. */
+     * respondiendo (es un apunte del viaje anterior, o un choque de numeracion;
+     * NO es que este apagada) -- por eso lleva su propio aviso, distinto de
+     * "casi llena". Ver el comentario de INTENTOS_409_ATASCO en viaje_cola.c. */
     /* Credenciales mal puestas NO se arreglan solas ni encendiendo la P4 (a
      * diferencia de "sin llegar" a secas, que puede ser solo que este
      * apagada): aviso propio para no hacer perder el tiempo mirando el cable
@@ -2001,6 +2001,7 @@ static void pendientes_aplicar(void *arg)
     viaje_cola_atasco_t atasco = viaje_cola_atasco();
     bool cred_mal   = (atasco == VIAJE_COLA_ATASCO_CLAVE);
     bool atascada   = (atasco == VIAJE_COLA_ATASCO_NUMERACION ||
+                       atasco == VIAJE_COLA_ATASCO_REZAGADO ||
                        atasco == VIAJE_COLA_ATASCO_RECHAZO);
     /* La P4 viva pero sin poder escribir (507: tarjeta llena). Antes esto era
      * indistinguible de "la P4 esta apagada" y mandaba a mirar la corriente,
@@ -2107,9 +2108,31 @@ static void pendientes_click_cb(lv_event_t *e)
             }
             return;
         }
+        if (atasco == VIAJE_COLA_ATASCO_REZAGADO) {
+            /* El 409 del APUNTE rezagado (16-oct-2026): la P4 lo dice en el
+             * cuerpo del rechazo ("ese apunte es de un viaje ya cerrado"). Antes
+             * este caso caia en "NO NOS ENTENDEMOS / hemos perdido la
+             * numeracion", y eso es FALSO: la numeracion esta bien; lo que pasa
+             * es que ese apunte es del viaje anterior y no va a entrar nunca en
+             * el que hay abierto. Se dice lo que pasa y lo que se pierde al
+             * descartarlo, que es la unica salida. */
+            confirm_screen_open("UN APUNTE ES DE UN VIAJE YA CERRADO",
+                                "El mas antiguo de la cola es de\nun viaje que la P4 ya cerro,\n"
+                                "asi que no entra en el que\ntiene abierto ahora.\n\n"
+                                "Si lo descartas, ese apunte no\nllega a la P4: apuntalo a\nmano si te hace falta.",
+                                0xFF4444, "Descartarlo", "Cancelar",
+                                descartar_apunte_cb, NULL);
+            confirm_screen_ok_destructivo();
+            return;
+        }
         if (atasco == VIAJE_COLA_ATASCO_NUMERACION) {
-            confirm_screen_open("NO NOS ENTENDEMOS",
-                                "La P4 y esta pantalla han\nperdido la numeracion del\nviaje.\n\n"
+            /* 409 sostenido que NO es un apunte rezagado: lo que la P4 rechaza
+             * es el VIAJE (ya tiene otro abierto -- p.ej. se borro la NVS de
+             * esta pantalla a mitad de viaje y empezo uno nuevo con la
+             * numeracion desde 1). Antes el cartel decia "hemos perdido la
+             * numeracion" para los dos casos; ahora solo para el que lo es. */
+            confirm_screen_open("LA P4 NO ACEPTA ESTE VIAJE",
+                                "Alli sigue abierto el viaje de\nantes, asi que este no entra.\n\n"
                                 "Descartar el apunte mas\nantiguo deja seguir con los\ndemas.",
                                 0xFF4444, "Descartarlo", "Cancelar",
                                 descartar_apunte_cb, NULL);

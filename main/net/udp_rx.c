@@ -55,7 +55,31 @@ static uint32_t s_msgs_bad = 0;
  * "todo bien". Sin esto, en la furgo solo se veia el punto gris y habia que
  * adivinar por que. 30-sep-2026. */
 static _Atomic bool s_asociado = false;
-static volatile int64_t s_ultimo_rx_us = 0;
+
+/* Cuando llego el ultimo mensaje valido (esp_timer, microsegundos). Lo escribe
+ * rx_task y lo LEE LA TAREA DE DIBUJO (udp_rx_enlace, para el "llevo N s sin
+ * datos" de la pantalla de informacion), asi que cruza tareas -- y es un dato de
+ * 64 bits: en este CPU, de 32, se lee y se escribe en DOS accesos, de modo que
+ * sin cerrojo una lectura puede llevarse la mitad de un valor y la mitad del
+ * otro y salir un "sin datos" absurdo (lectura rasgada). Mismo motivo y mismo
+ * patron que data_model.c y reloj.c. Auditoria del 16-oct-2026. */
+static portMUX_TYPE s_mux_ultimo = portMUX_INITIALIZER_UNLOCKED;
+static int64_t s_ultimo_rx_us = 0;   /* protegido por s_mux_ultimo */
+
+static void ultimo_rx_marcar(void)
+{
+    portENTER_CRITICAL(&s_mux_ultimo);
+    s_ultimo_rx_us = esp_timer_get_time();
+    portEXIT_CRITICAL(&s_mux_ultimo);
+}
+
+static int64_t ultimo_rx_leer(void)
+{
+    portENTER_CRITICAL(&s_mux_ultimo);
+    int64_t t = s_ultimo_rx_us;
+    portEXIT_CRITICAL(&s_mux_ultimo);
+    return t;
+}
 
 /* Diagnostico del ultimo descarte: ver udp_rx_diagnostico(). */
 static volatile udp_rx_drop_t s_drop_motivo = UDP_RX_DROP_NO;
@@ -121,6 +145,17 @@ static void load_or_init_credentials(void)
     size_t ssid_len = sizeof(s_ssid);
     size_t pass_len = sizeof(s_pass);
     esp_err_t err = load_wifi_config(s_ssid, &ssid_len, s_pass, &pass_len);
+    /* Un SSID VACIO es "sin configurar", no una configuracion valida (16-oct-2026):
+     * con el, el driver no se asocia a nada y la pantalla se queda SIN P4 para
+     * siempre -- y el fallback de abajo no saltaba, porque la lectura si
+     * "funcionaba" (devolvia ESP_OK con la cadena vacia). Se podia llegar ahi
+     * borrando el campo SSID en Ajustes: se guardaba, la UI decia "Guardado,
+     * reconectando...", y luego "P4: sin red (busco )". Se trata como si no
+     * hubiera nada guardado y se vuelve al valor de fabrica. */
+    if (err == ESP_OK && s_ssid[0] == '\0') {
+        ESP_LOGW(TAG, "SSID vacio en NVS: lo trato como 'sin configurar'");
+        err = ESP_ERR_NOT_FOUND;
+    }
     if (err != ESP_OK) {
         ESP_LOGI(TAG, "Sin credenciales en NVS, usando valor de fabrica de wifi_credentials.h");
         strncpy(s_ssid, WIFI_CRED_SSID, sizeof(s_ssid) - 1);
@@ -242,6 +277,15 @@ void udp_rx_get_credentials(char *ssid_out, size_t ssid_len, char *pass_out, siz
 bool udp_rx_set_credentials(const char *ssid, const char *pass)
 {
     if (!ssid || !pass) return false;
+    /* SIN SSID NO HAY RED (16-oct-2026): guardarlo dejaba la pantalla sin P4 y
+     * sin vuelta atras -- el driver se configuraba con la cadena vacia y el
+     * fallback de fabrica no saltaba, porque lo guardado se leia bien. Se
+     * rechaza ANTES de tocar s_ssid: asi la red que ya funcionaba se queda como
+     * estaba y no se pierde por un campo borrado sin querer. */
+    if (ssid[0] == '\0') {
+        ESP_LOGW(TAG, "SSID vacio: no lo guardo (no es una red)");
+        return false;
+    }
     strncpy(s_ssid, ssid, sizeof(s_ssid) - 1);
     s_ssid[sizeof(s_ssid) - 1] = '\0';
     strncpy(s_pass, pass, sizeof(s_pass) - 1);
@@ -453,7 +497,7 @@ static void vigila_datos(void)
         return;
     }
     int64_t ahora = esp_timer_get_time();
-    int64_t ref = s_ultimo_rx_us;
+    int64_t ref = ultimo_rx_leer();
     if (s_escucha_desde_us > ref) ref = s_escucha_desde_us;
     if (s_ultimo_intento_us > ref) ref = s_ultimo_intento_us;
     if (ref == 0) return;                      /* todavia no escuchamos */
@@ -492,7 +536,8 @@ static void manda_latido(int sock)
     memset(&l, 0, sizeof(l));
     l.magic   = MINI_LATIDO_MAGIC;
     l.version = MINI_PROTO_VERSION;
-    int64_t ref = s_ultimo_rx_us ? s_ultimo_rx_us : s_escucha_desde_us;
+    int64_t t_rx = ultimo_rx_leer();
+    int64_t ref = t_rx ? t_rx : s_escucha_desde_us;
     /* El campo es int16 en el protocolo: se SATURA en vez de dar la vuelta.
      * A las 9 h 6 min de silencio el valor se volvia negativo y la P4 dejaba de
      * creerse el latido justo cuando mas falta hacia (auditoria del
@@ -603,11 +648,16 @@ static void rx_task(void *arg)
         }
         if (n != (int)sizeof(mini_msg_t)) {
             /* LA VERSION SE MIRA TAMBIEN AQUI (auditoria del 14-oct-2026): el
-             * campo va en el byte 1 y el chequeo de tamano iba ANTES que el de
-             * version, asi que con un firmware de otro tamano el log (y la
-             * pantalla) solo decian "tam 38 != 40" y nunca se enteraba nadie de
-             * QUE version hablaba el otro. Un byte, si es que llego. */
-            int v = (n >= 2) ? (int)((const uint8_t *)buf)[1] : -1;
+             * chequeo de tamano iba ANTES que el de version, asi que con un
+             * firmware de otro tamano el log (y la pantalla) solo decian
+             * "tam 38 != 40" y nunca se enteraba nadie de QUE version hablaba
+             * el otro. Un byte, si es que llego.
+             *
+             * El byte es el 0, NO el 1 (auditoria del 16-oct-2026): 'version'
+             * es el PRIMER campo de mini_msg, y el byte 1 es utc_off_quince --
+             * el desfase horario en cuartos de hora. Leyendo el 1, Ajustes
+             * decia "38B v8" cuando la P4 hablaba v5 (8 = +2 h de desfase). */
+            int v = (n >= 1) ? (int)((const uint8_t *)buf)[0] : -1;
             ESP_LOGW(TAG, "drop: tam %d != %u (version %d)", n,
                      (unsigned)sizeof(mini_msg_t), v);
             s_drop_motivo = UDP_RX_DROP_TAM;
@@ -638,7 +688,7 @@ static void rx_task(void *arg)
         }
         data_model_update_from_msg(msg);
         reloj_set_desde_p4(msg->epoch_local, (int)(int8_t)msg->utc_off_quince);
-        s_ultimo_rx_us = esp_timer_get_time();   /* enlace vivo: ver udp_rx_enlace() */
+        ultimo_rx_marcar();   /* enlace vivo: ver udp_rx_enlace() */
         s_sin_datos_intentos = 0;                /* llego un paquete: escalera a cero */
         s_aviso_mudez_dado = false;
         manda_latido(sock);                      /* y se lo contamos a la P4 */
@@ -758,7 +808,7 @@ void udp_rx_enlace(char *ssid, size_t ssid_len, bool *asociado,
         *rssi_dbm = s_asociado ? s_rssi_cache : 0;
     }
     if (seg_sin_datos) {
-        int64_t t = s_ultimo_rx_us;
+        int64_t t = ultimo_rx_leer();
         *seg_sin_datos = (t == 0) ? -1 : (int)((esp_timer_get_time() - t) / 1000000);
     }
 }
