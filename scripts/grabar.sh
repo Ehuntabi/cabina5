@@ -100,7 +100,7 @@ esac
 cd "$REPO"
 
 # ── 1) arbol limpio ─────────────────────────────────────────────────────────
-git checkout dependencies.lock 2>/dev/null || true
+git checkout dependencies.lock sdkconfig 2>/dev/null || true
 SUCIO="$(git status --porcelain | grep -v 'dependencies.lock' || true)"
 if [ -n "$SUCIO" ]; then
     echo "NO GRABO: hay cambios sin commitear. Lo que se graba tiene que estar"
