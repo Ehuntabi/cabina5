@@ -444,7 +444,10 @@ void view_ajustes_create(lv_obj_t *parent)
     /* El unico boton, y grande: es lo unico que se toca aqui. */
     lv_obj_t *wbtn = lv_btn_create(s_menu);
     lv_obj_set_size(wbtn, lv_pct(100), 110);
-    lv_obj_set_flex_grow(wbtn, 1);
+    /* SIN flex_grow (16-oct-2026): pedia altura extra y se la quitaba a la
+     * tarjeta de la version, que es la que tiene texto que enseñar. El boton se
+     * queda en sus 110 px, que ya es un boton grande. */
+    lv_obj_set_flex_grow(wbtn, 0);
     lv_obj_set_style_bg_color(wbtn, UI_COLOR_CYAN, 0);
     lv_obj_add_event_cb(wbtn, wifi_open_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *wlbl = lv_label_create(wbtn);
@@ -491,9 +494,15 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(vcard, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(vcard, 0, 0);
     lv_obj_set_style_radius(vcard, 10, 0);
-    lv_obj_set_style_pad_all(vcard, 6, 0);
-    lv_obj_set_style_pad_row(vcard, 2, 0);
-    lv_obj_clear_flag(vcard, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_all(vcard, 8, 0);
+    lv_obj_set_style_pad_row(vcard, 4, 0);
+    /* CON SCROLL, aunque quepa (16-oct-2026). El usuario vio "informacion que se
+     * pierde por encima y por debajo del numero de version": esta tarjeta crece
+     * con flex_grow, no tenia scroll y lo que no cabia se RECORTABA en silencio
+     * (el aviso estaba escrito aqui mismo, y aun asi le meti dos lineas mas sin
+     * darle aire). Con scroll, como mucho hay que deslizar: no se pierde nada. */
+    lv_obj_set_scroll_dir(vcard, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(vcard, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_flex_flow(vcard, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(vcard, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
@@ -514,21 +523,20 @@ void view_ajustes_create(lv_obj_t *parent)
     if (app) lv_label_set_text_fmt(vfecha, "%s  %s", app->date, app->time);
     else     lv_label_set_text(vfecha, "");
     lv_obj_set_style_text_color(vfecha, UI_COLOR_TEXT_DIM, 0);
-    lv_obj_set_style_text_font(vfecha, &lv_font_montserrat_26, 0);
+    lv_obj_set_style_text_font(vfecha, &FUENTE_PIE, 0);
 
     /* Chivato de reinicio (ver diag_reset.c): aparece SOLO si el arranque
      * anterior no lo provoco el contacto (watchdog, panic, cuelgue). Con el
      * ajetreo normal -- esta pantalla arranca con cada contacto, varias veces
      * al dia -- una tarjeta fija seria puro ruido; y este es el unico momento
      * en que se puede saber, porque al siguiente corte de contacto el motivo se
-     * pierde. Una sola etiqueta y en 16 para no crecer la tarjeta: vcard es
-     * flex_grow y NO tiene scroll, asi que lo que no quepa se recorta. */
+     * pierde. Con la letra de PIE y la tarjeta con scroll (ver arriba). */
     if (diag_reset_fue_fallo()) {
         lv_obj_t *vrein = lv_label_create(vcard);
         lv_label_set_text(vrein, diag_reset_resumen());
         lv_obj_set_style_text_align(vrein, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_color(vrein, UI_COLOR_RED, 0);
-        lv_obj_set_style_text_font(vrein, &lv_font_montserrat_16, 0);
+        lv_obj_set_style_text_font(vrein, &FUENTE_PIE, 0);
     } else {
         /* SI EL ARRANQUE NO FUE UN FALLO, SE DICE IGUAL (16-oct-2026, el
          * usuario: "si, en configuracion"). Un BAJON DE TENSION o un RESET POR
@@ -543,7 +551,7 @@ void view_ajustes_create(lv_obj_t *parent)
             lv_label_set_text_fmt(vmot, "Arranque: %s", motivo);
             lv_obj_set_style_text_align(vmot, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_style_text_color(vmot, UI_COLOR_TEXT_DIM, 0);
-            lv_obj_set_style_text_font(vmot, &lv_font_montserrat_16, 0);
+            lv_obj_set_style_text_font(vmot, &FUENTE_PIE, 0);
         }
     }
 
@@ -555,7 +563,7 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_label_set_text_fmt(s_uptime_lbl, "En marcha: %s", diag_reset_hace_texto());
     lv_obj_set_style_text_align(s_uptime_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(s_uptime_lbl, UI_COLOR_TEXT_DIM, 0);
-    lv_obj_set_style_text_font(s_uptime_lbl, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(s_uptime_lbl, &FUENTE_PIE, 0);
 
     /* ── El formulario del WI-FI ─────────────────────────────────────────── */
     s_wifi = lv_obj_create(parent);

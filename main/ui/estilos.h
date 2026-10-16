@@ -88,6 +88,14 @@
 #define FUENTE_NORMAL          lv_font_inter_26_es
 #define FUENTE_PEQUENA         lv_font_inter_30_es   /* antes: 22 -> 30 por la cadena */
 #define FUENTE_MUY_PEQUENA     lv_font_inter_26_es   /* antes: 20 -> 26 por la cadena */
+/* El PIE: la letra pequeña de verdad (18 px). Los papeles de arriba son todos
+ * grandes (26 para arriba) porque la pantalla se mira de lejos, pero hay lineas
+ * que NO son dato: la fecha del build, por que arranco, cuanto lleva en marcha.
+ * Para esas esta este, que ademas evita que la tarjeta de la version crezca
+ * hasta recortarse (16-oct-2026: el usuario vio informacion perdida arriba y
+ * abajo del numero de version). */
+#define FUENTE_PIE             lv_font_inter_18_es
+
 #define FUENTE_NEGRITA         lv_font_inter_bold_26_es
 #define FUENTE_NEGRITA_GRANDE  lv_font_inter_bold_34_es
 #define FUENTE_NEGRITA_TITULAR lv_font_inter_bold_40_es
