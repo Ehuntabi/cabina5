@@ -5021,7 +5021,14 @@ static void pernocta_abrir(int idx, const salida_evento_t *ev, uint32_t ahora)
     /* Sitio gratis: fuera el precio, que no hay nada que teclear. Los servicios
      * y la nota SI se preguntan igual -- un parking gratis con agua y buena
      * noche es justo lo que interesa recordar para la proxima vez. */
-    set_hidden(s_pern_precio_row, !parada_sitio_es_de_pago(s_pern_sitio));
+    /* AQUI SE ESCONDIA LA FILA ENTERA DEL PRECIO cuando el sitio es gratis, y
+     * eso se llevaba por delante el importe y el DESPLEGABLE DE MONEDA (en la
+     * 3,5" hasta el rotulo): los importes de los servicios de un area gratis se
+     * guardaban con moneda=EUR, justo lo que avisa el comentario de
+     * pern_refresh_precio(). Ya no se esconde la fila: de esconder lo que sobra
+     * se encarga pern_refresh_precio(), que oculta SOLO los dos botones de
+     * Noche/24h (arbitraje del 16-oct-2026). */
+    (void)parada_sitio_es_de_pago;
     pern_refresh_precio();
 
     /* Al carrusel primero, como todos los cierres: el formulario vive en la
