@@ -221,9 +221,24 @@ void confirm_screen_aviso(const char *title, const char *body,
 
 void confirm_screen_ok_destructivo(void)
 {
+    /* YA NO HACE NADA, Y ES A PROPOSITO (16-oct-2026, norma del dueño):
+     *
+     *     "El boton que cancela, ROJO; el de aceptar, VERDE. En todos los casos."
+     *
+     * Esto repintaba el boton de aceptar de rojo cuando la accion era
+     * destructiva (cerrar el viaje, borrar). El usuario lo vio en la pantalla de
+     * finalizar el viaje: le salian los dos rojos (o el que acepta rojo y el de
+     * cancelar verde, segun el dialogo) y le parecio antiintuitivo. La norma es
+     * mas simple y vale para los nueve dialogos: aceptar SIEMPRE verde, cancelar
+     * SIEMPRE rojo, y el aviso de lo que va a pasar va en el TEXTO del cartel.
+     *
+     * La funcion se queda (vacia) porque la llaman varios sitios y borrarla
+     * obligaria a tocarlos todos para nada. */
+    return;
+#if 0
     if (!s_ok_btn || !s_no_btn) return;
     btn_color(s_ok_btn, COL_NO);
-    btn_color(s_no_btn, COL_OK);
+#endif
 }
 
 void confirm_screen_close(void)
