@@ -1,5 +1,6 @@
 /* entry_screen.c - Editor de un campo a pantalla completa. Ver entry_screen.h. */
 #include "entry_screen.h"
+#include "ui/ui_style.h"   /* la paleta, en un solo sitio */
 #include "estilos.h"   /* la escala de fuentes, en un solo sitio */
 
 /* Reparto vertical de los 480 px de alto de esta pantalla (display.h).
@@ -82,7 +83,7 @@ void entry_screen_init(lv_obj_t *parent)
 {
     s_root = lv_obj_create(parent);
     lv_obj_set_size(s_root, lv_pct(100), lv_pct(100));
-    lv_obj_set_style_bg_color(s_root, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_color(s_root, UI_COLOR_BG, 0);
     lv_obj_set_style_bg_opa(s_root, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_root, 0, 0);
     lv_obj_set_style_pad_all(s_root, 0, 0);
@@ -98,7 +99,7 @@ void entry_screen_init(lv_obj_t *parent)
     lv_obj_align(s_root, LV_ALIGN_TOP_LEFT, 0, 0);
 
     s_label = lv_label_create(s_root);
-    lv_obj_set_style_text_color(s_label, lv_color_hex(0xDDDDDD), 0);
+    lv_obj_set_style_text_color(s_label, UI_COLOR_TEXT_SOFT, 0);
     lv_obj_set_style_text_font(s_label, &lv_font_montserrat_16, 0);
     lv_obj_align(s_label, LV_ALIGN_TOP_LEFT, 12, ENTRY_LABEL_Y);
 
@@ -107,7 +108,7 @@ void entry_screen_init(lv_obj_t *parent)
     lv_obj_set_size(s_value, lv_pct(94), ENTRY_VALUE_H);
     lv_obj_align(s_value, LV_ALIGN_TOP_MID, 0, ENTRY_VALUE_Y);
     lv_obj_set_style_text_font(s_value, &lv_font_montserrat_40, 0);
-    lv_obj_set_style_text_color(s_value, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(s_value, UI_COLOR_TEXT, 0);
     lv_obj_set_style_text_align(s_value, LV_TEXT_ALIGN_CENTER, 0);
     /* Sin marco ni relleno: con letra del 40 en 52 px no sobra un pixel. */
     lv_obj_set_style_bg_opa(s_value, LV_OPA_TRANSP, 0);

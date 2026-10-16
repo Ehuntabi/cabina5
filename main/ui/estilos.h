@@ -64,6 +64,7 @@
 #pragma once
 
 #include "lvgl.h"
+#include "ui/ui_style.h"   /* la paleta, en un solo sitio */
 #include "fonts/fonts_es.h"
 #include <string.h>
 
@@ -160,7 +161,7 @@ static inline lv_coord_t moneda_dd_ancho(const lv_font_t *fuente)
  * puro (maximo contraste posible sobre blanco) y el texto de relleno en un
  * gris bien oscuro (no el gris claro de serie, que sobre blanco casi no se
  * ve) para que se note que es una pista y no un dato ya metido. */
-#define COL_VALOR_CAMPO       0x000000
+#define COL_VALOR_CAMPO       UI_COLOR_SOBRE_CLARO_HEX   /* texto sobre el campo BLANCO (ver ui_style.h) */
 #define COL_PLACEHOLDER_CAMPO 0x555555
 
 static inline void campo_texto_contraste(lv_obj_t *ta)
@@ -182,7 +183,7 @@ static inline void campo_texto_contraste(lv_obj_t *ta)
  * historial): arreglaba el hueco de Litros/Kilometros (letra 32, caja a pelo
  * en 72) pero dejaba su caja mas alta que la de Importe (letra 24, caja 50) --
  * visto en la placa: "veo diferentes de tamano vertical entre importe y
- * litros y kilometros". Pedido explicito del usuario: TODAS las casillas
+ * litros y kilómetros". Pedido explicito del usuario: TODAS las casillas
  * donde se introducen datos miden 50, sea cual sea su fuente. Importe ya
  * estaba en 50 y se confirmo correcto ("importe esta ok"): es la referencia. */
 #define CAMPO_DATO_ALTO  50
@@ -196,8 +197,8 @@ static inline void campo_texto_contraste(lv_obj_t *ta)
  * distinto a la de al lado. Dos tonos que alternan por indice -- ni sacan otro
  * significado (no son categorias) ni compiten con el color de la categoria
  * del formulario (la del boton Volver/titulo), que se queda igual. */
-#define COL_FILA_PAR    0xFFFFFF  /* blanco: filas 0, 2, 4... */
-#define COL_FILA_IMPAR  0xB0BEC5  /* gris azulado: filas 1, 3, 5... */
+#define COL_FILA_PAR    UI_COLOR_TEXT_HEX  /* blanco: filas 0, 2, 4... */
+#define COL_FILA_IMPAR  UI_COLOR_TEXT_DIM_HEX  /* gris azulado: filas 1, 3, 5... */
 
 static inline uint32_t fila_color_alterna(uint8_t indice)
 {

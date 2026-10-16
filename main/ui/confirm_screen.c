@@ -1,5 +1,6 @@
 /* confirm_screen.c - Confirmacion a pantalla completa. Ver confirm_screen.h. */
 #include "confirm_screen.h"
+#include "ui/ui_style.h"   /* la paleta, en un solo sitio */
 #include "estilos.h"   /* la escala de fuentes, en un solo sitio */
 #include <string.h>
 
@@ -29,9 +30,9 @@
  * mayor. */
 #define CONF_BTN_W     340
 
-#define COL_FG         0x000000   /* texto sobre los botones claros */
+#define COL_FG         UI_COLOR_BG_HEX   /* texto sobre los botones claros */
 #define COL_OK         0x66BB6A   /* verde  8,8:1 con el negro */
-#define COL_NO         0xE57373   /* rojo   7,0:1 */
+#define COL_NO         UI_COLOR_RED_HEX   /* rojo   7,0:1 */
 
 static lv_obj_t *s_root;
 static lv_obj_t *s_title;
@@ -105,7 +106,7 @@ void confirm_screen_init(lv_obj_t *parent)
 {
     s_root = lv_obj_create(parent);
     lv_obj_set_size(s_root, lv_pct(100), lv_pct(100));
-    lv_obj_set_style_bg_color(s_root, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_color(s_root, UI_COLOR_BG, 0);
     lv_obj_set_style_bg_opa(s_root, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_root, 0, 0);
     lv_obj_set_style_pad_all(s_root, 0, 0);
@@ -130,7 +131,7 @@ void confirm_screen_init(lv_obj_t *parent)
     s_body = lv_label_create(s_root);
     lv_obj_set_width(s_body, lv_pct(96));
     lv_obj_set_style_text_font(s_body, &lv_font_montserrat_32, 0);
-    lv_obj_set_style_text_color(s_body, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(s_body, UI_COLOR_TEXT, 0);
     lv_obj_set_style_text_align(s_body, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_line_space(s_body, 8, 0);
     lv_label_set_long_mode(s_body, LV_LABEL_LONG_WRAP);

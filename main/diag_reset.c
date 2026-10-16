@@ -30,7 +30,7 @@ static const char *texto(esp_reset_reason_t r)
 {
     switch (r) {
         case ESP_RST_POWERON:    return "encendido normal (contacto)";
-        case ESP_RST_EXT:        return "boton de reset";
+        case ESP_RST_EXT:        return "botón de reset";
         case ESP_RST_SW:         return "reinicio por software";
         case ESP_RST_PANIC:      return "fallo grave (panic)";
         case ESP_RST_INT_WDT:    return "watchdog de interrupcion";
@@ -148,7 +148,7 @@ const char *diag_reset_hace_texto(void)
         snprintf(s_hace, sizeof(s_hace), "%lu h %lu min",
                  (unsigned long)(s / 3600), (unsigned long)((s % 3600) / 60));
     } else {
-        snprintf(s_hace, sizeof(s_hace), "%lu dias", (unsigned long)(s / 86400));
+        snprintf(s_hace, sizeof(s_hace), "%lu días", (unsigned long)(s / 86400));
     }
     return s_hace;
 }

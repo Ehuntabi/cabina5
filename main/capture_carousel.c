@@ -1,4 +1,5 @@
 #include "capture_carousel.h"
+#include "ui/ui_style.h"   /* la paleta, en un solo sitio */
 
 /* Estos van aqui arriba y no dentro del bloque del carrusel: la inyeccion de
  * datos de ejemplo (modo banco) se compila tambien con el carrusel apagado. */
@@ -42,7 +43,7 @@ static void inject_sim_data(void)
     d.water_gray_has_data  = true;
     d.epoch_local          = 1788800000;
     d.gps_estado           = 2;      /* posicion fijada */
-    /* Alarma de bateria activa (la palabra "bateria baja" es la de la P4). El
+    /* Alarma de bateria activa (la palabra "batería baja" es la de la P4). El
      * bit tiene que ser el de mini_proto.h: es el mismo byte que viaja. */
     d.alarmas              = MINI_ALARM_BATERIA;
     d.last_update_ms       = (uint32_t)(esp_timer_get_time() / 1000);
@@ -410,13 +411,13 @@ static void pb_arranque_cb(lv_timer_t *t)
     (void)t;
     lv_obj_t *bg = lv_obj_create(lv_layer_top());
     lv_obj_set_size(bg, lv_pct(100), lv_pct(100));
-    lv_obj_set_style_bg_color(bg, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_color(bg, UI_COLOR_BG, 0);
     lv_obj_set_style_bg_opa(bg, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(bg, 0, 0);
     lv_obj_set_style_radius(bg, 0, 0);
     lv_obj_clear_flag(bg, LV_OBJ_FLAG_SCROLLABLE);
     s_pb_lbl = lv_label_create(bg);
-    lv_obj_set_style_text_color(s_pb_lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(s_pb_lbl, UI_COLOR_TEXT, 0);
     lv_obj_set_style_text_font(s_pb_lbl, &lv_font_montserrat_48, 0);
     lv_obj_set_style_text_align(s_pb_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(s_pb_lbl, "empieza");

@@ -5,8 +5,8 @@
  *
  * POR QUE (16-oct-2026): las cabinas usaban las Montserrat del SDK, que NO
  * traen acentos ni la n con virgulilla -- de ahi que todos los rotulos fueran
- * en ASCII ("Configuracion") y que el destino del viaje solo admitiera letras
- * sin tilde. Con estas, la UI puede decir "Configuracion" bien escrita.
+ * en ASCII ("Configuración") y que el destino del viaje solo admitiera letras
+ * sin tilde. Con estas, la UI puede decir "Configuración" bien escrita.
  *
  * LOS NOMBRES VIEJOS SE MANTIENEN COMO ALIAS, igual que en la P4 (ver su
  * docs/GUIA_ESTILO.md): asi no hay que tocar las ~100 llamadas de la UI y el

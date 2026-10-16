@@ -296,7 +296,7 @@ bool tilt_calibrate(void)
         /* El cero nuevo queda puesto en RAM, asi que vale para esta sesion,
          * pero al apagar se pierde: quien lo llame debe avisarlo. */
         ESP_LOGW(TAG, "No se pudo guardar la calibracion en NVS (%s): "
-                      "valdra solo hasta el proximo apagado",
+                      "valdrá solo hasta el próximo apagado",
                  esp_err_to_name(err));
         return false;
     }

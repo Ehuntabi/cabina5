@@ -24,6 +24,7 @@
  * lucecitas.
  */
 #include "estilos.h"   /* ESC(): la escala de la pantalla */
+#include "ui/ui_style.h"   /* la paleta, en un solo sitio */
 #include "view_info.h"
 #include "brillo.h"
 #include "net/viaje_cola.h"   /* VIAJE_COLA_CAPACIDAD, para el aviso de casi llena */
@@ -40,9 +41,9 @@
 #include "esp_log.h"
 #include <stdio.h>
 
-#define COL_CARD_BG_TOP  lv_color_hex(0x0A0A0A)
-#define COL_CARD_BG_BOT  lv_color_hex(0x161616)
-#define COL_TEXT         lv_color_hex(0xFFFFFF)
+#define COL_CARD_BG_TOP  UI_COLOR_CARD
+#define COL_CARD_BG_BOT  UI_COLOR_CARD
+#define COL_TEXT         UI_COLOR_TEXT
 /* ── Paleta con dos modos ──────────────────────────────────────────────────
  * El 30% de brillo se queda con los colores de siempre. Con el 100% (que es lo
  * que se usa cuando hay sol) se sube el contraste: los azules y los grises se
@@ -179,9 +180,9 @@ void view_info_set_contraste(bool activo)
 #define COL_VAL_GOOD     col2(0x4CD964, 0xFFFFFF)
 #define COL_VAL_WARN     col2(0xFFD54F, 0xFFEB3B)
 #define COL_VAL_BAD      col2(0xFF4444, 0xFF6E6E)
-#define COL_CONN_NONE    lv_color_hex(0x555555)
-#define COL_CONN_OK      lv_color_hex(0x00C851)
-#define COL_CONN_LOST    lv_color_hex(0xFF4444)
+#define COL_CONN_NONE    UI_COLOR_TEXT_DIM   /* "P4: sin red": gris tenue, no dato */
+#define COL_CONN_OK      UI_COLOR_GREEN
+#define COL_CONN_LOST    UI_COLOR_RED
 #define CONN_TIMEOUT_MS  5000
 
 #define COL_BORDER_BAT   col2(0xFF9800, 0xFFFFFF)  /* SmartShunt naranja */
@@ -275,7 +276,7 @@ static const uint8_t AL_INFO_BIT[AL_INFO_CUANTAS] = {
 /* Nombres CORTOS, para la cabina y para el aviso de la orden ("agua", no
  * "agua limpia en reserva"): en 480x320 y de reojo, cuanto menos texto mejor. */
 static const char *const AL_INFO_NOMBRE[AL_INFO_CUANTAS] = {
-    "agua", "grises", "bateria", "congelador"
+    "agua", "grises", "batería", "congelador"
 };
 
 /* Estado local de cada alarma. */
@@ -451,7 +452,7 @@ static lv_obj_t *make_bateria_dibujo(lv_obj_t *padre)
                                                                  * bajo el cuerpo
                                                                  * para que no se
                                                                  * vea la union */
-        lv_obj_set_style_bg_color(borne, lv_color_hex(0x888888), 0);
+        lv_obj_set_style_bg_color(borne, UI_COLOR_TEXT_DIM, 0);
         lv_obj_set_style_bg_opa(borne, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(borne, 0, 0);
         lv_obj_set_style_radius(borne, 2, 0);
@@ -462,9 +463,9 @@ static lv_obj_t *make_bateria_dibujo(lv_obj_t *padre)
 
     lv_obj_t *cuerpo = lv_obj_create(cont);
     lv_obj_set_size(cuerpo, BAT_W, BAT_H);
-    lv_obj_set_style_bg_color(cuerpo, lv_color_hex(0x0E0E0E), 0);
+    lv_obj_set_style_bg_color(cuerpo, UI_COLOR_CARD, 0);
     lv_obj_set_style_bg_opa(cuerpo, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(cuerpo, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_border_color(cuerpo, UI_COLOR_TEXT_DIM, 0);
     lv_obj_set_style_border_width(cuerpo, 3, 0);
     lv_obj_set_style_radius(cuerpo, 6, 0);
     lv_obj_set_style_pad_all(cuerpo, 0, 0);
@@ -532,11 +533,11 @@ static void led_set(lv_obj_t *led, uint8_t mode)
         lv_obj_set_style_bg_opa(led, LV_OPA_COVER, 0);
         lv_obj_set_style_border_opa(led, LV_OPA_COVER, 0);
         if (mode == 1) {
-            lv_obj_set_style_bg_color(led, lv_color_hex(0x4FC3F7), 0);
-            lv_obj_set_style_border_color(led, lv_color_hex(0x4FC3F7), 0);
+            lv_obj_set_style_bg_color(led, UI_COLOR_CYAN, 0);
+            lv_obj_set_style_border_color(led, UI_COLOR_CYAN, 0);
         } else {
-            lv_obj_set_style_bg_color(led, lv_color_hex(0x141414), 0);
-            lv_obj_set_style_border_color(led, lv_color_hex(0x333333), 0);
+            lv_obj_set_style_bg_color(led, UI_COLOR_CARD, 0);
+            lv_obj_set_style_border_color(led, UI_COLOR_BOTON, 0);
         }
     }
 }
@@ -783,7 +784,7 @@ static void refresh_bat(const mini_data_t *d)
         /* Con la bateria llena el numero queda SOBRE el relleno, y el verde y
          * el ambar son claros: en blanco no se leeria. Se pasa a negro. */
         lv_obj_set_style_text_color(s_bat_soc,
-                                    soc >= 45 ? lv_color_hex(0x000000) : COL_TEXT, 0);
+                                    soc >= 45 ? UI_COLOR_BG : COL_TEXT, 0);
     } else {
         lv_label_set_text(s_bat_soc, "--");
         lv_obj_set_style_text_color(s_bat_soc, COL_TEXT, 0);
@@ -808,7 +809,7 @@ static void refresh_bat(const mini_data_t *d)
         /* Verde cargando, NARANJA consumiendo: se ve si la bateria sube o baja
          * sin pararse a leer el signo. Naranja y no rojo a proposito -- gastar
          * es lo normal, no una averia; el rojo se reserva para el nivel bajo. */
-        lv_color_t col_amp = ma >= 0 ? COL_VAL_GOOD : lv_color_hex(0xFF9800);
+        lv_color_t col_amp = ma >= 0 ? COL_VAL_GOOD : UI_COLOR_ORANGE;
         lv_obj_set_style_text_color(s_bat_amp, col_amp, 0);
         lv_obj_set_style_text_color(s_bat_amp_u, col_amp, 0);   /* la A, a juego */
     } else {
@@ -921,8 +922,8 @@ static void refresh_tendencia(tendencia_t *st, lv_obj_t *flecha,
 
     lv_label_set_text(flecha, st->subiendo ? LV_SYMBOL_UP : LV_SYMBOL_DOWN);
     lv_obj_set_style_text_color(flecha,
-                                st->subiendo ? lv_color_hex(0xFF9800)  /* naranja */
-                                             : lv_color_hex(0x4FC3F7), /* azul */
+                                st->subiendo ? UI_COLOR_ORANGE  /* naranja */
+                                             : UI_COLOR_CYAN, /* azul */
                                 0);
 }
 
@@ -967,7 +968,7 @@ static void refresh_aguas(const mini_data_t *d)
         lv_label_set_text(s_lbl_gray, lleno ? "LLENO" : "grises");
         /* Sobre el bloque rojo el texto va en negro; apagado, en gris. */
         lv_obj_set_style_text_color(s_lbl_gray,
-                                    lleno ? lv_color_hex(0x000000) : COL_TEXT_DIM, 0);
+                                    lleno ? UI_COLOR_BG : COL_TEXT_DIM, 0);
     } else {
         led_set(s_led_gray, 0);
         lv_label_set_text(s_lbl_gray, "grises");
@@ -1006,7 +1007,7 @@ static bool al_info_activa(al_info_t i)
  *   - y si el enlace esta caducado, el ultimo numero recibido es viejo: se
  *     atenua igual que los demas, que para eso esta CONN_TIMEOUT_MS.
  * Cuando no hay dato van dos guiones en gris, que se leen como "no lo se" y no
- * como "cero kilometros".
+ * como "cero kilómetros".
  *
  * El color se pone con lv_obj_set_style_text_color y NO con paleta_texto(): esa
  * REGISTRA el objeto cada vez que se la llama y esto corre cada 500 ms, asi que
@@ -1250,7 +1251,7 @@ static void al_refresh_iconos(void)
         lv_label_set_text(ic, callada ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
         /* Con el sonido puesto, el altavoz CON ondas en blanco invita a
          * tocarlo; callado, tachado y en gris se lee de un vistazo. */
-        lv_obj_set_style_text_color(ic, callada ? lv_color_hex(0x777777) : COL_TEXT, 0);
+        lv_obj_set_style_text_color(ic, callada ? UI_COLOR_TEXT_DIM : COL_TEXT, 0);
         lv_obj_clear_flag(ic, LV_OBJ_FLAG_HIDDEN);
     }
 }
@@ -1606,7 +1607,7 @@ void view_info_create(lv_obj_t *parent)
 
     lv_obj_t *grid = lv_obj_create(parent);
     lv_obj_set_size(grid, lv_pct(100), lv_pct(100));
-    lv_obj_set_style_bg_color(grid, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_color(grid, UI_COLOR_BG, 0);
     lv_obj_set_style_bg_opa(grid, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(grid, 0, 0);
     lv_obj_set_style_pad_all(grid, 4, 0);
@@ -1628,7 +1629,7 @@ void view_info_create(lv_obj_t *parent)
      * fuera de la pantalla, el palo se quedaba vacio: se quito la T y esto es la
      * tarjeta de siempre, con los numeros a la izquierda, el dibujo en medio y
      * MOTOR a la derecha. */
-    s_gps_card = make_card(grid, COL_BORDER_BAT, "BATERIA", 0, 2, 0,
+    s_gps_card = make_card(grid, COL_BORDER_BAT, "BATERÍA", 0, 2, 0,
                            &s_bat_dot, true, &lv_font_montserrat_20);
 
     /* El dibujo va CENTRADO en la tarjeta y es el protagonista: los voltios y
@@ -1828,7 +1829,7 @@ void view_info_create(lv_obj_t *parent)
      * De paso, al ser mas fina deja mas aire por encima. Para saber si el
      * ventilador va a medio gas o a tope sobra con esto: no es un instrumento. */
     lv_obj_set_size(s_frigo_fan_track, ESC(64), ESC(10));
-    lv_obj_set_style_bg_color(s_frigo_fan_track, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_bg_color(s_frigo_fan_track, UI_COLOR_BOTON, 0);
     lv_obj_set_style_bg_opa(s_frigo_fan_track, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_frigo_fan_track, 0, 0);
     lv_obj_set_style_radius(s_frigo_fan_track, 3, 0);
@@ -1861,9 +1862,9 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_add_flag(s_pendientes, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_pendientes, LV_OBJ_FLAG_IGNORE_LAYOUT);
     lv_label_set_text(s_pendientes, "");
-    lv_obj_set_style_bg_color(s_pendientes, lv_color_hex(0xFF9800), 0);
+    lv_obj_set_style_bg_color(s_pendientes, UI_COLOR_ORANGE, 0);
     lv_obj_set_style_bg_opa(s_pendientes, LV_OPA_COVER, 0);
-    lv_obj_set_style_text_color(s_pendientes, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_text_color(s_pendientes, UI_COLOR_SOBRE_CLARO, 0);
     /* Letra 24 y no 14: con la 14 quedaba tan pequena que se confundia con un
      * rotulo mas de la pantalla, y esto es lo unico que puede impedirte irte a
      * casa con un apunte sin entregar. Tiene que verse de un vistazo desde el
@@ -1874,7 +1875,7 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_style_radius(s_pendientes, LV_RADIUS_CIRCLE, 0);
     /* Sombra negra alrededor: la pastilla cae ENCIMA de las tarjetas de aguas y
      * temperaturas, y sin separacion el naranja se pegaba a sus bordes. */
-    lv_obj_set_style_border_color(s_pendientes, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_border_color(s_pendientes, UI_COLOR_BG, 0);
     lv_obj_set_style_border_width(s_pendientes, 3, 0);
     lv_obj_align(s_pendientes, LV_ALIGN_BOTTOM_MID, 0, -6);
     /* Se TOCA cuando hay algo que cerrar: lleva derecho a la lista. Un aviso
@@ -1906,7 +1907,7 @@ void view_info_create(lv_obj_t *parent)
      * TOP_RIGHT), el titulo va centrado y el icono del altavoz tambien esta a
      * la derecha (al_icono_crear con -26). */
     lv_obj_set_style_text_font(s_gps, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(s_gps, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_color(s_gps, UI_COLOR_TEXT_DIM, 0);
     lv_obj_align(s_gps, LV_ALIGN_TOP_LEFT, 6, 2);
 
     /* Aviso de la orden de silencio ("enviado" / "sin respuesta"). Abajo al
@@ -1919,8 +1920,8 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_clear_flag(s_orden_msg, LV_OBJ_FLAG_CLICKABLE);
     lv_label_set_text(s_orden_msg, "");
     lv_obj_set_style_text_font(s_orden_msg, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_orden_msg, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_bg_color(s_orden_msg, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_style_text_color(s_orden_msg, UI_COLOR_SOBRE_CLARO, 0);
+    lv_obj_set_style_bg_color(s_orden_msg, UI_COLOR_TEXT_SOFT, 0);
     lv_obj_set_style_bg_opa(s_orden_msg, LV_OPA_90, 0);
     lv_obj_set_style_pad_hor(s_orden_msg, 10, 0);
     lv_obj_set_style_pad_ver(s_orden_msg, 4, 0);

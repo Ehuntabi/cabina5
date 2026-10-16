@@ -6,6 +6,7 @@
  * (viajes y registros sueltos, main/net/p4_api.c + viaje_cola.c).
  */
 #include <stdio.h>
+#include "ui/ui_style.h"   /* la paleta, en un solo sitio */
 #include <inttypes.h>
 #include <lvgl.h>
 #include "display.h"
@@ -79,7 +80,7 @@ static void splash_create(void) {
     lv_obj_t *splash_bg = lv_obj_create(lv_layer_top());
     lv_obj_set_pos(splash_bg, 0, 0);
     lv_obj_set_size(splash_bg, hor, ver);
-    lv_obj_set_style_bg_color(splash_bg, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_color(splash_bg, UI_COLOR_BG, 0);
     lv_obj_set_style_bg_opa(splash_bg, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(splash_bg, 0, 0);
     lv_obj_set_style_radius(splash_bg, 0, 0);
@@ -501,7 +502,7 @@ void setup(void) {
      * cualquier fuga en vez de delatarla. Un cuelgue de verdad lo cubren el
      * Task WDT (que lvgl_wdog_task deja saltar a proposito) y el watchdog de
      * tareas; y si algo se reinicia, ahora se ve: diag_reset y la tarjeta
-     * "Ultimo reinicio" de Ajustes. */
+     * "Último reinicio" de Ajustes. */
 
     if (xTaskCreate(heartbeat_task, "hb", 3072, NULL, 1, NULL) != pdPASS) {
         ESP_LOGE(TAG, "xTaskCreate(heartbeat_task) fallo: sin diagnostico periodico");

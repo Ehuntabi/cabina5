@@ -22,6 +22,7 @@
  *     columna y las cifras -- que es lo unico que se mira -- quedaban pequenas.
  */
 #include "view_inclinacion.h"
+#include "ui/ui_style.h"   /* la paleta, en un solo sitio */
 #include "estilos.h"
 #include "esp_log.h"   /* DIAGNOSTICO: el volcado del arbol */
 #include "../tilt.h"
@@ -71,9 +72,9 @@
 #define AMBAR_ROLL_DEG    3.0f   /* lado a lado */
 #define AMBAR_PITCH_DEG   6.0f   /* morro a cola */
 
-#define COL_NIVEL   0x4CD964   /* verde - nivelada, hasta 1 grado */
-#define COL_CASI    0xFFD54F   /* ambar - hasta 3, el limite del frigo */
-#define COL_MAL     0xFF4444   /* rojo  - mas de 3 */
+#define COL_NIVEL   UI_COLOR_GREEN_HEX   /* verde - nivelada, hasta 1 grado */
+#define COL_CASI    UI_COLOR_YELLOW_HEX   /* ambar - hasta 3, el limite del frigo */
+#define COL_MAL     UI_COLOR_RED_HEX   /* rojo  - mas de 3 */
 
 /* Radio en pixeles de una inclinacion dada. */
 #define RADIO_DE(grados) ((int)(((grados) / MAX_DEG_SHOWN) * LEVEL_RADIUS))
@@ -306,7 +307,7 @@ static lv_obj_t *make_readout(lv_obj_t *padre, const char *etiqueta, uint32_t co
 
     lv_obj_t *l = lv_label_create(fila);
     lv_label_set_text(l, etiqueta);
-    lv_obj_set_style_text_color(l, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_text_color(l, UI_COLOR_TEXT_DIM, 0);
     lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
     lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
 
@@ -343,7 +344,7 @@ void view_inclinacion_diag_arbol(void)
 
 void view_inclinacion_create(lv_obj_t *parent)
 {
-    lv_obj_set_style_bg_color(parent, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_color(parent, UI_COLOR_BG, 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_ROW);
@@ -361,7 +362,7 @@ void view_inclinacion_create(lv_obj_t *parent)
     s_circle = lv_obj_create(left);
     lv_obj_set_size(s_circle, LEVEL_RADIUS * 2, LEVEL_RADIUS * 2);
     lv_obj_set_style_radius(s_circle, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(s_circle, lv_color_hex(0x111111), 0);
+    lv_obj_set_style_bg_color(s_circle, UI_COLOR_CARD, 0);
     lv_obj_set_style_bg_opa(s_circle, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_circle, 3, 0);
     /* Rojo FIJO: es el ultimo escalon del semaforo (mas de MAX_DEG_SHOWN, o
@@ -384,7 +385,7 @@ void view_inclinacion_create(lv_obj_t *parent)
      * dial no se veia, que es como no tenerla. */
     lv_obj_t *cross_h = lv_obj_create(s_circle);
     lv_obj_set_size(cross_h, LEVEL_RADIUS * 2, 2);
-    lv_obj_set_style_bg_color(cross_h, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_bg_color(cross_h, UI_COLOR_TEXT_DIM, 0);
     lv_obj_set_style_bg_opa(cross_h, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(cross_h, 0, 0);
     lv_obj_clear_flag(cross_h, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
@@ -392,7 +393,7 @@ void view_inclinacion_create(lv_obj_t *parent)
 
     lv_obj_t *cross_v = lv_obj_create(s_circle);
     lv_obj_set_size(cross_v, 2, LEVEL_RADIUS * 2);
-    lv_obj_set_style_bg_color(cross_v, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_bg_color(cross_v, UI_COLOR_TEXT_DIM, 0);
     lv_obj_set_style_bg_opa(cross_v, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(cross_v, 0, 0);
     lv_obj_clear_flag(cross_v, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
@@ -407,7 +408,7 @@ void view_inclinacion_create(lv_obj_t *parent)
     s_bubble = lv_obj_create(s_circle);
     lv_obj_set_size(s_bubble, BUBBLE_RADIUS * 2, BUBBLE_RADIUS * 2);
     lv_obj_set_style_radius(s_bubble, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(s_bubble, lv_color_hex(0x4CD964), 0);
+    lv_obj_set_style_bg_color(s_bubble, UI_COLOR_GREEN, 0);
     lv_obj_set_style_bg_opa(s_bubble, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_bubble, 0, 0);
     lv_obj_clear_flag(s_bubble, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
@@ -426,7 +427,7 @@ void view_inclinacion_create(lv_obj_t *parent)
 
     lv_obj_t *title = lv_label_create(right);
     lv_label_set_text(title, "INCLINACION");
-    lv_obj_set_style_text_color(title, lv_color_hex(0xAB47BC), 0);
+    lv_obj_set_style_text_color(title, UI_COLOR_VIOLET, 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_28, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
@@ -439,7 +440,7 @@ void view_inclinacion_create(lv_obj_t *parent)
     /* El aviso de que no hay sensor ocupa el hueco de las dos filas. */
     s_sin_sensor = lv_label_create(right);
     lv_label_set_text(s_sin_sensor, "Sensor ADXL345\nno detectado");
-    lv_obj_set_style_text_color(s_sin_sensor, lv_color_hex(0xFFD54F), 0);
+    lv_obj_set_style_text_color(s_sin_sensor, UI_COLOR_YELLOW, 0);
     lv_obj_set_style_text_font(s_sin_sensor, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_align(s_sin_sensor, LV_TEXT_ALIGN_CENTER, 0);
     /* 400 de ancho: con ESC(400)=720 se salia de su columna (436) y su
@@ -452,13 +453,13 @@ void view_inclinacion_create(lv_obj_t *parent)
      * rampas, y se lee desde fuera de la autocaravana. */
     s_label_nivel = lv_label_create(right);
     lv_label_set_text(s_label_nivel, "");
-    lv_obj_set_style_text_color(s_label_nivel, lv_color_hex(0x4CD964), 0);
+    lv_obj_set_style_text_color(s_label_nivel, UI_COLOR_GREEN, 0);
     lv_obj_set_style_text_font(s_label_nivel, &lv_font_montserrat_48, 0);
     lv_obj_align(s_label_nivel, LV_ALIGN_TOP_MID, 0, 196);
 
     s_label_status = lv_label_create(right);
     lv_label_set_text(s_label_status, "");
-    lv_obj_set_style_text_color(s_label_status, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_text_color(s_label_status, UI_COLOR_TEXT_DIM, 0);
     lv_obj_set_style_text_font(s_label_status, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_align(s_label_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(s_label_status, lv_pct(100));
@@ -468,7 +469,7 @@ void view_inclinacion_create(lv_obj_t *parent)
     /* 300x68: con ESC salia de 540x122 y 52 px se quedaban fuera de la
      * pantalla (medido). Es un boton, no un cartel. */
     lv_obj_set_size(s_calib_btn, 300, 68);
-    lv_obj_set_style_bg_color(s_calib_btn, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_bg_color(s_calib_btn, UI_COLOR_BOTON, 0);
     lv_obj_add_event_cb(s_calib_btn, calib_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_align(s_calib_btn, LV_ALIGN_BOTTOM_MID, 0, -24);
     lv_obj_t *calib_lbl = lv_label_create(s_calib_btn);
