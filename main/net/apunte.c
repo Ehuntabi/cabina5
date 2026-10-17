@@ -32,17 +32,44 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Escapa lo justo para no romper el JSON: comillas y barra invertida. El resto
- * del contenido ya es ASCII limitado (los campos son numeros y los textos los
- * filtra el teclado), asi que no hace falta un escapador completo. */
-static void json_str(char *out, size_t n, const char *in)
+/* Copia 'in' a 'out' desde la posicion 'j' YA ESCAPADA para JSON.
+ *
+ * ANTES SOLO SE ESCAPABAN LA COMILLA Y LA BARRA INVERTIDA (17-oct-2026), con el
+ * argumento de que "los textos los filtra el teclado". Falso: un salto de linea,
+ * un tabulador o cualquier byte de control que llegue al campo (pegando texto, o
+ * porque algun dia un campo se edita fuera de este teclado) deja el cuerpo en
+ * JSON INVALIDO; la P4 contesta 400, y como la cola NO descarta lo rechazado a
+ * proposito, ESE apunte se queda de cabeza para siempre y atasca los 14
+ * siguientes y el cierre (los dos huecos de control solo salvan el fin).
+ *
+ * Se escapa todo lo que el JSON no admite dentro de una cadena:
+ *   - la comilla y la barra invertida, con barra;
+ *   - los bytes de control (< 0x20) y 0x7F, como \u00XX;
+ *   - el resto (incluido UTF-8 de varios bytes, que es valido tal cual) se copia.
+ *
+ * DEVUELVE el nuevo 'j', o 0 si el texto NO CABE ENTERO. Se prefiere eso a
+ * cortarlo: un texto a medias es un dato perdido sin que nadie se entere, y
+ * quien llama ya tiene el camino de "no entra" (devuelve 0 y avisa). */
+static size_t json_esc_en(char *out, size_t n, size_t j, const char *in)
 {
-    size_t j = 0;
-    for (size_t i = 0; in && in[i] && j + 2 < n; i++) {
-        if (in[i] == '"' || in[i] == '\\') out[j++] = '\\';
-        out[j++] = in[i];
+    static const char HEX[] = "0123456789abcdef";
+    for (size_t i = 0; in && in[i]; i++) {
+        unsigned char c = (unsigned char)in[i];
+        size_t esc = (c == '"' || c == '\\') ? 2 : ((c < 0x20 || c == 0x7F) ? 6 : 1);
+        if (j + esc + 1 >= n) return 0;      /* +1: el cero final */
+        if (esc == 2) {
+            out[j++] = '\\';
+            out[j++] = (char)c;
+        } else if (esc == 6) {
+            out[j++] = '\\'; out[j++] = 'u'; out[j++] = '0'; out[j++] = '0';
+            out[j++] = HEX[(c >> 4) & 0xF];
+            out[j++] = HEX[c & 0xF];
+        } else {
+            out[j++] = (char)c;
+        }
     }
     out[j] = 0;
+    return j;
 }
 
 size_t apunte_cabecera(char *out, size_t n, uint32_t id, const char *tipo)
@@ -67,11 +94,20 @@ size_t apunte_campo_txt(char *out, size_t n, size_t used,
                         const char *clave, const char *valor)
 {
     if (used == 0) return 0;               /* ya se desbordo antes */
-    char v[64];
-    json_str(v, sizeof(v), valor);
-    int w = snprintf(out + used, n - used, "%s\"%s\":\"%s\"",
-                     out[used - 1] != '{' ? "," : "", clave, v);
-    return (w > 0 && (size_t)w < n - used) ? used + (size_t)w : 0;
+    /* SIN buffer de paso (17-oct-2026): antes se copiaba a un char[64] y lo que
+     * pasaba de ~61 bytes se TRUNCABA en silencio. Hoy los topes de los campos
+     * son de 40, asi que no se llegaba, pero era una mina: el dia que un campo
+     * crezca, ese texto se pierde sin avisar. Escribiendo directo en el cuerpo,
+     * el unico tope es el del cuerpo (CUERPO_MAX) y, si no cabe, esto devuelve 0
+     * y quien llama avisa. */
+    int w = snprintf(out + used, n - used, "%s\"%s\":\"",
+                     out[used - 1] != '{' ? "," : "", clave);
+    if (w < 0 || (size_t)w >= n - used) return 0;
+    size_t j = json_esc_en(out, n, used + (size_t)w, valor);
+    if (j == 0 || j + 2 > n) return 0;
+    out[j++] = '"';
+    out[j] = 0;
+    return j;
 }
 
 size_t apunte_campo_num(char *out, size_t n, size_t used,
@@ -86,8 +122,14 @@ size_t apunte_campo_num(char *out, size_t n, size_t used,
 size_t apunte_cerrar(char *out, size_t n, size_t used, const char *resumen)
 {
     if (used == 0) return 0;
-    char r[96];
-    json_str(r, sizeof(r), resumen ? resumen : "");
-    int w = snprintf(out + used, n - used, "},\"resumen\":\"%s\"}", r);
-    return (w > 0 && (size_t)w < n - used) ? used + (size_t)w : 0;
+    /* Igual que apunte_campo_txt: el resumen se escapa directo en el cuerpo, sin
+     * el char[96] de antes (que truncaba todo lo que pasara de ~93 bytes). */
+    int w = snprintf(out + used, n - used, "},\"resumen\":\"");
+    if (w < 0 || (size_t)w >= n - used) return 0;
+    size_t j = json_esc_en(out, n, used + (size_t)w, resumen ? resumen : "");
+    if (j == 0 || j + 3 > n) return 0;
+    out[j++] = '"';
+    out[j++] = '}';
+    out[j] = 0;
+    return j;
 }

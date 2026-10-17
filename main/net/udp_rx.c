@@ -140,6 +140,44 @@ static _Atomic bool s_ip_fija = false;
 static char s_ssid[33];
 static char s_pass[65];
 
+/* ── CERROJO DE LAS CREDENCIALES (17-oct-2026) ──────────────────────────────
+ *
+ * s_ssid/s_pass los ESCRIBE la tarea de la UI al guardar en Ajustes y los LEE
+ * wifi_aplicar_task al aplicarlos (y el log, y la pantalla). Un strncpy de 65
+ * bytes no es atomico: sin cerrojo, la tarea que aplica puede coger el SSID de
+ * una version y la clave de otra (o media clave), empujar al driver una
+ * configuracion que no existe y acabar en el camino lento de rearmar la radio.
+ * La ventana es toda la aplicacion, que el propio fichero documenta que puede
+ * tardar minutos.
+ *
+ * Se arregla con un mutex y una regla: NADIE lee s_ssid/s_pass directamente,
+ * siempre por creds_copiar() (que devuelve una copia coherente). Se crea en
+ * udp_rx_start, antes de la primera lectura concurrente; hasta entonces el
+ * acceso es de una sola tarea y las macros no hacen nada.
+ */
+static SemaphoreHandle_t s_cred_mtx = NULL;
+
+#define CREDS_LOCK()   do { if (s_cred_mtx) (void)xSemaphoreTake(s_cred_mtx, portMAX_DELAY); } while (0)
+#define CREDS_UNLOCK() do { if (s_cred_mtx) xSemaphoreGive(s_cred_mtx); } while (0)
+
+/* Copia coherente de las credenciales para quien las vaya a leer. */
+static void creds_copiar(char *ssid, size_t n_ssid, char *pass, size_t n_pass)
+{
+    CREDS_LOCK();
+    if (ssid && n_ssid) { strncpy(ssid, s_ssid, n_ssid - 1); ssid[n_ssid - 1] = '\0'; }
+    if (pass && n_pass) { strncpy(pass, s_pass, n_pass - 1); pass[n_pass - 1] = '\0'; }
+    CREDS_UNLOCK();
+}
+
+/* Y el unico sitio que las escribe (desde aqui, siempre bajo el cerrojo). */
+static void creds_guardar(const char *ssid, const char *pass)
+{
+    CREDS_LOCK();
+    strncpy(s_ssid, ssid, sizeof(s_ssid) - 1); s_ssid[sizeof(s_ssid) - 1] = '\0';
+    strncpy(s_pass, pass, sizeof(s_pass) - 1); s_pass[sizeof(s_pass) - 1] = '\0';
+    CREDS_UNLOCK();
+}
+
 static void load_or_init_credentials(void)
 {
     size_t ssid_len = sizeof(s_ssid);
@@ -210,12 +248,14 @@ static void log_redes_visibles(void)
     wifi_ap_record_t *aps = calloc(n, sizeof(*aps));
     if (!aps) return;
     if (esp_wifi_scan_get_ap_records(&n, aps) == ESP_OK) {
-        ESP_LOGW(TAG, "Escaneo: %u redes visibles (busco '%s')", n, s_ssid);
+        char ssid_ahora[sizeof(s_ssid)];
+        creds_copiar(ssid_ahora, sizeof(ssid_ahora), NULL, 0);
+        ESP_LOGW(TAG, "Escaneo: %u redes visibles (busco '%s')", n, ssid_ahora);
         for (uint16_t i = 0; i < n; i++) {
             ESP_LOGW(TAG, "  '%s'  canal=%d  rssi=%d  authmode=%d%s",
                      (const char *)aps[i].ssid, aps[i].primary, aps[i].rssi,
                      aps[i].authmode,
-                     strcmp((const char *)aps[i].ssid, s_ssid) == 0 ? "   <-- ES ESTA" : "");
+                     strcmp((const char *)aps[i].ssid, ssid_ahora) == 0 ? "   <-- ES ESTA" : "");
         }
     }
     free(aps);
@@ -223,6 +263,12 @@ static void log_redes_visibles(void)
 
 static esp_err_t wifi_configure_sta(void)
 {
+    /* COPIA LOCAL, no los globales (ver el cerrojo de arriba): asi lo que se
+     * empuja al driver es UNA configuracion coherente aunque la UI guarde otra
+     * cosa a la mitad. */
+    char ssid[sizeof(s_ssid)], pass[sizeof(s_pass)];
+    creds_copiar(ssid, sizeof(ssid), pass, sizeof(pass));
+
     wifi_config_t wc = {0};
     /* Copia a mano y con el cero GARANTIZADO (migracion a IDF 5.5.5,
      * 7-oct-2026). Aqui estaban dos strncpy, que dejan la cadena sin terminar si
@@ -230,14 +276,14 @@ static esp_err_t wifi_configure_sta(void)
      * el GCC 14 que trae el 5.5 lo detecta y corta el build. Con snprintf tampoco
      * vale: si puede truncar, avisa igual. Y el aviso era correcto -- sin el cero
      * el driver de Wi-Fi leia lo que hubiera detras del campo. */
-    memcpy(wc.sta.ssid, s_ssid, sizeof(wc.sta.ssid));
+    memcpy(wc.sta.ssid, ssid, sizeof(wc.sta.ssid));
     wc.sta.ssid[sizeof(wc.sta.ssid) - 1] = '\0';
-    memcpy(wc.sta.password, s_pass, sizeof(wc.sta.password));
+    memcpy(wc.sta.password, pass, sizeof(wc.sta.password));
     wc.sta.password[sizeof(wc.sta.password) - 1] = '\0';
     /* Si la red o la clave venian mas largas que el campo, se han recortado: que
      * quede en el log, porque el sintoma si no es un "NO_AP_FOUND" que despista. */
-    if (strlen(s_ssid) >= sizeof(wc.sta.ssid) ||
-        strlen(s_pass) >= sizeof(wc.sta.password)) {
+    if (strlen(ssid) >= sizeof(wc.sta.ssid) ||
+        strlen(pass) >= sizeof(wc.sta.password)) {
         ESP_LOGW(TAG, "SSID/clave mas largos que el campo del driver: recortados");
     }
     /* 'threshold' es el cifrado MINIMO que se acepta y va por el valor del enum,
@@ -268,20 +314,13 @@ static esp_err_t wifi_configure_sta(void)
     if (e != ESP_OK)
         ESP_LOGW(TAG, "esp_wifi_set_config no acepta el cambio ahora mismo: %s",
                  esp_err_to_name(e));
-    ESP_LOGI(TAG, "AP SSID='%s'", s_ssid);
+    ESP_LOGI(TAG, "AP SSID='%s'", ssid);
     return e;
 }
 
 void udp_rx_get_credentials(char *ssid_out, size_t ssid_len, char *pass_out, size_t pass_len)
 {
-    if (ssid_out && ssid_len > 0) {
-        strncpy(ssid_out, s_ssid, ssid_len - 1);
-        ssid_out[ssid_len - 1] = '\0';
-    }
-    if (pass_out && pass_len > 0) {
-        strncpy(pass_out, s_pass, pass_len - 1);
-        pass_out[pass_len - 1] = '\0';
-    }
+    creds_copiar(ssid_out, ssid_len, pass_out, pass_len);
 }
 
 /* ── Aplicar el cambio de red SIN bloquear a quien lo pide ─────────────────
@@ -336,7 +375,9 @@ static void wifi_aplicar_ahora(void)
         if (ec != ESP_OK)
             ESP_LOGW(TAG, "connect devolvio %s: lo reintenta el temporizador (la "
                           "configuracion nueva ya esta puesta)", esp_err_to_name(ec));
-        ESP_LOGI(TAG, "Credenciales aplicadas y reconectando a '%s'", s_ssid);
+        char ssid_ahora[sizeof(s_ssid)];
+        creds_copiar(ssid_ahora, sizeof(ssid_ahora), NULL, 0);
+        ESP_LOGI(TAG, "Credenciales aplicadas y reconectando a '%s'", ssid_ahora);
     } else {
         ESP_LOGE(TAG, "NO he podido aplicar las credenciales nuevas (%s): la pantalla "
                       "sigue con la red anterior", esp_err_to_name(e_cfg));
@@ -366,10 +407,10 @@ bool udp_rx_set_credentials(const char *ssid, const char *pass)
         ESP_LOGW(TAG, "SSID vacio: no lo guardo (no es una red)");
         return false;
     }
-    strncpy(s_ssid, ssid, sizeof(s_ssid) - 1);
-    s_ssid[sizeof(s_ssid) - 1] = '\0';
-    strncpy(s_pass, pass, sizeof(s_pass) - 1);
-    s_pass[sizeof(s_pass) - 1] = '\0';
+    /* Bajo el cerrojo (ver arriba) y guardando en NVS LO MISMO que se acaba de
+     * dejar en memoria: los argumentos de quien llama, no una relectura de los
+     * globales que otra tarea podria estar cambiando. */
+    creds_guardar(ssid, pass);
 
     esp_err_t err = save_wifi_config(s_ssid, s_pass);
     if (err != ESP_OK) {
@@ -516,7 +557,9 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
                 break;
             case WIFI_EVENT_STA_CONNECTED:
                 s_asociado = true;
-                ESP_LOGI(TAG, "Asociado a %s", s_ssid);
+                char ssid_ahora[sizeof(s_ssid)];
+                creds_copiar(ssid_ahora, sizeof(ssid_ahora), NULL, 0);
+                ESP_LOGI(TAG, "Asociado a %s", ssid_ahora);
                 /* La senal se mide AQUI, en la tarea de eventos del Wi-Fi, y se
                  * guarda: la pantalla solo lee el numero guardado. Antes se
                  * media en la tarea de recepcion (que necesita un paquete) y por
@@ -875,6 +918,10 @@ void udp_rx_start(void)
 
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    /* El cerrojo de las credenciales, ANTES de la primera lectura que puede
+     * coincidir con la tarea de la UI (ver creds_copiar). */
+    s_cred_mtx = xSemaphoreCreateMutex();
+    if (!s_cred_mtx) ESP_LOGE(TAG, "sin mutex de credenciales: se sigue sin el");
     wifi_configure_sta();
     ESP_ERROR_CHECK(esp_wifi_start());
 
