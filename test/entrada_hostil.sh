@@ -138,7 +138,11 @@ int main(int argc, char **argv)
     char ruta_in[512], ruta_body[512];
 
     /* (1) TEXTO LIBRE: el campo "nota" del apunte. */
-    static const struct { const char *que; const char *txt; } T[] = {
+    /* 'esp' es lo que DEBE salir cuando el texto tiene bytes que no son UTF-8
+     * validos: el escapador los sustituye por '?' (RFC 8259 exige UTF-8), asi
+     * que la vuelta no puede ser identica al original y hay que decirlo aqui.
+     * NULL = la vuelta tiene que ser identica. */
+    static const struct { const char *que; const char *txt; const char *esp; } T[] = {
         {"texto normal",            "Cambio de filtro"},
         {"comilla doble",           "Cambio \"filtro\" y aceite"},
         {"barra invertida",         "C:\\ruta\\filtro"},
@@ -154,9 +158,9 @@ int main(int argc, char **argv)
         {"emoji 4 bytes",           "ok \xF0\x9F\x98\x80"},
         {"bandera (8 bytes)",       "\xF0\x9F\x87\xAA\xF0\x9F\x87\xB8"},
         {"CJK (ancho)",             "\xE6\x97\xA5\xE6\x9C\xAC"},
-        {"UTF-8 truncado (0xC3)",   "abc\xC3"},
-        {"UTF-8 truncado (0xE6 0x97)", "abc\xE6\x97"},
-        {"byte invalido 0xFF",      "abc\xFF"},
+        {"UTF-8 truncado (0xC3)",   "abc\xC3",              "abc?"},
+        {"UTF-8 truncado (0xE6 0x97)", "abc\xE6\x97",      "abc?"},
+        {"byte invalido 0xFF",      "abc\xFF",              "abc?"},
         {"parece JSON",             "{\"a\":1}"},
         {"traversal /",             "../../etc/passwd"},
         {"traversal \\",            "..\\..\\windows"},
@@ -181,6 +185,10 @@ int main(int argc, char **argv)
         u = apunte_campo_num(b, sizeof(b), u, "n", 7);
         u = apunte_cerrar(b, sizeof(b), u, T[i].txt);
         escribe(ruta_in, T[i].txt, strlen(T[i].txt));
+        if (T[i].esp) {
+            snprintf(ruta_body, sizeof(ruta_body), "%s/c%02d.esp", dir, i);
+            escribe(ruta_body, T[i].esp, strlen(T[i].esp));
+        }
         if (u == 0) { escribe(ruta_body, "", 0); continue; }   /* no entro */
         escribe(ruta_body, b, u);
     }
@@ -307,7 +315,9 @@ def comprueba(nombres, prefijo, clave, campo):
             print(f"FALLO  {que}: falta la clave {e} en el cuerpo")
             fallos += 1
             continue
-        if vuelta != ent:
+        esp_f = casos / f"{prefijo}{idx}.esp"
+        esperado = esp_f.read_bytes() if esp_f.exists() else ent
+        if vuelta != esperado:
             print(f"FALLO  {que}: el texto NO vuelve igual ({len(ent)} B -> {len(vuelta)} B)")
             print(f"        metido: {ent[:80]!r}")
             print(f"        vuelto: {vuelta[:80]!r}")
