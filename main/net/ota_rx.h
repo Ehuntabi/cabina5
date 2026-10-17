@@ -113,6 +113,12 @@ bool ota_rx_version_aceptable(const char *anunciada, const char *actual,
  * mayusculas o minusculas). Un solo digito distinto -> false. */
 bool ota_rx_sha_coincide(const uint8_t calculado[32], const char *hex64);
 
+/* true si el .bin es de ESTA pantalla: el nombre de proyecto que lleva dentro
+ * (esp_app_desc_t.project_name) es el modelo con el que se compilo. Es lo unico
+ * que lo dice cuando las dos cabinas llevan la misma version; sin esto, un
+ * fichero cruzado en la P4 dejaria la pantalla con el firmware de la otra. */
+bool ota_rx_modelo_coincide(const char *embebido, const char *modelo);
+
 #ifdef __cplusplus
 }
 #endif

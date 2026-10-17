@@ -60,6 +60,16 @@ static void caso_aceptable(const char *anunciada, const char *actual,
     if (got == esperado) ok(que); else mal(que);
 }
 
+static void caso_modelo(const char *embebido, const char *modelo, bool esperado)
+{
+    bool got = ota_rx_modelo_coincide(embebido, modelo);
+    char que[128];
+    snprintf(que, sizeof que, "modelo? fichero=%s pantalla=%s -> %s (esperado %s)",
+             embebido ? embebido : "(null)", modelo ? modelo : "(null)",
+             got ? "si" : "no", esperado ? "si" : "no");
+    if (got == esperado) ok(que); else mal(que);
+}
+
 static void caso_sha(const uint8_t calculado[32], const char *hex, bool esperado,
                      const char *que)
 {
@@ -114,7 +124,17 @@ int main(void)
     caso_aceptable("v1.31", "v1.30", "", false);
     caso_aceptable("v1.31", "v?", "v1.31", false);     /* actual desconocida */
 
-    /* ── 3. El sha256: un solo byte distinto NO vale ─────────────────────── */
+    /* ── 3. El .bin tiene que ser de ESTA pantalla ─────────────────────────
+     * Las dos cabinas pueden llevar la MISMA version (p.ej. las dos en v1.31):
+     * el numero no distingue un fichero cruzado, el nombre de proyecto si. */
+    caso_modelo("cabina5", "cabina5", true);
+    caso_modelo("35cabina", "35cabina", true);
+    caso_modelo("35cabina", "cabina5", false);
+    caso_modelo("cabina5", "35cabina", false);
+    caso_modelo("", "cabina5", false);
+    caso_modelo(NULL, "cabina5", false);
+
+    /* ── 4. El sha256: un solo byte distinto NO vale ─────────────────────── */
     caso_sha(SHA_VACIO, SHA_VACIO_HEX, true, "el anunciado");
     caso_sha(SHA_VACIO, SHA_VACIO_MAYUS, true, "el anunciado en mayusculas");
     caso_sha(SHA_VACIO,

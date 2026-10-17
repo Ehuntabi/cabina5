@@ -218,6 +218,18 @@ static bool sha_hex_a_bytes(const char *hex, uint8_t out[32])
     return true;
 }
 
+bool ota_rx_modelo_coincide(const char *embebido, const char *modelo)
+{
+    /* El nombre del proyecto va DENTRO de la cabecera de la app
+     * (esp_app_desc_t.project_name) y es lo unico que dice de que pantalla es el
+     * fichero cuando las dos llevan la MISMA version. Sin esta comprobacion, un
+     * .bin cruzado en la P4 (el de la 3,5" publicado como cabina5, con el mismo
+     * numero de version) se instalaria y la 5" se quedaria con un firmware de
+     * otra pantalla: otra UI y otro driver de panel. */
+    if (!embebido || !modelo) return false;
+    return strcmp(embebido, modelo) == 0;
+}
+
 bool ota_rx_sha_coincide(const uint8_t calculado[32], const char *hex64)
 {
     uint8_t esperado[32];
@@ -771,6 +783,15 @@ static void tarea_actualizar(void *arg)
         snprintf(motivo, sizeof motivo, "No puedo leer la version del fichero");
         goto salir;
     }
+    /* Primero, que el fichero sea de ESTA pantalla. Va antes que la version
+     * porque es el error mas gordo: un firmware de la otra cabina no arranca
+     * aqui (otro panel, otra UI) y dejaria la pantalla muerta. */
+    if (!ota_rx_modelo_coincide(embebida.project_name, OTA_MODELO)) {
+        snprintf(motivo, sizeof motivo, "El fichero es de otra pantalla (%s)",
+                 embebida.project_name);
+        goto salir;
+    }
+
     const esp_app_desc_t *app = esp_app_get_description();
     const char *actual = (app && app->version[0]) ? app->version : "v?";
     if (!ota_rx_version_aceptable(ver, actual, embebida.version)) {
