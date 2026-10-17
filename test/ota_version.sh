@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Las decisiones de la actualizacion OTA, sin placa (17-oct-2026)
 #
-# La pantalla ya se actualiza sola desde Ajustes (main/net/ota_rx.c). Antes de
-# marcar la version nueva para arrancar, ota_rx.c decide tres cosas, y las tres
-# se pueden equivocar en silencio:
+# La pantalla ya se actualiza sola desde Ajustes (main/net/ota_rx.c) y, desde el
+# 17-oct-2026, tambien sola cada 60 s si la P4 anuncia una version nueva. Antes
+# de marcar la version nueva para arrancar, ota_rx.c decide cuatro cosas, y las
+# cuatro se pueden equivocar en silencio:
 #
 #   1. si la version anunciada es MAS NUEVA que la que corre -- comparando
 #      NUMEROS, no texto: "v1.9" es mas vieja que "v1.10", al reves que como
@@ -11,7 +12,10 @@
 #   2. si la version EMBEBIDA en el .bin es la anunciada (si la P4 sirve otro
 #      fichero, se instala el que no es);
 #   3. si el sha256 calculado al vuelo coincide con el anunciado (un byte
-#      cambiado por el camino = un firmware que no arranca).
+#      cambiado por el camino = un firmware que no arranca);
+#   4. si el automatico puede preguntar ahora y si, con la version nueva ya en
+#      la mano, puede instalar (sin red, con viaje abierto, con una descarga en
+#      marcha o con el usuario escribiendo, NO).
 #
 # Esto saca el bloque "INICIO/FIN BLOQUE PRUEBA" del ota_rx.c REAL y lo compila
 # en el PC, con el mismo metodo que los tests del viaje. Un error aqui no se ve

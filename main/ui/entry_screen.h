@@ -54,6 +54,11 @@ void entry_screen_open_siguiente(lv_obj_t *target, const char *label, bool numer
  * debe quedarse abierto por detras. No hace nada si no estaba abierto. */
 void entry_screen_close(void);
 
+/* true si el editor esta abierto ahora mismo. La usa la actualizacion
+ * automatica de net/ota_rx.c, a traves del temporizador de Ajustes (tarea de
+ * LVGL): no se puede reiniciar la pantalla mientras el usuario escribe. */
+bool entry_screen_is_open(void);
+
 /* ── SILENCIO MIENTRAS SE ESCRIBE POR CODIGO ────────────────────────────────
  *
  * lv_textarea_set_text() dispara VALUE_CHANGED (una vez por caracter y otra al

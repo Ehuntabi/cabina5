@@ -43,6 +43,25 @@
  * LO QUE NO HACE: actualizar con un viaje abierto. El reinicio cae en mitad de
  * una jornada y el apunte que se esta escribiendo se queda a medias, asi que se
  * devuelve OTA_RX_INICIO_VIAJE y la UI dice "Termina el viaje antes".
+ *
+ * AUTOMATICO (17-oct-2026). El dueño sube el .bin desde el movil al portal de la
+ * P4 y quiere que la pantalla se entere SOLA, sin ir a tocarla (es lo que ya
+ * hace la P4). Un temporizador de 60 s, en la tarea de esp_timer y NO en la de
+ * LVGL, pregunta la version solo si se cumplen TODAS estas condiciones:
+ *
+ *   - hay enlace con la P4 (asociada + IP; lo mismo que valida el arranque),
+ *   - no hay viaje ni apunte abierto,
+ *   - no hay una comprobacion o descarga en marcha,
+ *   - no hay editor a pantalla completa ni dialogo abierto (lo avisa la UI).
+ *
+ * Si hay version nueva la instala SIN preguntar. Antes de arrancar la descarga
+ * se vuelven a mirar viaje/editor/dialogo: entre la respuesta de la P4 y la
+ * tarea de descarga pasa una ventana en la que el usuario puede haber empezado
+ * a escribir. Un fallo NO se reintenta en bucle: se deja para la comprobacion
+ * del minuto siguiente (el boton manual sigue igual, para forzar).
+ *
+ * EL INTERRUPTOR: NVS, namespace "ota", clave "ota_auto" (1 = si, por defecto).
+ * Se lee UNA vez en ota_rx_arranque(); con 0 no se crea ni el temporizador.
  */
 #include "ota_rx.h"
 
@@ -64,8 +83,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "mbedtls/sha256.h"  /* sha256 AL VUELO, sin guardar 2 MB en ningun sitio */
+#include "nvs.h"             /* el interruptor ota_auto */
 
 #include <inttypes.h>
+#include <stdatomic.h>       /* el aviso de la UI cruza tareas */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -111,6 +132,18 @@ static const char *TAG = "ota_rx";
  * "Listo, reiniciando" y el usuario lo lea. */
 #define OTA_REINICIO_MS       3000
 
+/* Cada cuanto mira sola si la P4 tiene una version nueva. 60 s es lo que pidio
+ * el dueño: subir el .bin desde el movil y que la pantalla se entere sin ir a
+ * tocarla. Ni mas seguido (la P4 tambien atiende los viajes) ni menos (se
+ * haria esperar a quien acaba de subir el fichero). */
+#define OTA_AUTO_PERIODO_MS   60000
+
+/* El interruptor de la red de seguridad. Va en NVS y NO en una pantalla nueva:
+ * el dueño lo pidio como "por si no quiero reinicios sin avisar". Se lee una
+ * vez al arrancar; con 0 desaparece el temporizador y queda solo el boton. */
+#define OTA_AUTO_NS           "ota"
+#define OTA_AUTO_CLAVE        "ota_auto"
+
 /* ── Estado compartido con la UI ───────────────────────────────────────────
  *
  * Un cerrojo de interrupciones (portMUX) y no un mutex: las copias son de 100
@@ -123,15 +156,36 @@ static bool               s_trabajando;  /* hay una tarea de red viva */
 
 /* Lo que anuncio la P4 y hay que instalar. Lo escribe tarea_comprobar y lo lee
  * tarea_actualizar; no hace falta cerrojo entre las dos porque SOLO hay una
- * tarea de red a la vez (s_trabajando) y la segunda se lanza despues de que la
- * primera haya publicado HAY_NUEVA. Se guarda aparte de s_vista porque la UI no
- * tiene por que ver el sha. */
+ * tarea de red a la vez (s_trabajando). En manual, la segunda se lanza cuando la
+ * UI confirma HAY_NUEVA; en automatico, tarea_comprobar deja DESCARGANDO y
+ * arranca ella misma la descarga sin soltar el turno. Se guarda aparte de
+ * s_vista porque la UI no tiene por que ver el sha. */
 typedef struct {
     uint32_t bytes;
     char     ver[16];
     char     sha[65];
 } oferta_t;
 static oferta_t s_oferta;
+
+/* Lo avisa la tarea de LVGL (editor/dialogo abierto). Es un atomico porque lo
+ * leen el temporizador automatico y las tareas de red, que NO son la de LVGL:
+ * nunca se tocan objetos de LVGL desde aqui. */
+static _Atomic bool s_ui_ocupada;
+
+/* Interruptor leido de NVS en ota_rx_arranque(). Se crea el temporizador
+ * DESPUES de fijarlo, asi que la tarea de esp_timer ya lo ve definitivo. */
+static bool s_auto_activo = true;
+
+/* Ultimo aviso del automatico. En modo manual no se usa. Sirve para no repetir
+ * el mismo WARN cada 60 s (una P4 sin fichero para esta pantalla, por ejemplo);
+ * la primera vez se cuenta y las siguientes quedan en DEBUG. */
+static char s_auto_ultimo_aviso[96];
+
+/* El temporizador automatico se crea al final del arranque; la definicion esta
+ * en la seccion "AUTOMATICO", al final del fichero. */
+static void auto_arrancar(void);
+/* tarea_comprobar arranca la descarga directamente en modo automatico. */
+static void tarea_actualizar(void *arg);
 
 /* ── Las decisiones, probadas sin placa (ver test/ota_version.sh) ───────────
  *
@@ -241,6 +295,47 @@ bool ota_rx_sha_coincide(const uint8_t calculado[32], const char *hex64)
     uint8_t dif = 0;
     for (int i = 0; i < 32; i++) dif |= (uint8_t)(calculado[i] ^ esperado[i]);
     return dif == 0;
+}
+
+/* Las condiciones del automatico, ya masticadas: la red, el viaje y la UI se
+ * consultan fuera (ESP-IDF/LVGL no se pueden meter en un test de host) y aqui
+ * solo queda la DECISION. Es justo la parte que se puede equivocar en silencio:
+ * reiniciar la pantalla en mitad de un viaje o de una edicion, o preguntar a la
+ * P4 cada minuto sin red. */
+typedef struct {
+    bool auto_activo;  /* NVS ota/ota_auto */
+    bool red;          /* asociada a la P4 Y con IP */
+    bool viaje;        /* viaje o apunte abierto */
+    bool trabajando;   /* comprobacion o descarga en marcha */
+    bool ui_ocupada;   /* editor a pantalla completa o dialogo abierto */
+} ota_rx_condiciones_t;
+
+/* ¿Toca preguntar a la P4 ahora? TODAS las condiciones, y en este orden: sin
+ * red o con viaje no se insiste (se mira al minuto siguiente, sin llenar el
+ * log), y con algo en marcha o el usuario escribiendo no se interrumpe. */
+static bool ota_rx_auto_toca_comprobar(const ota_rx_condiciones_t *c)
+{
+    if (!c) return false;
+    if (!c->auto_activo) return false;
+    if (!c->red) return false;
+    if (c->viaje) return false;
+    if (c->trabajando) return false;
+    if (c->ui_ocupada) return false;
+    return true;
+}
+
+/* Justo antes de descargar hay que volver a mirar: la respuesta de la P4 tarda
+ * hasta 8 s y en ese rato puede haber empezado un viaje, o el usuario puede
+ * haber abierto el editor o un dialogo. La red y "trabajando" NO se miran aqui
+ * a proposito: esta funcion corre DENTRO de la comprobacion (trabajando es
+ * true por definicion) y la respuesta de la P4 acaba de demostrar la red. */
+static bool ota_rx_auto_puede_instalar(const ota_rx_condiciones_t *c)
+{
+    if (!c) return false;
+    if (!c->auto_activo) return false;
+    if (c->viaje) return false;
+    if (c->ui_ocupada) return false;
+    return true;
 }
 
 /* FIN BLOQUE PRUEBA */
@@ -396,6 +491,47 @@ void ota_rx_estado(ota_rx_vista_t *out)
     taskEXIT_CRITICAL(&s_mtx);
 }
 
+/* Ver ota_rx.h: lo llama la tarea de LVGL cada 500 ms. */
+void ota_rx_ui_ocupada(bool ocupada)
+{
+    atomic_store(&s_ui_ocupada, ocupada);
+}
+
+static bool ui_ocupada_ahora(void)
+{
+    return atomic_load(&s_ui_ocupada);
+}
+
+static bool trabajando_ahora(void)
+{
+    bool t;
+    taskENTER_CRITICAL(&s_mtx);
+    t = s_trabajando;
+    taskEXIT_CRITICAL(&s_mtx);
+    return t;
+}
+
+/* Un aviso del automatico: WARN la primera vez y DEBUG si se repite igual.
+ * Sin esto, una P4 sin fichero para esta pantalla llenaria el log cada minuto,
+ * que es justo lo que el dueño pidio evitar ("que no sature"). La UI sigue
+ * viendo el ERROR; esto solo calla el log. */
+static void auto_aviso(const char *texto)
+{
+    if (!texto) texto = "";
+    if (strcmp(s_auto_ultimo_aviso, texto) == 0) {
+        ESP_LOGD(TAG, "auto: sigue igual: %s", texto);
+        return;
+    }
+    snprintf(s_auto_ultimo_aviso, sizeof s_auto_ultimo_aviso, "%s", texto);
+    ESP_LOGW(TAG, "auto: %s", texto);
+}
+
+/* La comprobacion salio bien (o instalo): el proximo fallo vuelve a contarse. */
+static void auto_aviso_limpiar(void)
+{
+    s_auto_ultimo_aviso[0] = '\0';
+}
+
 /* Un viaje abierto, o un apunte sin cerrar. Se miran las dos cosas: un apunte
  * abierto es alguien escribiendo en el cuaderno justo ahora, y reiniciar la
  * pantalla en ese momento es perder lo que estaba haciendo. */
@@ -529,7 +665,10 @@ static bool pedir_info(char *ver, size_t nver, uint32_t *bytes, char *sha, size_
 
 static void tarea_comprobar(void *arg)
 {
-    (void)arg;
+    /* El argumento dice quien la lanzo: NULL = el boton de Ajustes (pregunta y
+     * deja HAY_NUEVA), no NULL = el temporizador automatico (si hay nueva, la
+     * instala sin preguntar). */
+    bool automatica = (arg != NULL);
     char motivo[96] = "";
     char ver[16] = "";
     char sha[65] = "";
@@ -541,17 +680,25 @@ static void tarea_comprobar(void *arg)
 
     if (!pedir_info(ver, sizeof ver, &bytes, sha, sizeof sha,
                     motivo, sizeof motivo)) {
-        ESP_LOGE(TAG, "no puedo comprobar la version: %s", motivo);
+        if (automatica) auto_aviso(motivo);
+        else            ESP_LOGE(TAG, "no puedo comprobar la version: %s", motivo);
         fijar_estado(OTA_RX_ERROR, 0, motivo);
         terminar_trabajo();
         vTaskDelete(NULL);
         return;
     }
-    ESP_LOGI(TAG, "la P4 ofrece %s (%" PRIu32 " bytes) y corre %s", ver, bytes, actual);
+    if (automatica) {
+        ESP_LOGD(TAG, "auto: la P4 ofrece %s (%" PRIu32 " bytes) y corre %s",
+                 ver, bytes, actual);
+    } else {
+        ESP_LOGI(TAG, "la P4 ofrece %s (%" PRIu32 " bytes) y corre %s",
+                 ver, bytes, actual);
+    }
 
     /* Si la version instalada no se puede comparar (build sin tags: "v?"), no se
      * actualiza: no hay forma de saber si la de la P4 es mas nueva. */
     if (!version_partir(actual, &a, &b, &c)) {
+        if (automatica) auto_aviso("Version instalada rara (build sin tag)");
         fijar_estado(OTA_RX_ERROR, 0, "Version instalada rara (build sin tag)");
         terminar_trabajo();
         vTaskDelete(NULL);
@@ -559,26 +706,74 @@ static void tarea_comprobar(void *arg)
     }
 
     if (!ota_rx_version_es_mas_nueva(ver, actual)) {
-        ESP_LOGI(TAG, "estas al dia: la P4 tiene %s y corre %s", ver, actual);
+        auto_aviso_limpiar();
+        if (automatica)
+            ESP_LOGD(TAG, "auto: estas al dia (%s)", actual);
+        else
+            ESP_LOGI(TAG, "estas al dia: la P4 tiene %s y corre %s", ver, actual);
         fijar_estado(OTA_RX_AL_DIA, 0, "");
         terminar_trabajo();
         vTaskDelete(NULL);
         return;
     }
 
-    /* Se publica HAY_NUEVA y, en el MISMO cerrojo, los datos de la oferta. Asi,
-     * cuando la UI vea HAY_NUEVA, s_oferta ya esta completa. Fuera del cerrojo
-     * se monta todo (snprintf); dentro solo se asigna. */
+    /* Hay version nueva. Primero se monta todo fuera del cerrojo. */
     oferta_t of;
     of.bytes = bytes;
     snprintf(of.ver, sizeof of.ver, "%s", ver);
     snprintf(of.sha, sizeof of.sha, "%s", sha);
 
     ota_rx_vista_t v = { 0 };
-    v.estado = OTA_RX_HAY_NUEVA;
     v.pct = 0;
     snprintf(v.ofrecida, sizeof v.ofrecida, "%s", ver);
+    v.automatica = automatica;
 
+    if (automatica) {
+        /* LA VENTANA: entre la respuesta de la P4 y la descarga pueden pasar
+         * segundos. Se vuelve a mirar viaje/editor/dialogo, y si algo se ha
+         * abierto NO se instala: se deja QUIETO y se vuelve a mirar al minuto
+         * siguiente. No se le pregunta nada al usuario (no hay dialogo). */
+        ota_rx_condiciones_t cond = {
+            .auto_activo = s_auto_activo,
+            .red         = true,          /* la P4 acaba de responder */
+            .viaje       = hay_viaje_abierto(),
+            .trabajando  = true,          /* esta tarea */
+            .ui_ocupada  = ui_ocupada_ahora(),
+        };
+        if (!ota_rx_auto_puede_instalar(&cond)) {
+            ESP_LOGW(TAG, "auto: hay %s; dejo %s para la proxima comprobacion",
+                     cond.viaje ? "un viaje abierto" : "un editor o dialogo abierto",
+                     ver);
+            fijar_estado(OTA_RX_QUIETO, 0, "");
+            terminar_trabajo();
+            vTaskDelete(NULL);
+            return;
+        }
+
+        /* Se pasa a DESCARGANDO en el MISMO cerrojo y s_trabajando se queda a
+         * true: la tarea de descarga hereda el turno. Asi el boton manual no
+         * puede colarse en el hueco y arrancar una segunda descarga. */
+        v.estado = OTA_RX_DESCARGANDO;
+        taskENTER_CRITICAL(&s_mtx);
+        s_oferta = of;
+        s_vista = v;
+        taskEXIT_CRITICAL(&s_mtx);
+
+        auto_aviso_limpiar();
+        if (xTaskCreate(tarea_actualizar, "ota_upd", 8192, NULL, 3, NULL) != pdPASS) {
+            terminar_trabajo();
+            fijar_estado(OTA_RX_ERROR, 0, "Sin memoria para actualizar");
+        } else {
+            ESP_LOGI(TAG, "version nueva %s (instalada %s): la instalo sola, sin preguntar",
+                     ver, actual);
+        }
+        vTaskDelete(NULL);
+        return;
+    }
+
+    /* Manual: se publica HAY_NUEVA y, en el MISMO cerrojo, los datos de la
+     * oferta. Asi, cuando la UI vea HAY_NUEVA, s_oferta ya esta completa. */
+    v.estado = OTA_RX_HAY_NUEVA;
     taskENTER_CRITICAL(&s_mtx);
     s_oferta = of;
     s_vista = v;
@@ -617,16 +812,19 @@ static void tarea_actualizar(void *arg)
     bool sha_iniciado = false;
     bool ota_abierta = false;
     bool cli_abierto = false;
+    bool diferido = false;
     uint32_t escrito = 0;
 
     /* Copia local de lo anunciado (ver el comentario de s_oferta). */
     uint32_t esperado;
     char ver[16];
     char sha_hex[65];
+    bool automatica;
     taskENTER_CRITICAL(&s_mtx);
     esperado = s_oferta.bytes;
     memcpy(ver, s_oferta.ver, sizeof ver);
     memcpy(sha_hex, s_oferta.sha, sizeof sha_hex);
+    automatica = s_vista.automatica;
     taskEXIT_CRITICAL(&s_mtx);
 
     /* Ultima comprobacion ANTES de tocar la flash: la UI ya pregunto, pero entre
@@ -635,6 +833,15 @@ static void tarea_actualizar(void *arg)
      * el que manda: es el que corre en la tarea. */
     if (hay_viaje_abierto()) {
         snprintf(motivo, sizeof motivo, "Termina el viaje antes");
+        diferido = automatica;   /* en automatico no es un fallo: se deja pasar */
+        goto salir;
+    }
+    /* Y la ventana del automatico: entre la comprobacion y esta tarea el usuario
+     * puede haber abierto el editor o un dialogo. Se mira otra vez aqui, que es
+     * el ultimo momento antes de tocar la flash. */
+    if (automatica && ui_ocupada_ahora()) {
+        snprintf(motivo, sizeof motivo, "Hay un editor o un dialogo abierto");
+        diferido = true;
         goto salir;
     }
 
@@ -836,8 +1043,21 @@ salir:
     }
     free(buf);
     if (motivo[0]) {
-        ESP_LOGE(TAG, "no se actualizo: %s", motivo);
-        fijar_estado(OTA_RX_ERROR, 0, motivo);
+        if (diferido) {
+            /* No es un fallo de la descarga: es que ya no es buen momento. La
+             * pantalla no se toca y se vuelve a mirar al minuto siguiente. */
+            ESP_LOGW(TAG, "auto: %s; lo dejo para la proxima comprobacion", motivo);
+            fijar_estado(OTA_RX_QUIETO, 0, "");
+        } else if (automatica) {
+            /* Un fallo NO se reintenta en bucle: la tarea muere y el
+             * temporizador volvera a preguntar dentro de 60 s. El aviso se
+             * repite solo si cambia (ver auto_aviso). */
+            auto_aviso(motivo);
+            fijar_estado(OTA_RX_ERROR, 0, motivo);
+        } else {
+            ESP_LOGE(TAG, "no se actualizo: %s", motivo);
+            fijar_estado(OTA_RX_ERROR, 0, motivo);
+        }
     }
     terminar_trabajo();
     vTaskDelete(NULL);
@@ -970,15 +1190,28 @@ void ota_rx_arranque(void)
      * devuelve PENDING_VERIFY nunca y aqui arriba no se hace nada. El
      * anti-ladrillo de verdad empieza a contar con el primer grabado POR CABLE;
      * esto se dice en el log para que nadie se crea protegido sin estarlo. */
+
+    /* Y el temporizador que mira sola la version cada 60 s (ver la cabecera).
+     * Va al final del arranque porque necesita el enlace (udp_rx_start) y la
+     * NVS ya inicializada; la primera consulta no sale hasta dentro de un
+     * minuto, que es de sobra para que la UI exista y pueda avisar de un
+     * editor abierto. */
+    auto_arrancar();
 }
 
 /* ── Lo que llama la UI ──────────────────────────────────────────────────── */
 
-ota_rx_inicio_t ota_rx_comprobar(void)
+/* Comun al boton y al temporizador. 'automatica' se le pasa a la tarea como
+ * argumento (NULL = manual): es lo unico que cambia entre los dos caminos. */
+static ota_rx_inicio_t comprobar_lanzar(bool automatica)
 {
     /* Con un viaje abierto no se actualiza (ver la cabecera). Se comprueba ANTES
      * de lanzar la tarea: la UI recibe el codigo al instante y lo puede decir. */
     if (hay_viaje_abierto()) return OTA_RX_INICIO_VIAJE;
+
+    /* En automatico tambien se respeta al usuario que esta escribiendo: si el
+     * editor o un dialogo estan abiertos, no se lanza ni la consulta. */
+    if (automatica && ui_ocupada_ahora()) return OTA_RX_INICIO_OCUPADO;
 
     taskENTER_CRITICAL(&s_mtx);
     if (s_trabajando) {
@@ -990,12 +1223,18 @@ ota_rx_inicio_t ota_rx_comprobar(void)
 
     fijar_estado(OTA_RX_COMPROBANDO, 0, "");
 
-    if (xTaskCreate(tarea_comprobar, "ota_comp", 6144, NULL, 3, NULL) != pdPASS) {
+    if (xTaskCreate(tarea_comprobar, "ota_comp", 6144,
+                    (void *)(uintptr_t)automatica, 3, NULL) != pdPASS) {
         terminar_trabajo();
         fijar_estado(OTA_RX_ERROR, 0, "Sin memoria para comprobar");
         return OTA_RX_INICIO_SIN_MEM;
     }
     return OTA_RX_INICIO_OK;
+}
+
+ota_rx_inicio_t ota_rx_comprobar(void)
+{
+    return comprobar_lanzar(false);
 }
 
 ota_rx_inicio_t ota_rx_actualizar(void)
@@ -1010,6 +1249,7 @@ ota_rx_inicio_t ota_rx_actualizar(void)
         s_trabajando = true;
         s_vista.estado = OTA_RX_DESCARGANDO;
         s_vista.pct = 0;
+        s_vista.automatica = false;   /* la pidio el usuario, no el temporizador */
         s_vista.motivo[0] = '\0';
     }
     taskEXIT_CRITICAL(&s_mtx);
@@ -1037,8 +1277,134 @@ void ota_rx_olvidar(void)
         s_vista.estado == OTA_RX_ERROR) {
         s_vista.estado = OTA_RX_QUIETO;
         s_vista.pct = 0;
+        s_vista.automatica = false;
         s_vista.motivo[0] = '\0';
         s_vista.ofrecida[0] = '\0';
     }
     taskEXIT_CRITICAL(&s_mtx);
+}
+
+/* ── AUTOMATICO: preguntar sola cada 60 s e instalar sin preguntar ──────────
+ *
+ * Lo pidio el dueño: sube el .bin desde el navegador del movil al portal de la
+ * P4 y la pantalla se actualiza sola, como ya hace la P4. El temporizador es de
+ * esp_timer (NO de LVGL) porque la consulta es red y puede tardar hasta 8 s:
+ * hacerla en la tarea de dibujo congelaria la pantalla y el watchdog de tareas
+ * reiniciaria la placa a mitad. La decision pura esta en el bloque de pruebas
+ * de arriba (ota_rx_auto_toca_comprobar / ota_rx_auto_puede_instalar).
+ *
+ * ORDEN DE LAS COSAS, a proposito:
+ *   1. el temporizador mira red/viaje/trabajo/UI sin lanzar nada;
+ *   2. tarea_comprobar pregunta la version;
+ *   3. si hay nueva, tarea_comprobar vuelve a mirar viaje/UI y, si esta bien,
+ *      deja DESCARGANDO y arranca tarea_actualizar SIN soltar s_trabajando
+ *      (el boton manual no puede colarse);
+ *   4. tarea_actualizar mira una ultima vez viaje/UI antes de tocar la flash.
+ * Un fallo deja el estado en ERROR y la tarea muere: no hay bucle, el
+ * temporizador volvera a preguntar dentro de 60 s. Si el fallo es "ya no es
+ * buen momento" (viaje/editor), se deja QUIETO y se dice en el log.
+ */
+static ota_rx_inicio_t ota_rx_comprobar_auto(void)
+{
+    return comprobar_lanzar(true);
+}
+
+/* El temporizador. Corre en la tarea de esp_timer: aqui SOLO se miran cosas
+ * baratas y se lanza la comprobacion, que hace el trabajo en su propia tarea. */
+static void auto_timer_cb(void *arg)
+{
+    (void)arg;
+    ota_rx_condiciones_t c = {
+        .auto_activo = s_auto_activo,
+        .red         = enlace_listo(NULL, 0),
+        .viaje       = hay_viaje_abierto(),
+        .trabajando  = trabajando_ahora(),
+        .ui_ocupada  = ui_ocupada_ahora(),
+    };
+
+    if (!ota_rx_auto_toca_comprobar(&c)) {
+        /* Sin red o con viaje no se insiste: el siguiente minuto lo vuelve a
+         * mirar. Solo DEBUG, para no llenar el log de "no puedo" cada 60 s. */
+        if (!c.red)            ESP_LOGD(TAG, "auto: sin enlace con la P4; lo miro al minuto");
+        else if (c.viaje)      ESP_LOGD(TAG, "auto: viaje abierto; lo miro al minuto");
+        else if (c.trabajando) ESP_LOGD(TAG, "auto: ya hay una comprobacion o descarga en marcha");
+        else if (c.ui_ocupada) ESP_LOGD(TAG, "auto: editor o dialogo abierto; lo miro al minuto");
+        return;
+    }
+
+    ESP_LOGD(TAG, "auto: preguntando la version a la P4");
+    ota_rx_inicio_t r = ota_rx_comprobar_auto();
+    if (r != OTA_RX_INICIO_OK) {
+        ESP_LOGD(TAG, "auto: no he lanzado la comprobacion (%d)", (int)r);
+    }
+}
+
+/* Lee el interruptor de NVS. Por defecto ENCENDIDO: es lo que pidio el dueño y
+ * la red de seguridad solo tiene que servir para apagarlo. */
+static void auto_leer_interruptor(void)
+{
+    nvs_handle_t h;
+    uint8_t v = 1;
+    esp_err_t err = nvs_open(OTA_AUTO_NS, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        esp_err_t r = nvs_get_u8(h, OTA_AUTO_CLAVE, &v);
+        nvs_close(h);
+        if (r == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGI(TAG, "sin ajuste %s/%s: actualizacion automatica ENCENDIDA "
+                          "por defecto", OTA_AUTO_NS, OTA_AUTO_CLAVE);
+        } else if (r != ESP_OK) {
+            ESP_LOGW(TAG, "no pude leer %s/%s (%s): automatica ENCENDIDA por defecto",
+                     OTA_AUTO_NS, OTA_AUTO_CLAVE, esp_err_to_name(r));
+        }
+    } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+        /* NVS vacia (namespace nuevo): se usa el valor de fabrica. */
+        ESP_LOGI(TAG, "sin NVS %s/%s: automatica ENCENDIDA por defecto",
+                 OTA_AUTO_NS, OTA_AUTO_CLAVE);
+    } else {
+        ESP_LOGW(TAG, "no pude abrir la NVS %s (%s): automatica ENCENDIDA por defecto",
+                 OTA_AUTO_NS, esp_err_to_name(err));
+    }
+    s_auto_activo = (v != 0);
+}
+
+/* PARA APAGARLA (red de seguridad; no hay boton ni pantalla nueva): escribir 0
+ * en NVS, namespace "ota", clave "ota_auto", y reiniciar. Desde el propio
+ * firmware, una vez:
+ *
+ *   nvs_handle_t h;
+ *   if (nvs_open("ota", NVS_READWRITE, &h) == ESP_OK) {
+ *       nvs_set_u8(h, "ota_auto", 0);
+ *       nvs_commit(h);
+ *       nvs_close(h);
+ *   }
+ *
+ * o con una imagen NVS generada por nvs_partition_gen. Con 0 no se crea ni el
+ * temporizador: queda solo el boton "Actualizar pantalla" de Ajustes. */
+static void auto_arrancar(void)
+{
+    auto_leer_interruptor();
+    if (!s_auto_activo) {
+        ESP_LOGW(TAG, "actualizacion automatica APAGADA (NVS %s/%s=0): solo el "
+                      "boton de Ajustes", OTA_AUTO_NS, OTA_AUTO_CLAVE);
+        return;
+    }
+
+    esp_timer_create_args_t cfg = {
+        .callback = auto_timer_cb,
+        .name     = "ota_auto",
+    };
+    esp_timer_handle_t t = NULL;
+    esp_err_t err = esp_timer_create(&cfg, &t);
+    if (err == ESP_OK) {
+        err = esp_timer_start_periodic(t, (uint64_t)OTA_AUTO_PERIODO_MS * 1000u);
+    }
+    if (err != ESP_OK) {
+        if (t) esp_timer_delete(t);
+        ESP_LOGE(TAG, "sin temporizador automatico (%s): queda el boton de Ajustes",
+                 esp_err_to_name(err));
+        return;
+    }
+    ESP_LOGI(TAG, "actualizacion automatica ENCENDIDA: cada %d s pregunta sola y, "
+                  "si hay version nueva, la instala sin preguntar",
+             OTA_AUTO_PERIODO_MS / 1000);
 }

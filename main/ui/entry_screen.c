@@ -64,6 +64,13 @@ void entry_screen_close(void)
     if (s_root) close_overlay();
 }
 
+/* Se consulta desde la tarea de LVGL (temporizador de Ajustes): este fichero y
+ * sus objetos solo se tocan ahi, asi que no hace falta cerrojo. */
+bool entry_screen_is_open(void)
+{
+    return s_root && !lv_obj_has_flag(s_root, LV_OBJ_FLAG_HIDDEN);
+}
+
 /* Aceptar: vuelca el texto al campo original y avisa UNA VEZ a quien escuche
  * VALUE_CHANGED (el precio/litro del repostaje cuelga de ahi, y el flujo del
  * viaje encadena el paso siguiente).

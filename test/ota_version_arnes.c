@@ -14,6 +14,11 @@
  *     arregla nada; una mas vieja quita lo que ya funcionaba).
  *   - un sha256 que no cuadra no se instala: es el unico dato que dice que los
  *     2 MB que llegaron son exactamente el fichero que la P4 anuncio.
+ *   - el AUTOMATICO (17-oct-2026) no puede preguntar sin red, con un viaje
+ *     abierto, con otra comprobacion/descarga en marcha ni mientras el usuario
+ *     escribe o contesta a un dialogo; y antes de instalar vuelve a mirar viaje
+ *     y UI (la red y "trabajando" no cuentan: la comprobacion acaba de
+ *     demostrar la red y es ella misma la que esta trabajando).
  */
 #include <stdio.h>
 #include <string.h>
@@ -78,6 +83,46 @@ static void caso_sha(const uint8_t calculado[32], const char *hex, bool esperado
     snprintf(linea, sizeof linea, "sha256 %s -> %s (esperado %s)",
              que, got ? "vale" : "no vale", esperado ? "vale" : "no vale");
     if (got == esperado) ok(linea); else mal(linea);
+}
+
+static void caso_auto_toca(bool activo, bool red, bool viaje, bool trabajando,
+                           bool ui, bool esperado)
+{
+    ota_rx_condiciones_t c = {
+        .auto_activo = activo,
+        .red         = red,
+        .viaje       = viaje,
+        .trabajando  = trabajando,
+        .ui_ocupada  = ui,
+    };
+    bool got = ota_rx_auto_toca_comprobar(&c);
+    char que[224];
+    snprintf(que, sizeof que,
+             "auto comprueba? activo=%d red=%d viaje=%d trabajando=%d ui=%d -> %s "
+             "(esperado %s)",
+             activo, red, viaje, trabajando, ui,
+             got ? "si" : "no", esperado ? "si" : "no");
+    if (got == esperado) ok(que); else mal(que);
+}
+
+static void caso_auto_instala(bool activo, bool red, bool viaje, bool trabajando,
+                              bool ui, bool esperado)
+{
+    ota_rx_condiciones_t c = {
+        .auto_activo = activo,
+        .red         = red,
+        .viaje       = viaje,
+        .trabajando  = trabajando,
+        .ui_ocupada  = ui,
+    };
+    bool got = ota_rx_auto_puede_instalar(&c);
+    char que[224];
+    snprintf(que, sizeof que,
+             "auto instala? activo=%d red=%d viaje=%d trabajando=%d ui=%d -> %s "
+             "(esperado %s)",
+             activo, red, viaje, trabajando, ui,
+             got ? "si" : "no", esperado ? "si" : "no");
+    if (got == esperado) ok(que); else mal(que);
 }
 
 /* sha256 de la cadena vacia (e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855).
@@ -157,6 +202,36 @@ int main(void)
     memcpy(corrompido, SHA_VACIO, sizeof corrompido);
     corrompido[7] ^= 0x01;
     caso_sha(corrompido, SHA_VACIO_HEX, false, "con un byte del fichero distinto");
+
+    /* ── 5. El automatico: cuando pregunta y cuando instala ────────────────
+     * Lo que no se puede probar sin placa es el temporizador; lo que SI se
+     * prueba aqui es la decision, que es donde se puede reiniciar la pantalla
+     * en mitad de un viaje o de una edicion sin que nadie lo vea. */
+    caso_auto_toca(true,  true,  false, false, false, true);   /* todo en orden */
+    caso_auto_toca(false, true,  false, false, false, false);  /* apagado en NVS */
+    caso_auto_toca(true,  false, false, false, false, false);  /* sin red con la P4 */
+    caso_auto_toca(true,  true,  true,  false, false, false);  /* viaje o apunte abierto */
+    caso_auto_toca(true,  true,  false, true,  false, false);  /* ya en marcha */
+    caso_auto_toca(true,  true,  false, false, true,  false);  /* editor o dialogo */
+    /* Y con todo mal a la vez tampoco: la condicion es TODAS. */
+    caso_auto_toca(true,  true,  true,  true,  true,  false);
+
+    /* Antes de instalar: la red y "trabajando" NO cuentan (la comprobacion
+     * acaba de demostrar la red y es ella misma la que esta trabajando); el
+     * viaje y la UI si. */
+    caso_auto_instala(true, true,  false, false, false, true);
+    caso_auto_instala(true, false, false, true,  false, true);
+    caso_auto_instala(true, true,  true,  false, false, false);
+    caso_auto_instala(true, true,  false, false, true,  false);
+    caso_auto_instala(false, true, false, false, false, false);
+    caso_auto_instala(true, true,  true,  true,  true,  false);
+
+    /* NULL no decide nada: una funcion que dijera "si" a un puntero nulo seria
+     * peor que una que dice "no". */
+    if (!ota_rx_auto_toca_comprobar(NULL)) ok("auto comprueba? NULL -> no");
+    else                                   mal("auto comprueba? NULL -> si");
+    if (!ota_rx_auto_puede_instalar(NULL)) ok("auto instala? NULL -> no");
+    else                                   mal("auto instala? NULL -> si");
 
     printf("\n%d pruebas, %d fallos\n", pruebas, fallos);
     return fallos ? 1 : 0;

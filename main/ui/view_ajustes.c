@@ -392,6 +392,15 @@ static void ota_btn_cb(lv_event_t *e)
 static void ota_timer_cb(lv_timer_t *t)
 {
     (void)t;
+
+    /* ANTES DE NADA: avisar a la OTA automatica de si hay algo delante que no
+     * se puede interrumpir. Esto corre en la tarea de LVGL, que es la dueña de
+     * los objetos; ota_rx.c lo lee desde su temporizador de 60 s y no puede
+     * tocar LVGL. Se hace aunque Ajustes no este delante: el editor y los
+     * dialogos viven en lv_layer_top() y pueden estar abiertos en otra
+     * pantalla. */
+    ota_rx_ui_ocupada(entry_screen_is_open() || confirm_screen_is_open());
+
     /* Solo con Ajustes DELANTE y en el MENU (no en el formulario de Wi-Fi): si
      * no, el cartel de confirmacion saltaria encima de lo que el usuario este
      * mirando. */
@@ -447,7 +456,15 @@ static void ota_timer_cb(lv_timer_t *t)
         }
 
         case OTA_RX_DESCARGANDO:
-            lv_label_set_text_fmt(s_ota_lbl, "Descargando... %d %%", v.pct);
+            /* La automatica avisa de donde viene: el dueño subio el .bin desde
+             * el movil y no ha tocado la pantalla, asi que el cartel se lo
+             * cuenta sin pedirle que confirme nada. */
+            if (v.automatica) {
+                lv_label_set_text_fmt(s_ota_lbl,
+                    "Actualizacion recibida de la P4: descargando... %d %%", v.pct);
+            } else {
+                lv_label_set_text_fmt(s_ota_lbl, "Descargando... %d %%", v.pct);
+            }
             lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_YELLOW, 0);
             break;
 

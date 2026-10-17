@@ -21,6 +21,13 @@
  * cualquier otro NO se ha lanzado nada y la UI tiene que enseñar el motivo. En
  * particular OTA_RX_INICIO_VIAJE es el "termina el viaje antes": no se actualiza
  * con un viaje abierto.
+ *
+ * AUTOMATICO (17-oct-2026). Ademas del boton, un temporizador de 60 s de
+ * ota_rx.c pregunta solo si hay red con la P4, no hay viaje abierto, no hay nada
+ * en marcha y no hay editor ni dialogo abierto. Si hay version nueva la instala
+ * SIN preguntar, que es lo que pidio el dueño: el que subio el .bin fue el.
+ * Se apaga con la clave NVS "ota_auto" (namespace "ota") a 0 y reiniciando;
+ * por defecto vale 1. El boton "Actualizar pantalla" sigue funcionando igual.
  */
 #pragma once
 
@@ -51,6 +58,10 @@ typedef enum {
 typedef struct {
     ota_rx_estado_t estado;
     int             pct;          /* 0..100, solo con OTA_RX_DESCARGANDO */
+    /* true solo con OTA_RX_DESCARGANDO: la descarga la arranco el temporizador
+     * automatico, no el boton de Ajustes. La UI lo usa para decir de donde
+     * viene la actualizacion ("recibida de la P4") sin preguntar nada. */
+    bool            automatica;
     char            motivo[96];   /* ERROR: por que no se pudo */
     char            ofrecida[16]; /* HAY_NUEVA/DESCARGANDO: "v1.31" */
 } ota_rx_vista_t;
@@ -88,6 +99,15 @@ void ota_rx_olvidar(void);
 
 /* Copia el estado actual. Nunca bloquea. */
 void ota_rx_estado(ota_rx_vista_t *out);
+
+/* La UI avisa de si hay algo DELANTE que no se puede interrumpir: el editor a
+ * pantalla completa o un dialogo de confirmacion. Se llama desde la tarea de
+ * LVGL (que es la dueña de esos objetos) y ota_rx.c la lee desde su
+ * temporizador, que corre en OTRA tarea; por eso se guarda en un atomico y no
+ * se tocan objetos de LVGL desde aqui. Sin este aviso, la actualizacion
+ * automatica podria reiniciar la pantalla mientras el usuario esta escribiendo
+ * un destino o contestando a un cartel. */
+void ota_rx_ui_ocupada(bool ocupada);
 
 /* ── Las decisiones, expuestas para probarlas SIN PLACA ─────────────────────
  *
