@@ -147,12 +147,15 @@ static bool      s_viaje_p4_ajeno;
  * dato, jerarquia que refuerza el tamano (16 el rotulo, 24 el valor). */
 #define COL_LABEL         UI_COLOR_TEXT_SOFT_HEX
 
-/* Botones de accion, mismo criterio: claros con texto negro.
- *   verde  0x66BB6A -> 8,8:1     rojo 0xE57373 -> 7,0:1
- * El rojo se queda algo por debajo del resto a proposito: bajarlo mas lo
- * volveria rosa palido y "Finalizar viaje" tiene que LEERSE como rojo. */
-#define COL_ACCION_OK     0x66BB6A
-#define COL_ACCION_STOP   UI_COLOR_RED_HEX
+/* Botones de accion, mismo criterio: claros con texto negro. Los DOS colores
+ * salen ya de la paleta (COL_ACCION_OK/STOP, ver ui_style.h), porque eran el
+ * unico sitio donde quedaban dos verdes distintos para "aceptar": 0x66BB6A
+ * aqui y 0x00C851 en los indicadores de correcto. Con el token unico, aceptar
+ * es siempre el mismo verde y cancelar/descartar el mismo rojo.
+ * El rojo 0xFF4444 da 6,2:1 con el negro: suficiente para leerse, pero no
+ * tanto como para parecer decoracion. Los dos nombres vienen de ui_style.h:
+ * aqui NO se vuelven a definir, para que no haya una copia que pueda
+ * desviarse del token comun. */
 
 static lv_obj_t *s_peaje_importe_ta;
 static lv_obj_t *s_peaje_currency_dd;
@@ -278,6 +281,15 @@ static lv_obj_t *s_mant_otros_ta;    /* oculto, 0x0: el motivo lo teclea
 #define MANT_FILTRO_COUNT 4
 static const char *const MANT_FILTRO_OPCIONES[MANT_FILTRO_COUNT] = {
     "Filtro aceite", "Filtro gasoil", "Filtro aire", "Filtro habitaculo"
+};
+/* Los mismos cuatro, en corto SOLO para el texto de la casilla. El hueco de
+ * la casilla es el 48% de la fila (~209 px, ~198 utiles) y "Filtros: Filtro
+ * aceite, Filtro gasoil" mide 308 px con la Inter 20, asi que se cortaba por
+ * la derecha (D13). "Filtros: aceite, gasoil" mide 198 y entra. En la pantalla
+ * de filtros y en el resumen de confirmacion se siguen usando los nombres
+ * largos, que alli hay sitio. */
+static const char *const MANT_FILTRO_CORTO[MANT_FILTRO_COUNT] = {
+    "aceite", "gasoil", "aire", "habitaculo"
 };
 static lv_obj_t *s_mant_filtro_chk[MANT_FILTRO_COUNT];
 static lv_obj_t *s_filtros_screen;   /* pantalla propia, tapa el formulario */
@@ -1361,17 +1373,19 @@ static void ruedas_release_cb(lv_event_t *e)
 }
 
 /* Anade a 'out' (que ya tiene 'used' bytes escritos) el listado de filtros
- * marcados separados por comas. Lo usan filtros_sincroniza() (el texto de la
- * propia casilla) y el resumen de confirmacion mas abajo -- misma lista, dos
- * sitios; antes se repetia el bucle en cada uno. Devuelve el nuevo 'used'
- * (igual al de entrada si no habia ninguno marcado). */
+ * marcados separados por comas. Lo usa SOLO filtros_sincroniza() (el texto de
+ * la propia casilla): el resumen de confirmacion tiene su propio bucle porque
+ * alli los nombres van largos y aqui cortos por el ancho (ver
+ * MANT_FILTRO_CORTO). Antes este comentario decia que lo usaban los dos, y no
+ * era verdad. Devuelve el nuevo 'used' (igual al de entrada si no habia
+ * ninguno marcado). */
 static size_t filtros_lista_append(char *out, size_t n, size_t used)
 {
     bool alguno = false;
     for (uint8_t i = 0; i < MANT_FILTRO_COUNT; i++) {
         if (!lv_obj_has_state(s_mant_filtro_chk[i], LV_STATE_CHECKED)) continue;
         int w = snprintf(out + used, n - used, "%s%s",
-                         alguno ? ", " : "", MANT_FILTRO_OPCIONES[i]);
+                         alguno ? ", " : "", MANT_FILTRO_CORTO[i]);
         if (w < 0 || (size_t)w >= n - used) break;
         used += (size_t)w;
         alguno = true;
@@ -1389,13 +1403,26 @@ static void filtros_sincroniza(void)
 {
     lv_obj_t *cb = s_mant_chk[MANT_IDX_FILTROS];
     char buf[80];
-    size_t prefijo = (size_t)snprintf(buf, sizeof(buf), "%s: ",
-                                      MANT_OPCIONES[MANT_IDX_FILTROS]);
-    size_t used = filtros_lista_append(buf, sizeof(buf), prefijo);
-    bool alguno = used > prefijo;
-    lv_checkbox_set_text(cb, alguno ? buf : MANT_OPCIONES[MANT_IDX_FILTROS]);
-    if (alguno) lv_obj_add_state(cb, LV_STATE_CHECKED);
-    else        lv_obj_clear_state(cb, LV_STATE_CHECKED);
+    uint8_t marcados = 0;
+    for (uint8_t i = 0; i < MANT_FILTRO_COUNT; i++) {
+        if (lv_obj_has_state(s_mant_filtro_chk[i], LV_STATE_CHECKED)) marcados++;
+    }
+    if (marcados > 2) {
+        /* Con tres o cuatro, ni los nombres cortos caben: se dice cuantos y
+         * se deja que la pantalla de filtros enseñe cuales. Preferible a que
+         * el texto se corte por la derecha sin avisar. */
+        snprintf(buf, sizeof(buf), "%s: %u marcados",
+                 MANT_OPCIONES[MANT_IDX_FILTROS], (unsigned)marcados);
+    } else {
+        size_t used = (size_t)snprintf(buf, sizeof(buf), "%s: ",
+                                       MANT_OPCIONES[MANT_IDX_FILTROS]);
+        if (marcados) filtros_lista_append(buf, sizeof(buf), used);
+        else          snprintf(buf, sizeof(buf), "%s",
+                               MANT_OPCIONES[MANT_IDX_FILTROS]);
+    }
+    lv_checkbox_set_text(cb, buf);
+    if (marcados) lv_obj_add_state(cb, LV_STATE_CHECKED);
+    else          lv_obj_clear_state(cb, LV_STATE_CHECKED);
 }
 
 /* Tocar la casilla "Filtros" abre su pantalla (el toque tambien la marca/
@@ -1446,7 +1473,10 @@ static void build_filtros_screen(void)
 
     lv_obj_t *ok = lv_btn_create(s_filtros_screen);
     lv_obj_set_size(ok, lv_pct(100), 52);
-    lv_obj_set_style_bg_color(ok, lv_color_hex(COL_MANTENIMIENTO), 0);
+    /* VERDE de aceptar, no el turquesa de la categoria (D5). Aqui no hay
+     * cancelar: la unica salida es aceptar, y la norma del dueno es que
+     * aceptar sea SIEMPRE el mismo verde en toda la UI. */
+    lv_obj_set_style_bg_color(ok, lv_color_hex(COL_ACCION_OK), 0);
     lv_obj_set_style_radius(ok, 10, 0);
     lv_obj_add_event_cb(ok, filtros_aceptar_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *ok_lbl = lv_label_create(ok);
@@ -5223,11 +5253,16 @@ static bool parada_preguntar_en(int idx)
                  MOTIVO_NOMBRE[motivo], hi, dur);
     }
 
-    /* El "no" no es corregir nada: es que sigues ahi. La parada se queda
-     * abierta y se vuelve a preguntar en el siguiente contacto. */
+    /* VERDE a la derecha = seguir (Prolongar solo cierra el cartel y la
+     * parada sigue contando). ROJO a la izquierda = cerrarla (Terminarla
+     * abre el flujo de cierre). Antes estaba al reves -- "Terminarla" en
+     * verde y "Prolongar" en rojo --, que ponia el color de descartar en la
+     * accion segura (D8). La accion de cerrar va en el boton que, por norma,
+     * es el rojo; el verde no necesita callback: cerrar el cartel ya es
+     * prolongar. */
     confirm_screen_open("Parada en curso", s_parada_txt, COL_VIAJE,
-                        "Terminarla", "Prolongar", parada_terminar,
-                        (void *)(intptr_t)idx);
+                        "Prolongar", "Terminarla", NULL, NULL);
+    confirm_screen_no_accion(parada_terminar, (void *)(intptr_t)idx);
     return true;
 }
 

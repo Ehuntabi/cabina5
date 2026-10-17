@@ -57,6 +57,22 @@
 #define UI_COLOR_SOBRE_CLARO_HEX 0x000000
 #define UI_COLOR_SOBRE_CLARO     lv_color_hex(UI_COLOR_SOBRE_CLARO_HEX)
 
+/* ── Acciones: aceptar VERDE, cancelar ROJO (norma del dueno) ────────────────
+ *
+ * POR QUE: en la UI habia dos verdes para el mismo papel -- 0x66BB6A en los
+ * botones de guardar y 0x00C851 en los indicadores de "correcto" -- y ademas el
+ * "Aceptar" de FILTROS salia turquesa (el color de la categoria, no el de la
+ * accion). El dueno lo dijo una vez y vale para TODOS los carteles: aceptar
+ * SIEMPRE verde, cancelar o descartar SIEMPRE rojo. El aviso de que algo es
+ * destructivo va en el TEXTO, no en el color.
+ *
+ * Se exponen como NUMERO (no como lv_color_t) porque los sitios que los usan
+ * los guardan en uint32_t y llaman a lv_color_hex() despues (confirm_screen,
+ * boton_chico...). El color de verdad sigue viviendo en los tokens de arriba:
+ * esto solo le pone nombre al PAPEL. */
+#define COL_ACCION_OK    UI_COLOR_GREEN_HEX
+#define COL_ACCION_STOP  UI_COLOR_RED_HEX
+
 /* ── Y ya listos para usar ───────────────────────────────────────────────── */
 #define UI_COLOR_BG           lv_color_hex(UI_COLOR_BG_HEX)
 #define UI_COLOR_CARD         lv_color_hex(UI_COLOR_CARD_HEX)

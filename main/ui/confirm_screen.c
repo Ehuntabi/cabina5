@@ -5,23 +5,29 @@
 #include <string.h>
 
 /* Reparto de los 480 px de alto de esta pantalla. Los botones van abajo del
- * todo, que es donde cae el pulgar, y el resumen se CENTRA en el hueco que
- * queda entre el titulo y ellos (de ahi el desplazamiento negativo).
+ * todo, que es donde cae el pulgar.
  *
- * El cuerpo va en letra 40, 34 o 26 SEGUN LO LARGO QUE SEA (ver
- * confirm_screen_open). OJO CON EL HUECO: entre el titulo y los botones quedan
- * ~300 px, y la letra 48 (que es la que le tocaria por escala) mide 57 px de
- * linea, o sea que solo caben CINCO lineas y un resumen largo -- una parada con
- * todos sus servicios -- se sale por abajo empujando los botones fuera de la
- * pantalla. Por eso el cuerpo no sube un escalon mas: el titular si (a 40),
- * pero el texto largo se queda en la 40/34/26 de siempre.
+ * EL CUERPO NO SE CENTRA A CIEGAS (D2, 17-oct-2026). Antes iba con
+ * LV_ALIGN_CENTER y un desplazamiento fijo, sin mirar cuanto median de verdad
+ * el titulo y el cuerpo: con el titulo en DOS lineas y un resumen de OCHO, el
+ * cuerpo empezaba en y=54 y tapaba 52 px del titulo. Ahora se coloca DEBAJO
+ * del titulo, usando el alto REAL que ha calculado LVGL
+ * (lv_obj_get_height(s_title)), y su alto se limita al hueco que queda hasta
+ * los botones. Si el texto no cabe, LV_LABEL_LONG_DOT recorta con puntos en
+ * vez de solaparse con nada.
+ *
+ * El cuerpo va en letra 40 o 26 SEGUN LO LARGO QUE SEA (ver
+ * confirm_screen_open). OJO CON EL HUECO: el titular sube a la 40, pero el
+ * texto largo se queda en la 40/26 de siempre; con la 48 solo caben cinco
+ * lineas y un resumen largo -- una parada con todos sus servicios -- se saldria.
  *
  * Aun asi conviene no pasarse: build_resumen() usa nombres cortos para los
  * tipos de parada por eso mismo, y dos rotulos van abreviados ("Precio/L:" en
  * vez de "Precio/litro:", "Precio:" en vez de "Precio total:"). */
-#define CONF_TITLE_Y   10
-#define CONF_BODY_DY   -26
-#define CONF_BTN_H     84
+#define CONF_TITLE_Y    10
+#define CONF_BODY_GAP   6    /* aire entre titulo/cuerpo y cuerpo/botones */
+#define CONF_BTN_BOTTOM 8    /* margen de los botones al borde inferior */
+#define CONF_BTN_H      84
 /* 340 y no 240: 240 era el ancho de la pantalla vieja de 3,5" sin escalar a
  * esta (800 de ancho, igual que el resto de la UI -- ver el "SOBRAN 320 px de
  * ancho" de estilos.h). Con 240, un texto normal como "Continuar igual" solo
@@ -31,8 +37,9 @@
 #define CONF_BTN_W     340
 
 #define COL_FG         UI_COLOR_BG_HEX   /* texto sobre los botones claros */
-#define COL_OK         0x66BB6A   /* verde  8,8:1 con el negro */
-#define COL_NO         UI_COLOR_RED_HEX   /* rojo   7,0:1 */
+/* Aceptar/cancelar salen de la paleta (COL_ACCION_OK/STOP, ver ui_style.h):
+ * antes el verde de este dialogo era 0x66BB6A y el de los botones de guardar
+ * 0x00C851 (D16). Un solo verde para "aceptar" en toda la UI. */
 
 static lv_obj_t *s_root;
 static lv_obj_t *s_title;
@@ -100,7 +107,8 @@ static lv_obj_t *make_btn(lv_obj_t *parent, uint32_t color, lv_event_cb_t cb,
     lv_obj_set_size(btn, CONF_BTN_W, CONF_BTN_H);
     lv_obj_set_style_radius(btn, 12, 0);
     btn_color(btn, color);
-    lv_obj_align(btn, align, align == LV_ALIGN_BOTTOM_LEFT ? 8 : -8, -8);
+    lv_obj_align(btn, align, align == LV_ALIGN_BOTTOM_LEFT ? 8 : -8,
+                 -CONF_BTN_BOTTOM);
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *lbl = lv_label_create(btn);
@@ -112,6 +120,51 @@ static lv_obj_t *make_btn(lv_obj_t *parent, uint32_t color, lv_event_cb_t cb,
     rotulo_autoajustable(btn, lbl);
     if (lbl_out) *lbl_out = lbl;
     return btn;
+}
+
+/* Coloca el cuerpo con el alto REAL de cada texto (D2).
+ *
+ * POR QUE ASI Y NO CENTRADO: el alto del titulo cambia segun cuantas lineas
+ * ocupe (1, 2 o 3), y el del cuerpo tambien. Centrar con un desplazamiento
+ * fijo suponia que los dos median siempre lo mismo; cuando no, se tapaban.
+ * Aqui se mide primero (lv_obj_update_layout + lv_obj_get_height, que es el
+ * mismo alto que pinta LVGL), se pone el cuerpo justo debajo y se le da como
+ * tope el hueco que queda hasta la fila de botones. Si el texto natural no
+ * cabe, LONG_DOT recorta con puntos: se ve que hay mas, pero nada se solapa.
+ * El cuerpo se deja con su altura natural cuando SI cabe, para no estirar un
+ * aviso corto ni desplazarlo. */
+static void reparto_cuerpo(void)
+{
+    if (!s_root || !s_title || !s_body) return;
+
+    /* Resuelve ya el alto del titulo con el texto de ESTA apertura. */
+    lv_obj_update_layout(s_root);
+
+    const lv_coord_t alto_titulo  = lv_obj_get_height(s_title);
+    const lv_coord_t alto_pantalla = lv_obj_get_height(s_root);
+    const lv_coord_t y_cuerpo     = CONF_TITLE_Y + alto_titulo + CONF_BODY_GAP;
+    const lv_coord_t y_botones    = alto_pantalla - CONF_BTN_BOTTOM - CONF_BTN_H;
+    lv_coord_t alto_max = y_botones - CONF_BODY_GAP - y_cuerpo;
+    if (alto_max < 0) alto_max = 0;
+
+    lv_obj_align(s_body, LV_ALIGN_TOP_MID, 0, y_cuerpo);
+    /* Primero sin tope y en WRAP: asi se mide lo que ocupa el texto de
+     * verdad. Luego se decide entre dejarlo entero o recortarlo con puntos.
+     * El orden importa: salir de DOT ANTES de tocar el alto evita que el
+     * evento SIZE_CHANGED restaure puntos sobre el texto nuevo. */
+    lv_label_set_long_mode(s_body, LV_LABEL_LONG_WRAP);
+    lv_obj_set_height(s_body, LV_SIZE_CONTENT);
+    lv_obj_update_layout(s_body);
+
+    const lv_coord_t alto_natural = lv_obj_get_height(s_body);
+    if (alto_natural > alto_max) {
+        lv_obj_set_height(s_body, alto_max);
+        lv_label_set_long_mode(s_body, LV_LABEL_LONG_DOT);
+        /* El recorte con puntos se calcula al aplicar el alto nuevo; se fuerza
+         * aqui para que el primer pintado ya salga recortado y no un frame con
+         * el texto invadiendo los botones. */
+        lv_obj_update_layout(s_body);
+    }
 }
 
 void confirm_screen_init(lv_obj_t *parent)
@@ -147,13 +200,15 @@ void confirm_screen_init(lv_obj_t *parent)
     lv_obj_set_style_text_align(s_body, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_line_space(s_body, 8, 0);
     lv_label_set_long_mode(s_body, LV_LABEL_LONG_WRAP);
-    lv_obj_align(s_body, LV_ALIGN_CENTER, 0, CONF_BODY_DY);
+    /* La posicion definitiva la pone reparto_cuerpo() al abrir, con el
+     * alto real del titulo. Aqui solo se deja pegada arriba, no centrada. */
+    lv_obj_align(s_body, LV_ALIGN_TOP_MID, 0, CONF_TITLE_Y);
 
     /* "No" a la izquierda y "Si" a la derecha: el destructivo lejos del pulgar
      * que viene de confirmar, y el orden habitual de lectura. */
-    s_no_btn = make_btn(s_root, COL_NO, no_cb, LV_ALIGN_BOTTOM_LEFT, &s_no_lbl);
+    s_no_btn = make_btn(s_root, COL_ACCION_STOP, no_cb, LV_ALIGN_BOTTOM_LEFT, &s_no_lbl);
 
-    s_ok_btn = make_btn(s_root, COL_OK, ok_cb, LV_ALIGN_BOTTOM_RIGHT, &s_ok_lbl);
+    s_ok_btn = make_btn(s_root, COL_ACCION_OK, ok_cb, LV_ALIGN_BOTTOM_RIGHT, &s_ok_lbl);
     lv_label_set_text(s_ok_lbl, "Si");
 }
 
@@ -177,26 +232,28 @@ void confirm_screen_open(const char *title, const char *body,
     /* Colores normales: la accion en verde y el "no" en rojo. Quien necesite lo
      * contrario llama a confirm_screen_ok_destructivo() justo despues. Se
      * rehace en CADA apertura porque el dialogo es uno solo y se reutiliza. */
-    btn_color(s_ok_btn, COL_OK);
-    btn_color(s_no_btn, COL_NO);
+    btn_color(s_ok_btn, COL_ACCION_OK);
+    btn_color(s_no_btn, COL_ACCION_STOP);
     /* Puede venir oculto de un aviso anterior. */
     lv_obj_clear_flag(s_no_btn, LV_OBJ_FLAG_HIDDEN);
-    /* La letra del cuerpo se ajusta a lo que hay que contar. Entre el titulo y
-     * los botones quedan ~184 px, y con letra 32 (46 px por linea) eso son
-     * cuatro lineas justas: un resumen largo -- una parada con todos sus
-     * servicios descritos -- se salia por abajo y empujaba los botones fuera de
-     * la pantalla.
-     *
-     * Bajando a 24 o a 20 caben mas lineas Y mas caracteres por linea (~45 con
-     * la 20, frente a ~25 con la 32), asi que el texto largo entra entero en vez
-     * de tener que resumirse. Se elige por longitud total, que es la medida
-     * barata: no hace falta afinar, solo no pasarse de alto. */
+    /* La letra del cuerpo se ajusta a lo que hay que contar: hasta 110
+     * caracteres va en la 40 y a partir de ahi en la 26, que mete mas letras
+     * por linea y mas lineas en el mismo alto. (El comentario viejo hablaba de
+     * una 34 intermedia, pero FUENTE_MEDIA_GRANDE es la misma 40 desde que la
+     * escala es plana: no habia tal escalon.) El alto disponible ya no se
+     * supone: lo calcula reparto_cuerpo() con el titulo real de cada apertura
+     * y, si el texto natural no cabe, lo recorta con puntos. */
     const char *texto = (body && body[0]) ? body : "";
     size_t n = strlen(texto);
-    const lv_font_t *fuente = (n <= 60)  ? &FUENTE_GRANDE         /* 40 */
-                            : (n <= 110) ? &FUENTE_MEDIA_GRANDE   /* 34 */
+    const lv_font_t *fuente = (n <= 110) ? &FUENTE_MEDIA_GRANDE   /* 40 */
                                          : &FUENTE_NORMAL;        /* 26 */
     lv_obj_set_style_text_font(s_body, fuente, 0);
+    /* El cuerpo pudo quedar en LONG_DOT de la apertura anterior. Hay que salir
+     * de ese modo ANTES de cambiar el texto: al salir, LVGL reescribe los
+     * caracteres que tapaban los puntos en la posicion del texto VIEJO; con el
+     * texto nuevo ya puesto, corromperia el cartel. reparto_cuerpo() vuelve a
+     * decidir despues si toca DOT con el texto de esta apertura. */
+    lv_label_set_long_mode(s_body, LV_LABEL_LONG_WRAP);
     lv_label_set_text(s_body, texto);
     lv_label_set_text(s_ok_lbl, ok_text ? ok_text : "Si");
     lv_label_set_text(s_no_lbl, no_text ? no_text : "No, corregir");
@@ -236,6 +293,10 @@ void confirm_screen_open(const char *title, const char *body,
      * pantalla cargada (o cargandose) y por encima de los filtros. */
     lv_obj_t *arriba = lv_layer_top();
     if (arriba && lv_obj_get_parent(s_root) != arriba) lv_obj_set_parent(s_root, arriba);
+
+    /* Con el dialogo ya colgado de la capa de arriba (que es la que fija el
+     * ancho real), se colocan titulo, cuerpo y botones con sus altos medidos. */
+    reparto_cuerpo();
 
     lv_obj_clear_flag(s_root, LV_OBJ_FLAG_HIDDEN);
     /* Por delante de lo que ya hubiera en esa capa (la pantalla de filtros). */
@@ -277,7 +338,7 @@ void confirm_screen_ok_destructivo(void)
     return;
 #if 0
     if (!s_ok_btn || !s_no_btn) return;
-    btn_color(s_ok_btn, COL_NO);
+    btn_color(s_ok_btn, COL_ACCION_STOP);
 #endif
 }
 

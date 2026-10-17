@@ -5,17 +5,25 @@
 
 /* Reparto vertical de los 480 px de alto de esta pantalla (display.h).
  * El teclado se lleva 250 -- mas de la mitad -- porque es lo que se toca con el
- * dedo en movimiento; el valor solo hay que leerlo.
+ * dedo en movimiento; el valor solo hay que leerlo. Debajo del teclado va una
+ * fila de 48 px con los dos botones PROPIOS (verde Guardar, rojo Cancelar): el
+ * teclado del tema trae un ✓ y un ✕ grises que no cumplen la norma del dueno.
  *
- * Lo que cambio el 8-oct-2026: el valor se escribe con la fuente de 48 (antes
- * 40, ver estilos.h) y su fila mide 62 px, que es lo que pide esa letra; el
- * rotulo sube a 26 y se lleva 26 px. 8 + 26 + 62 + 150 de teclado y aire = 480.
- * El teclado en si NO se toca: su tamano lo decide LVGL por el alto de la
- * pantalla, y a 480 px ya sale comodo. */
-#define ENTRY_LABEL_Y   8
-#define ENTRY_VALUE_Y   34
-#define ENTRY_VALUE_H   62
-#define ENTRY_KB_H      250
+ * Lo que mide de verdad el codigo de hoy, con las fuentes Inter del proyecto:
+ * el rotulo es la Inter 30 (alto de linea 37) y empieza en y=8; el valor es la
+ * Inter 40 (48 px de linea) dentro de una fila de 62 desde y=34. El comentario
+ * viejo decia "48 y 26" y sumaba 150 de teclado: eran numeros de una version
+ * anterior que ya no cuadraban con el codigo. */
+#define ENTRY_LABEL_Y    8
+#define ENTRY_VALUE_Y    34
+#define ENTRY_VALUE_H    62
+#define ENTRY_KB_H       250
+/* Fila de acciones, pegada abajo. El teclado se mueve hacia arriba lo justo
+ * para no pisarla, pero conserva sus 250 px: en esta pantalla sobra hueco entre
+ * el valor y el teclado. */
+#define ENTRY_BTN_H      48
+#define ENTRY_BTN_BOTTOM 8
+#define ENTRY_BTN_GAP    4    /* aire entre el teclado y la fila de botones */
 
 static lv_obj_t *s_root;
 static lv_obj_t *s_label;
@@ -43,6 +51,12 @@ static void close_overlay(void)
 {
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
     s_target = NULL;
+    /* El editor es UNO y se reutiliza para todos los campos. Si el anterior era
+     * una contrasena (Wi-Fi, portal) y el siguiente no, el modo password se
+     * quedaba pegado y el SSID o el destino salian como puntitos -- o, al
+     * reves, una clave nueva se veia en claro (D3). Se limpia SIEMPRE al
+     * cerrar; entry_screen_open() lo vuelve a poner si el destino lo lleva. */
+    if (s_value) lv_textarea_set_password_mode(s_value, false);
 }
 
 void entry_screen_close(void)
@@ -61,9 +75,8 @@ void entry_screen_close(void)
  * el que escucha recibia 11 avisos y disparaba 11 veces su flujo (11
  * temporizadores de encadenado, 11 carteles). Se silencian los intermedios con
  * entry_screen_mudo() y se manda UNO al final, ya con el texto puesto. */
-static void kb_ready_cb(lv_event_t *e)
+static void entry_guardar(void)
 {
-    (void)e;
     if (s_target) {
         entry_screen_mudo(true);
         lv_textarea_set_text(s_target, lv_textarea_get_text(s_value));
@@ -73,10 +86,40 @@ static void kb_ready_cb(lv_event_t *e)
     close_overlay();
 }
 
-static void kb_cancel_cb(lv_event_t *e)
+static void entry_guardar_cb(lv_event_t *e)
+{
+    (void)e;
+    entry_guardar();
+}
+
+static void entry_cancelar_cb(lv_event_t *e)
 {
     (void)e;
     close_overlay();
+}
+
+/* Boton de la fila de abajo. Los dos miden lo mismo y llevan el color de la
+ * accion (verde/rojo) con texto oscuro, igual que los de confirm_screen: la
+ * regla no admite excepciones y aqui el teclado del tema no la cumplia. */
+static lv_obj_t *make_entry_btn(lv_obj_t *parent, const char *txt, uint32_t color,
+                                lv_align_t align, lv_event_cb_t cb)
+{
+    lv_obj_t *btn = lv_btn_create(parent);
+    lv_obj_set_size(btn, lv_pct(45), ENTRY_BTN_H);
+    lv_obj_set_style_radius(btn, 10, 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_color(btn, lv_color_darken(lv_color_hex(color), LV_OPA_30),
+                              LV_STATE_PRESSED);
+    lv_obj_align(btn, align, align == LV_ALIGN_BOTTOM_LEFT ? 8 : -8,
+                 -ENTRY_BTN_BOTTOM);
+    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *lbl = lv_label_create(btn);
+    lv_label_set_text(lbl, txt);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(lbl, UI_COLOR_SOBRE_CLARO, 0);
+    lv_obj_center(lbl);
+    return btn;
 }
 
 void entry_screen_init(lv_obj_t *parent)
@@ -110,24 +153,39 @@ void entry_screen_init(lv_obj_t *parent)
     lv_obj_set_style_text_font(s_value, &lv_font_montserrat_40, 0);
     lv_obj_set_style_text_color(s_value, UI_COLOR_TEXT, 0);
     lv_obj_set_style_text_align(s_value, LV_TEXT_ALIGN_CENTER, 0);
-    /* Sin marco ni relleno: con letra del 40 en 52 px no sobra un pixel. */
+    /* Sin marco ni relleno: con letra del 40 (48 px de linea) en una fila de
+     * 62 px, el relleno del tema solo estorbaria. */
     lv_obj_set_style_bg_opa(s_value, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_value, 0, 0);
     lv_obj_set_style_pad_all(s_value, 0, 0);
 
     s_kb = lv_keyboard_create(s_root);
     lv_obj_set_size(s_kb, lv_pct(100), ENTRY_KB_H);
-    lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    /* El teclado sube lo que mide la fila de botones para que las dos cosas
+     * quepan sin solaparse. Su tamano no cambia: en la 5" sobra alto. */
+    lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0,
+                 -(ENTRY_BTN_H + ENTRY_BTN_BOTTOM + ENTRY_BTN_GAP));
     lv_keyboard_set_textarea(s_kb, s_value);
-    lv_obj_add_event_cb(s_kb, kb_ready_cb, LV_EVENT_READY, NULL);
-    lv_obj_add_event_cb(s_kb, kb_cancel_cb, LV_EVENT_CANCEL, NULL);
+    /* Las teclas ✓ y ✕ del tema siguen existiendo, pero ya no son la unica
+     * salida: los botones de abajo son los que llevan el color de la accion.
+     * Se conectan a lo MISMO (guardar/cancelar) para que no haya dos
+     * comportamientos distintos. */
+    lv_obj_add_event_cb(s_kb, entry_guardar_cb, LV_EVENT_READY, NULL);
+    lv_obj_add_event_cb(s_kb, entry_cancelar_cb, LV_EVENT_CANCEL, NULL);
+
+    /* La fila de acciones propia, debajo del teclado. Verde Guardar y rojo
+     * Cancelar: la norma del dueno, que el teclado del tema no cumple. */
+    make_entry_btn(s_root, "Guardar", COL_ACCION_OK, LV_ALIGN_BOTTOM_LEFT,
+                   entry_guardar_cb);
+    make_entry_btn(s_root, "Cancelar", COL_ACCION_STOP, LV_ALIGN_BOTTOM_RIGHT,
+                   entry_cancelar_cb);
 }
 
 /* ENCADENAR DOS CAMPOS: abrir el siguiente DESDE el callback del anterior.
  *
  * POR QUE NO VALE entry_screen_open() A SECAS, y esto costo un fallo en la
  * placa el 16-oct-2026 ("la 5 no pide km al iniciar"): el "Aceptar" del teclado
- * avisa PRIMERO a quien escucha (kb_ready_cb manda VALUE_CHANGED, y ahi es donde
+ * avisa PRIMERO a quien escucha (entry_guardar manda VALUE_CHANGED, y ahi es donde
  * el flujo del viaje abre el campo siguiente) y SOLO DESPUES cierra este panel
  * (close_overlay). Si el que escucha abre el paso nuevo con entry_screen_open(),
  * ese close_overlay -- que viene detras, en la misma llamada -- lo vuelve a
@@ -185,9 +243,16 @@ void entry_screen_open(lv_obj_t *target, const char *label, bool numeric)
      * El limite de caracteres tambien se copia del campo de destino: sin esto
      * se podia escribir sin tope aqui (el textarea del editor es uno propio,
      * no el 'target'), y el limite puesto en el destino -- 40 en el motivo de
-     * "Otros", por ejemplo -- no protegia nada mientras se tecleaba. */
+     * "Otros", por ejemplo -- no protegia nada mientras se tecleaba.
+     *
+     * Y EL MODO CONTRASENA, TAMBIEN (D3): el campo de destino lo lleva (los dos
+     * campos de clave de Ajustes lo activan) y este editor no lo copiaba, asi
+     * que la clave se leia EN CLARO a letra 40. close_overlay() lo limpia al
+     * cerrar para que el siguiente campo -- SSID, destino... -- no salga con
+     * puntitos, y una clave nueva no se quede a la vista. */
     lv_textarea_set_accepted_chars(s_value, lv_textarea_get_accepted_chars(target));
     lv_textarea_set_max_length(s_value, lv_textarea_get_max_length(target));
+    lv_textarea_set_password_mode(s_value, lv_textarea_get_password_mode(target));
     lv_textarea_set_text(s_value, lv_textarea_get_text(target));
     lv_keyboard_set_mode(s_kb, numeric ? LV_KEYBOARD_MODE_NUMBER
                                        : LV_KEYBOARD_MODE_TEXT_LOWER);
