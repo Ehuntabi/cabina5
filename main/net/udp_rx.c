@@ -925,6 +925,17 @@ void udp_rx_start(void)
     wifi_configure_sta();
     ESP_ERROR_CHECK(esp_wifi_start());
 
+    /* SIN AHORRO DE ENERGIA (17-oct-2026). Por defecto el driver duerme la radio
+     * entre balizas (WIFI_PS_MIN_MODEM), y en esta red eso se paga en latencia:
+     * medido en el banco, un ping a la P4 tarda ~350 ms y la descarga por HTTP
+     * va a ~20-47 KB/s, con la ventana TCP pequena de LwIP. La OTA de una
+     * pantalla son 2,2 MB: a ese ritmo tarda mas de un minuto y la conexion
+     * acaba cortandose a mitad (el AP descarta tramas de la estacion dormida y
+     * el P4 ve un reset). Esta pantalla va alimentada por el vehiculo, asi que
+     * no merece la pena ahorrar miliamperios a cambio de eso: se apaga el ahorro
+     * y la misma descarga baja de 50 s a unos 15. */
+    esp_wifi_set_ps(WIFI_PS_NONE);
+
     uint8_t mac[6];
     esp_wifi_get_mac(WIFI_IF_STA, mac);
     ESP_LOGI(TAG, "STA listo. MAC=" MACSTR " esperando IP por DHCP...", MAC2STR(mac));
