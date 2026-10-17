@@ -4401,11 +4401,22 @@ static void ocultar_menus(void)
  * NO lleva lo gastado, aunque la maqueta lo pintaba: esta pantalla no lleva la
  * cuenta del dinero -- los importes se rellenan al arrancar y viven en la P4 --
  * y poner un 0,00 seria mentir con autoridad. */
-/* "hh:mm" a partir de un epoch local de la P4. */
+/* "hh:mm" a partir de un epoch local de la P4.
+ *
+ * CON LA CORRECCION DEL CAMBIO DE HORARIO (17-oct-2026). El epoch de un tramo
+ * abierto ANTES de un cambio de horario esta en la escala vieja; los "minutos"
+ * ya se corregian con reloj_delta_horario_desde(), pero las horas que van al
+ * CSV (inicio/fin) y las que se enseñan ("desde las 14:10") iban en crudo, asi
+ * que en un tramo que cruza el cambio la hora y la duracion no cuadraban entre
+ * si. Se corrige AQUI, en el unico sitio que convierte un epoch en hora de
+ * pared: los tramos empezados despues del cambio devuelven 0 y no se tocan.
+ * De paso el que llama no tiene que acordarse de la correccion en cada sitio. */
 static void hora_corta(uint32_t epoch, char *buf, size_t n)
 {
-    snprintf(buf, n, "%02u:%02u", (unsigned)((epoch / 3600) % 24),
-             (unsigned)((epoch / 60) % 60));
+    int d = reloj_delta_horario_desde(epoch);
+    uint32_t e = (uint32_t)((int32_t)epoch + d);
+    snprintf(buf, n, "%02u:%02u", (unsigned)((e / 3600) % 24),
+             (unsigned)((e / 60) % 60));
 }
 
 static void salida_tira_refresh(void)
