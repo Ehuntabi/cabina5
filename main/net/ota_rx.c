@@ -106,7 +106,12 @@ static const char *TAG = "ota_rx";
  * tarjeta; corto se traduce en fallos falsos. Para el .bin, 20 s es lo que
  * puede tardar en llegar un trozo si la red se atasca, NO la descarga entera. */
 #define OTA_TIMEOUT_INFO_MS   8000
-#define OTA_TIMEOUT_BIN_MS   20000
+/* 60 s y no 20 (17-oct-2026): la P4 lee el .bin de su tarjeta mientras la
+ * camara y el datalogger comparten ese bus, y un paron largo de la SD hacia que
+ * la lectura caducara a los 20 s ("Se corto la descarga") con la descarga ya
+ * avanzada. El timeout es POR OPERACION: con 60 s un paron no la mata y, si de
+ * verdad no hay red, el error sale igual (antes o despues). */
+#define OTA_TIMEOUT_BIN_MS   60000
 
 /* 4 KB es lo que pide el contrato para escribir a trozos. Ni uno mas: en esta
  * placa la RAM INTERNA es la escasa (Wi-Fi + LVGL ya se han llevado lo suyo),
