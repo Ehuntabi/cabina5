@@ -67,7 +67,29 @@ static int64_t  s_epoch_us;    /* esp_timer en ese instante */
 static int s_off_quince = INT8_MIN;   /* INT8_MIN = todavia no lo se */
 static int s_delta_horario = 0;
 
+/* Epoch_local en el que se detecto el ultimo cambio de horario (0 = ninguno).
+ * Sirve para NO corregir los tramos que empezo DESPUES del cambio. */
+static uint32_t s_epoch_cambio = 0;
+
 int reloj_delta_horario(void) { return s_delta_horario; }
+
+int reloj_delta_horario_desde(uint32_t epoch_ini)
+{
+    /* EL DELTA SOLO VALE PARA TRAMOS ABIERTOS ANTES DEL CAMBIO (17-oct-2026).
+     *
+     * El delta existe para arreglar el INICIO de un tramo que se guardo con el
+     * desfase viejo: si a ese inicio se le suma la diferencia, la resta contra
+     * "ahora" sale bien. Pero se aplicaba a TODO, tambien a los tramos abiertos
+     * DESPUES del cambio, cuyo inicio ya esta en la escala nueva. Medido en host
+     * (arbitraje de protocolo): una parada de 1200 s abierta despues del cambio
+     * se mandaba como 4800 s, y una pernocta de las 00:30 se iba al dia anterior
+     * (una noche falsa, con su precio).
+     *
+     * Se compara el inicio del tramo con el momento del cambio: si empezo en o
+     * despues, no hay nada que corregir. */
+    if (s_epoch_cambio == 0 || epoch_ini >= s_epoch_cambio) return 0;
+    return s_delta_horario;
+}
 
 void reloj_set_desde_p4(uint32_t epoch_local, int utc_off_quince)
 {
@@ -82,7 +104,9 @@ void reloj_set_desde_p4(uint32_t epoch_local, int utc_off_quince)
      * (auditoria del 16-oct-2026): el llamante ya hace (int)(int8_t), asi que
      * aquel "INT8_MIN..INT8_MAX" era una condicion SIEMPRE cierta y por ahi
      * entraba cualquier byte. Lo de fuera de -12:00..+14:00 se ignora. */
-    if (utc_off_quince >= UTC_OFF_QUINCE_MIN && utc_off_quince <= UTC_OFF_QUINCE_MAX) {
+    bool off_valido = (utc_off_quince >= UTC_OFF_QUINCE_MIN &&
+                       utc_off_quince <= UTC_OFF_QUINCE_MAX);
+    if (off_valido) {
         if (s_off_quince != INT8_MIN && utc_off_quince != s_off_quince) {
             /* El inicio de un tramo abierto se guardo con el desfase VIEJO: para
              * que la resta salga bien hay que sumarle la diferencia. */
@@ -97,7 +121,6 @@ void reloj_set_desde_p4(uint32_t epoch_local, int utc_off_quince)
                           "duraciones de los tramos ya abiertos se corrigen %d s",
                      s_off_quince, utc_off_quince, s_delta_horario);
         }
-        s_off_quince = utc_off_quince;
     } else {
         ESP_LOGW(TAG, "desfase horario fuera de rango (%d cuartos): lo ignoro",
                  utc_off_quince);
@@ -118,6 +141,18 @@ void reloj_set_desde_p4(uint32_t epoch_local, int utc_off_quince)
         ESP_LOGW(TAG, "epoch_local de la P4 fuera de rango (%lu), lo trato como sin hora",
                  (unsigned long)epoch_local);
         return;
+    }
+    /* El desfase y el momento del cambio se apuntan AQUI, ya validado el epoch
+     * (17-oct-2026): antes se apuntaba el desfase ARRIBA, asi que un epoch
+     * absurdo se descartaba pero el desfase -- y el salto acumulado -- ya se
+     * habian quedado apuntados, y el siguiente epoch bueno calculaba el salto
+     * contra el desfase equivocado. */
+    if (off_valido) {
+        /* Si CAMBIO, este es el epoch a partir del cual los tramos ya estan en
+         * la escala nueva (ver reloj_delta_horario_desde). */
+        if (s_off_quince != INT8_MIN && utc_off_quince != s_off_quince)
+            s_epoch_cambio = epoch_local;
+        s_off_quince = utc_off_quince;
     }
     int64_t ahora_us = esp_timer_get_time();
     portENTER_CRITICAL(&s_mux);

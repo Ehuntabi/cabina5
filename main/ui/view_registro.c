@@ -2381,6 +2381,12 @@ static const char *cola_fallo_texto(viaje_cola_error_t motivo)
                    "apartar el mas antiguo.";
         case VIAJE_COLA_ERR_NVS:
             return "No he podido guardarlo en la\nmemoria del aparato (puede estar\nllena o dando fallos). Avisa de esto.";
+        case VIAJE_COLA_ERR_LARGO:
+            /* Antes esto salia como "fallo de memoria" (ERR_NVS), que no es lo
+             * que pasa: el apunte es demasiado largo para el hueco que tiene la
+             * cola. Hoy no se llega (los campos tienen tope), pero si algun dia
+             * se sube un tope, el que lo lea tiene que saber que mirar. */
+            return "El apunte es demasiado largo\npara el hueco de la cola.\n\nNo se ha guardado nada.";
         default:
             return "No se ha podido guardar, sin\nmas detalle. Avisa de esto.";
     }
@@ -2505,8 +2511,8 @@ static bool apunte_encolar(categoria_t cat)
             u = apunte_campo_txt(b, sizeof(b), u, "inicio", hi);
             u = apunte_campo_txt(b, sizeof(b), u, "fin", hf);
             u = apunte_campo_num(b, sizeof(b), u, "minutos",
-                                 (long)((s_pern_fin > (uint32_t)((int32_t)s_pern_ini + reloj_delta_horario()))
-                               ? (s_pern_fin - (uint32_t)((int32_t)s_pern_ini + reloj_delta_horario())) / 60
+                                 (long)((s_pern_fin > (uint32_t)((int32_t)s_pern_ini + reloj_delta_horario_desde(s_pern_ini)))
+                               ? (s_pern_fin - (uint32_t)((int32_t)s_pern_ini + reloj_delta_horario_desde(s_pern_ini))) / 60
                                : 0));
             /* La guarda NO es adorno (red team del 14-oct-2026): los dos son
              * uint32 y salen de epoch_local, que NO es monotono -- al entrar en
@@ -5122,8 +5128,8 @@ static void parada_terminar(void *ud)
     u = apunte_campo_txt(cuerpo, sizeof(cuerpo), u, "inicio", hi);
     u = apunte_campo_txt(cuerpo, sizeof(cuerpo), u, "fin", hf);
     u = apunte_campo_num(cuerpo, sizeof(cuerpo), u, "minutos",
-                         (long)((ahora > (uint32_t)((int32_t)ev->epoch_ini + reloj_delta_horario()))
-                              ? (ahora - (uint32_t)((int32_t)ev->epoch_ini + reloj_delta_horario())) / 60
+                         (long)((ahora > (uint32_t)((int32_t)ev->epoch_ini + reloj_delta_horario_desde(ev->epoch_ini)))
+                              ? (ahora - (uint32_t)((int32_t)ev->epoch_ini + reloj_delta_horario_desde(ev->epoch_ini))) / 60
                               : 0));
     /* La guarda NO es adorno (misma razon que en la pernocta, ver
      * pernocta_guardar): los dos son uint32 y salen de epoch_local, que NO es
@@ -5201,7 +5207,7 @@ static bool parada_preguntar_en(int idx)
     char hi[8], dur[24];
     hora_corta(ev->epoch_ini, hi, sizeof(hi));
     {
-        uint32_t ini_corr = (uint32_t)((int32_t)ev->epoch_ini + reloj_delta_horario());
+        uint32_t ini_corr = (uint32_t)((int32_t)ev->epoch_ini + reloj_delta_horario_desde(ev->epoch_ini));
         duracion_texto(ahora > ini_corr ? ahora - ini_corr : 0, dur, sizeof(dur));
     }
 

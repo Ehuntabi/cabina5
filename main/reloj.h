@@ -27,6 +27,10 @@ void reloj_set_desde_p4(uint32_t epoch_local, int utc_off_quince);
  * el dato. */
 int reloj_delta_horario(void);
 
+/* El delta que hay que sumarle al INICIO de un tramo, o 0 si el tramo empezo en
+ * o despues del ultimo cambio de horario (ver reloj.c). */
+int reloj_delta_horario_desde(uint32_t epoch_ini);
+
 /* Segundos desde 1970 en hora LOCAL de la P4. false si esta pantalla no ha
  * visto a la P4 desde que arranco: entonces no hay hora de ningun tipo. */
 bool reloj_ahora(uint32_t *out);

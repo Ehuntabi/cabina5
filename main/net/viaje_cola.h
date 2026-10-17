@@ -50,6 +50,7 @@ typedef enum {
     VIAJE_COLA_ERR_NINGUNO = 0,
     VIAJE_COLA_ERR_LLENA,   /* CAPACIDAD alcanzada de verdad: la P4 no vacia */
     VIAJE_COLA_ERR_NVS,     /* fallo al escribir en NVS (cuerpo o indice) */
+    VIAJE_COLA_ERR_LARGO,   /* el cuerpo no cabe en CUERPO_MAX (ver abajo) */
 } viaje_cola_error_t;
 
 /* Arranca el repartidor. Una vez, al iniciar. */

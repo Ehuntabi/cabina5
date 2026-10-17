@@ -170,9 +170,12 @@ bool viaje_cola_push(const char *cuerpo, viaje_cola_error_t *motivo_out)
 
     if (!cuerpo || !cuerpo[0]) return false;
     if (strlen(cuerpo) >= CUERPO_MAX) {
-        ESP_LOGE(TAG, "apunte demasiado largo (%u bytes), NO se encola",
-                 (unsigned)strlen(cuerpo));
-        if (motivo_out) *motivo_out = VIAJE_COLA_ERR_NVS;
+        ESP_LOGE(TAG, "apunte demasiado largo (%u bytes, tope %d), NO se encola",
+                 (unsigned)strlen(cuerpo), CUERPO_MAX);
+        /* LARGO, no NVS (17-oct-2026): con ERR_NVS la pantalla decia "fallo de
+         * memoria del aparato" cuando el problema era que el apunte no cabe. El
+         * delito y el diagnostico tienen que coincidir. */
+        if (motivo_out) *motivo_out = VIAJE_COLA_ERR_LARGO;
         return false;
     }
 
@@ -711,7 +714,7 @@ static void reparto_task(void *arg)
          * modo que una clave mal intercalada con frenos no llegaba NUNCA a los 3
          * fallos: la pantalla se quedaba sin decir "CLAVE MAL, AJUSTES" y el
          * usuario miraba la corriente de la P4 en vez de Ajustes. */
-        if (estado == 401 || estado == 429) {
+        if (estado == 401 || estado == 403 || estado == 429) {
             intentos_401++;
             if (intentos_401 >= INTENTOS_401_ATASCO && !viaje_cola_credenciales_mal()) {
                 s_atasco = VIAJE_COLA_ATASCO_CLAVE;

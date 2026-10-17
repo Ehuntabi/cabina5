@@ -50,13 +50,62 @@
  * DEVUELVE el nuevo 'j', o 0 si el texto NO CABE ENTERO. Se prefiere eso a
  * cortarlo: un texto a medias es un dato perdido sin que nadie se entere, y
  * quien llama ya tiene el camino de "no entra" (devuelve 0 y avisa). */
+/* Longitud de la secuencia UTF-8 que empieza en 'p': 1..4, o 0 si es invalida.
+ *
+ * POR QUE HACE FALTA (17-oct-2026, arbitraje de entrada): json_esc_en copiaba
+ * tal cual todo byte >= 0x80, asi que un byte suelto o una secuencia cortada
+ * (0xC3 solo, 0xFF, un texto partido por un buffer) dejaban el cuerpo en un JSON
+ * que no es UTF-8 valido. cJSON no valida y el byte roto acababa en el CSV, con
+ * lo que el fichero deja de abrirse bien en el PC. Hoy no es alcanzable desde el
+ * teclado (LVGL solo inserta glifos de su mapa y one_line descarta los saltos),
+ * pero un set_text desde una NVS corrupta o un POST a mano si llegan aqui.
+ *
+ * Rechaza tambien las sobrecargas (E0 A0..BF) y los surrogates (ED 80..9F), que
+ * es lo que la RFC 3629 no admite. */
+static size_t utf8_largo(const unsigned char *p)
+{
+    if (p[0] < 0x80) return 1;
+    if (p[0] >= 0xC2 && p[0] <= 0xDF) return ((p[1] & 0xC0) == 0x80) ? 2 : 0;
+    if (p[0] >= 0xE0 && p[0] <= 0xEF) {
+        if ((p[1] & 0xC0) != 0x80 || (p[2] & 0xC0) != 0x80) return 0;
+        if (p[0] == 0xE0 && p[1] < 0xA0) return 0;
+        if (p[0] == 0xED && p[1] > 0x9F) return 0;
+        return 3;
+    }
+    if (p[0] >= 0xF0 && p[0] <= 0xF4) {
+        if ((p[1] & 0xC0) != 0x80 || (p[2] & 0xC0) != 0x80 ||
+            (p[3] & 0xC0) != 0x80) return 0;
+        if (p[0] == 0xF0 && p[1] < 0x90) return 0;
+        if (p[0] == 0xF4 && p[1] > 0x8F) return 0;
+        return 4;
+    }
+    return 0;
+}
+
 static size_t json_esc_en(char *out, size_t n, size_t j, const char *in)
 {
     static const char HEX[] = "0123456789abcdef";
     for (size_t i = 0; in && in[i]; i++) {
         unsigned char c = (unsigned char)in[i];
         size_t esc = (c == '"' || c == '\\') ? 2 : ((c < 0x20 || c == 0x7F) ? 6 : 1);
+        /* Para los bytes >= 0x80 lo que ocupa es la longitud REAL de su
+         * secuencia UTF-8 (o 1 si es invalida: luego se sustituye por '?'). */
+        if (c >= 0x80) {
+            size_t l = utf8_largo((const unsigned char *)in + i);
+            esc = (l == 0) ? 1 : l;
+        }
         if (j + esc + 1 >= n) return 0;      /* +1: el cero final */
+        if (c >= 0x80) {
+            if (esc == 1) {
+                /* Secuencia rota: se sustituye por '?' y se sigue con el byte
+                 * siguiente. */
+                out[j++] = '?';
+                continue;
+            }
+            for (size_t k = 0; k < esc; k++) out[j++] = in[i + k];
+            i += esc - 1;
+            continue;
+        }
         if (esc == 2) {
             out[j++] = '\\';
             out[j++] = (char)c;
