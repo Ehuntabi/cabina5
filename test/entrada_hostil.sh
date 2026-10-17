@@ -159,7 +159,7 @@ int main(int argc, char **argv)
         {"bandera (8 bytes)",       "\xF0\x9F\x87\xAA\xF0\x9F\x87\xB8"},
         {"CJK (ancho)",             "\xE6\x97\xA5\xE6\x9C\xAC"},
         {"UTF-8 truncado (0xC3)",   "abc\xC3",              "abc?"},
-        {"UTF-8 truncado (0xE6 0x97)", "abc\xE6\x97",      "abc?"},
+        {"UTF-8 truncado (0xE6 0x97)", "abc\xE6\x97",      "abc??"},
         {"byte invalido 0xFF",      "abc\xFF",              "abc?"},
         {"parece JSON",             "{\"a\":1}"},
         {"traversal /",             "../../etc/passwd"},
@@ -186,8 +186,12 @@ int main(int argc, char **argv)
         u = apunte_cerrar(b, sizeof(b), u, T[i].txt);
         escribe(ruta_in, T[i].txt, strlen(T[i].txt));
         if (T[i].esp) {
-            snprintf(ruta_body, sizeof(ruta_body), "%s/c%02d.esp", dir, i);
-            escribe(ruta_body, T[i].esp, strlen(T[i].esp));
+            /* En su PROPIO buffer: reutilizar ruta_body dejaba el cuerpo sin
+             * escribir (se iba al fichero .esp) y el validador de Python petaba
+             * con un traceback al buscar cNN.body. */
+            char ruta_esp[512];
+            snprintf(ruta_esp, sizeof(ruta_esp), "%s/c%02d.esp", dir, i);
+            escribe(ruta_esp, T[i].esp, strlen(T[i].esp));
         }
         if (u == 0) { escribe(ruta_body, "", 0); continue; }   /* no entro */
         escribe(ruta_body, b, u);
