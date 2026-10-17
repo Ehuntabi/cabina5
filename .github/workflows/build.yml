@@ -103,6 +103,8 @@ jobs:
                    main/net/viaje_cola.h \
                    main/net/p4_api.c \
                    main/net/p4_api.h \
+                   main/net/ota_rx.c \
+                   main/net/ota_rx.h \
                    main/net/apunte.c \
                    main/net/apunte.h \
                    main/net/udp_rx.c \
@@ -121,6 +123,7 @@ jobs:
                    test/viaje_cola_libre_arnes.c test/viaje_cola_libre.sh \
                    test/viaje_horario_arnes.c test/viaje_horario.sh \
                    test/viaje_contadores.sh test/viaje_contadores_arnes.c \
+                   test/ota_version.sh test/ota_version_arnes.c \
                    main/ui/ui_style.h \
                    test/estilo.sh ; do
             if [ ! -f "cabina5/$f" ] || [ ! -f "35cabina/$f" ]; then
@@ -173,6 +176,12 @@ jobs:
       # colo el 16-oct-2026), ningun color a mano y los titulos centrados.
       - name: El estilo de la UI (fuentes, paleta, titulos)
         run: bash cabina5/test/estilo.sh
+
+      # Y las decisiones de la actualizacion OTA (comparacion de versiones y
+      # sha256): se sacan del ota_rx.c real y se compilan en el runner. Un error
+      # aqui deja la pantalla con un firmware que no arranca.
+      - name: La actualizacion OTA decide bien (version y sha256)
+        run: bash cabina5/test/ota_version.sh
 
       - name: El contrato del canal de viaje, contra la P4
         run: bash victron/test/protocolo_cabina.sh victron cabina5

@@ -38,6 +38,15 @@ static const char *TAG = "p4_api";
 #define P4_HOST       "http://192.168.4.1"
 #define P4_URL        P4_HOST "/api/viaje"
 #define P4_URL_ALARMA P4_HOST "/api/alarma"
+
+/* La IP, para quien monte otras URLs suyas (desde el 17-oct-2026, la
+ * actualizacion OTA pide el .bin al puerto 8081 de esta misma P4). Ver
+ * p4_api.h. */
+const char *p4_api_host(void)
+{
+    return P4_HOST;
+}
+
 /* 8 s: el AP esta a un metro, pero la P4 puede estar ocupada con la tarjeta
  * (el endpoint toma el cerrojo de la SD, hasta 3 s) y ademas puede tocarle
  * reasociarse. Corto se traduciria en fallos falsos. */
@@ -127,6 +136,14 @@ static void cabecera_basic(const char *user, const char *pass, char *out, size_t
         out[k++] = (i + 2 < lp) ? B64[v & 63] : '=';
     }
     out[k] = '\0';
+}
+
+/* Version publica de cabecera_basic() para el otro cliente HTTP del proyecto
+ * (net/ota_rx.c). NO se duplica el Base64: ver el porque en p4_api.h. */
+void p4_api_cabecera_basic(const char *user, const char *pass, char *out, size_t n)
+{
+    if (!out || n == 0) return;
+    cabecera_basic(user, pass, out, n);
 }
 
 bool p4_api_post_url(const char *url, const char *cuerpo, int *estado_out,

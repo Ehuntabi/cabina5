@@ -19,6 +19,9 @@ static const char *TAG = "diag_reset";
 #define NS       "diag"
 #define K_VECES  "veces"
 #define K_SW_POR "sw_por"
+/* Marca de reinicio PREVISTO Y BUENO (actualizacion OTA). Va en su propia clave
+ * y no en K_SW_POR: esa cuenta como fallo, y una actualizacion no lo es. */
+#define K_SW_BIEN "sw_bien"
 
 static bool     s_fallo;
 static bool     s_anotado;              /* ya se leyo el motivo del arranque */
@@ -89,6 +92,26 @@ void diag_reset_anotar_arranque(void)
 
     nvs_get_u32(h, K_VECES, &s_veces);
 
+    /* Y la marca de "reinicio PREVISTO Y BUENO" (la deja la actualizacion OTA,
+     * ver diag_reset_marcar_sw_bueno). Manda sobre todo lo demas: el chip solo
+     * sabe decir "reinicio por software", y eso aqui NO es un fallo. */
+    char bien[24] = {0};
+    size_t nb = sizeof(bien);
+    bool hay_bien = (nvs_get_str(h, K_SW_BIEN, bien, &nb) == ESP_OK) && bien[0] != '\0';
+
+    if (hay_bien) {
+        s_fallo = false;
+        snprintf(s_motivo, sizeof(s_motivo), "%s", bien);
+        nvs_erase_key(h, K_SW_BIEN);
+        /* Si por lo que sea quedara tambien la marca de fallo, se borra: no se
+         * arrastra un motivo viejo al arranque siguiente. */
+        if (hay_marca) nvs_erase_key(h, K_SW_POR);
+        nvs_commit(h);
+        nvs_close(h);
+        ESP_LOGI(TAG, "arranque: %s (reinicio previsto, no cuenta como fallo)", s_motivo);
+        return;
+    }
+
     if (s_fallo) {
         s_veces++;
         if (hay_marca) {
@@ -124,6 +147,22 @@ void diag_reset_marcar_sw(const char *por_que)
         /* Sin la marca, el arranque siguiente no sabra por que se pidio este
          * reinicio y se quedara en el motivo generico del chip. */
         ESP_LOGW(TAG, "no se pudo anotar la marca del reinicio: %s",
+                 esp_err_to_name(err));
+    }
+    nvs_close(h);
+}
+
+void diag_reset_marcar_sw_bueno(const char *por_que)
+{
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return;
+    esp_err_t err = nvs_set_str(h, K_SW_BIEN, por_que ? por_que : "reinicio previsto");
+    if (err == ESP_OK) err = nvs_commit(h);
+    if (err != ESP_OK) {
+        /* Sin la marca, el arranque siguiente contara este reinicio como un
+         * fallo mas y saldra la tarjeta roja "Se reinicio sola". No se puede
+         * hacer nada mas: el reinicio hay que pedirlo igual. */
+        ESP_LOGW(TAG, "no se pudo anotar el reinicio previsto: %s",
                  esp_err_to_name(err));
     }
     nvs_close(h);

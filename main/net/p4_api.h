@@ -49,6 +49,23 @@ bool p4_api_post_resp(const char *cuerpo, int *estado_out, char *resp_out, size_
 bool p4_api_post_url(const char *url, const char *cuerpo, int *estado_out,
                       char *resp_out, size_t resp_n);
 
+/* La IP del AP de la P4, en un solo sitio. Devuelve "http://192.168.4.1" (sin
+ * barra final).
+ *
+ * Existe desde el 17-oct-2026 porque hay OTRO cliente HTTP en el proyecto: el
+ * de la actualizacion OTA (net/ota_rx.c), que pide el .bin al puerto 8081 de
+ * esta misma IP. Tener el numero escrito en dos ficheros es garantizar que un
+ * dia se cambie en uno y la pantalla se quede buscando la P4 donde ya no esta. */
+const char *p4_api_host(void);
+
+/* Monta la cabecera "Authorization: Basic xxx" A MANO.
+ *
+ * La usan los envios de aqui y tambien net/ota_rx.c: un segundo Base64 seria un
+ * segundo sitio donde equivocarse con el relleno '=', y ese fallo no se veria
+ * hasta que la P4 contestara 401 -- en una actualizacion, o sea, el peor
+ * momento posible. */
+void p4_api_cabecera_basic(const char *user, const char *pass, char *out, size_t n);
+
 /* Montadores del cuerpo JSON, para encolar sin enviar. */
 /* Identidad de esta pantalla (su MAC en hex) tal y como viaja en los cuerpos:
  * la P4 la usa para saber de quien es el viaje abierto. Ver p4_api.c. */

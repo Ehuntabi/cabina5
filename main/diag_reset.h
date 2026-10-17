@@ -20,6 +20,20 @@ void diag_reset_anotar_arranque(void);
  * "UI colgada"): lo consume el arranque siguiente. */
 void diag_reset_marcar_sw(const char *por_que);
 
+/* Marca un reinicio PREVISTO Y BUENO, el de una actualizacion OTA ya aplicada.
+ *
+ * POR QUE EXISTE (17-oct-2026): el reinicio por software cuenta como FALLO a
+ * proposito (ver es_fallo() en el .c: hasta ahora nada reiniciaba a proposito
+ * salvo un cuelgue de la UI). La actualizacion OTA reinicia A PROPOSITO y esta
+ * bien; sin esta funcion, al volver la tarjeta de Ajustes diria "Se reinicio
+ * sola" en rojo, que es justo lo contrario de lo que hay que ver. Con esto, el
+ * arranque siguiente lo cuenta como normal y el motivo sale en gris
+ * ("Arranque: actualizacion de pantalla").
+ *
+ * Llamar JUSTO ANTES de esp_restart(), y solo cuando el reinicio es lo que se
+ * queria (la version nueva ya esta marcada para arrancar). */
+void diag_reset_marcar_sw_bueno(const char *por_que);
+
 /* Para la pantalla de Ajustes. */
 bool diag_reset_fue_fallo(void);   /* el arranque anterior no lo provoco el contacto */
 

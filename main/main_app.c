@@ -24,6 +24,7 @@
 #include "net/udp_rx.h"
 #include "net/viaje_cola.h"
 #include "net/p4_test.h"   /* auto-test del canal de subida a la P4 */
+#include "net/ota_rx.h"   /* actualizacion por Wi-Fi desde Ajustes */
 #include "ui/view_info.h"
 #include "capture_carousel.h"   /* modo captura de pantallas por USB */
 #include "esp_log.h"
@@ -445,6 +446,14 @@ void setup(void) {
      * resultado medido es "create wifi task: failed to create task" y la placa
      * se reinicia en bucle. */
     udp_rx_start();
+
+    /* EL CLIENTE DE ACTUALIZACION (net/ota_rx.c), y va justo aqui:
+     *   - para dar por buena una version recien instalada hace falta el enlace
+     *     con la P4 (asociada + IP), y eso empieza a existir en udp_rx_start();
+     *   - deja en el log de que particion esta corriendo, que es el primer dato
+     *     para saber si una actualizacion se aplico de verdad.
+     * Si no hay nada que validar (el caso normal) solo escribe esas dos lineas. */
+    ota_rx_arranque();
 
     if (!lvgl_port_lock(5000)) {
         ESP_LOGE(TAG, "No se pudo tomar lvgl_port_lock al iniciar UI");

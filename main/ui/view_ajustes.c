@@ -16,6 +16,7 @@
 #include "view_info.h"
 #include "nav.h"       /* nav_close_ajustes(): salir de esta pantalla */
 #include "../net/udp_rx.h"
+#include "../net/ota_rx.h"   /* actualizacion por Wi-Fi: la lanza y se pinta aqui */
 #include "../net/mini_proto.h"   /* MINI_PROTO_VERSION: el diagnostico del enlace */
 #include "confirm_screen.h"
 #include "config_storage.h"
@@ -32,10 +33,22 @@ static const char *TAG = "view_ajustes";
 /* Las dos caras de la pantalla: se ensena una y se esconde la otra. */
 static lv_obj_t *s_menu;
 static lv_obj_t *s_wifi;
+/* La pantalla de Ajustes entera (el padre de las dos caras). Se guarda para
+ * saber si esta DELANTE: el temporizador de la actualizacion no puede abrir el
+ * cartel de confirmacion encima de la pantalla que el usuario este mirando. */
+static lv_obj_t *s_raiz;
 
 static lv_obj_t *s_ver_lbl;
 static lv_obj_t *s_ssid_ta;
 static lv_obj_t *s_enlace;        /* estado del enlace con la P4 */
+static lv_obj_t *s_ota_lbl;       /* estado de la actualizacion (comparte sitio) */
+static lv_timer_t *s_ota_timer;
+/* Cierto mientras el cartel "hay version nueva" ya se abrio para esta oferta.
+ * Sin esto, el temporizador lo abriria otra vez cada 500 ms al cancelarlo. */
+static bool s_ota_preguntando;
+/* El cuerpo del cartel, estatico: confirm_screen_open() se queda con el puntero
+ * y lo lee despues, asi que no puede ser una variable local de la funcion. */
+static char s_ota_body[96];
 static lv_obj_t *s_uptime_lbl;    /* cuanto lleva en marcha (ver diag_reset) */
 static lv_timer_t *s_enlace_timer;
 static lv_obj_t *s_pass_ta;
@@ -272,6 +285,166 @@ static void enlace_timer_cb(lv_timer_t *t)
     }
 }
 
+/* ── ACTUALIZACION POR WI-FI (OTA), 17-oct-2026 ─────────────────────────────
+ *
+ * Lo pidio el dueño: "¿es posible implementar una actualizacion por OTA en la 5
+ * y 3,5?" -> "dale". El trabajo de verdad (preguntar a la P4, descargar 2 MB,
+ * comprobar el sha256 y escribir la flash) lo hace net/ota_rx.c en sus propias
+ * tareas. AQUI solo se pinta su estado y se pide confirmacion: nada de esta
+ * pantalla se queda esperando a la red, porque eso congelaria la UI y el
+ * watchdog de tareas reiniciaria la placa a mitad de la descarga.
+ */
+
+/* Los codigos de "no se pudo empezar", en una linea corta (ver ota_rx.h). */
+static const char *ota_inicio_texto(ota_rx_inicio_t r)
+{
+    switch (r) {
+        case OTA_RX_INICIO_OK:        return "";
+        case OTA_RX_INICIO_VIAJE:     return "Termina el viaje antes";
+        case OTA_RX_INICIO_OCUPADO:   return "Ya hay una actualizacion en marcha";
+        case OTA_RX_INICIO_SIN_DATOS: return "Primero comprueba la version";
+        case OTA_RX_INICIO_SIN_MEM:   return "Sin memoria para actualizar";
+        default:                      return "No se pudo empezar";
+    }
+}
+
+/* Aceptar el cartel: empieza la descarga. Verde a la derecha, como todas. */
+static void ota_aceptar_cb(void *ud)
+{
+    (void)ud;
+    ota_rx_inicio_t r = ota_rx_actualizar();
+    if (r != OTA_RX_INICIO_OK && s_ota_lbl) {
+        lv_label_set_text(s_ota_lbl, ota_inicio_texto(r));
+        lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_RED, 0);
+    }
+    /* s_ota_preguntando se queda puesto a proposito: si no arranco (un viaje que
+     * empezo entre la pregunta y el "si"), no se vuelve a preguntar lo mismo
+     * cada medio segundo. Se limpia al pulsar el boton o al cancelar. */
+}
+
+/* Cancelar (el rojo de la izquierda): se olvida la oferta para que el proximo
+ * toque del boton vuelva a comprobar de cero. */
+static void ota_cancelar_cb(void *ud)
+{
+    (void)ud;
+    ota_rx_olvidar();
+    s_ota_preguntando = false;
+    if (s_ota_lbl) {
+        lv_label_set_text(s_ota_lbl, "");
+        lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_TEXT_DIM, 0);
+    }
+}
+
+/* El boton "Actualizar pantalla": pregunta a la P4 si hay version nueva. */
+static void ota_btn_cb(lv_event_t *e)
+{
+    (void)e;
+    ota_rx_vista_t v;
+    ota_rx_estado(&v);
+    if (v.estado == OTA_RX_COMPROBANDO || v.estado == OTA_RX_DESCARGANDO ||
+        v.estado == OTA_RX_LISTO) {
+        return;   /* ya hay algo en marcha: no se lanza otra */
+    }
+    /* Este toque es "vuelve a empezar": si la comprobacion anterior dejo el
+     * cartel ya preguntado, se limpia para que pregunte otra vez si hay nueva. */
+    s_ota_preguntando = false;
+
+    ota_rx_inicio_t r = ota_rx_comprobar();
+    if (!s_ota_lbl) return;
+    if (r != OTA_RX_INICIO_OK) {
+        lv_label_set_text(s_ota_lbl, ota_inicio_texto(r));
+        lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_RED, 0);
+    } else {
+        lv_label_set_text(s_ota_lbl, "Buscando version nueva...");
+        lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_TEXT_SOFT, 0);
+    }
+}
+
+/* Pinta el estado y pide confirmacion cuando hay version nueva.
+ *
+ * Corre en la tarea de LVGL (es un lv_timer) y SOLO mira el estado: ota_rx_estado
+ * copia y vuelve. El estado de la OTA y el del enlace comparten sitio en el menu:
+ * mientras hay algo que contar de la actualizacion se enseña eso y se esconde el
+ * enlace, y al reves al terminar. Asi la fila de botones nueva no le quita alto a
+ * la tarjeta de la version. */
+static void ota_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    /* Solo con Ajustes DELANTE y en el MENU (no en el formulario de Wi-Fi): si
+     * no, el cartel de confirmacion saltaria encima de lo que el usuario este
+     * mirando. */
+    if (!s_ota_lbl || !s_enlace || !s_raiz || !s_menu) return;
+    if (lv_screen_active() != s_raiz) return;
+    if (lv_obj_has_flag(s_menu, LV_OBJ_FLAG_HIDDEN)) return;
+
+    ota_rx_vista_t v;
+    ota_rx_estado(&v);
+
+    if (v.estado == OTA_RX_QUIETO) {
+        lv_obj_add_flag(s_ota_lbl, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_enlace, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_clear_flag(s_ota_lbl, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_enlace, LV_OBJ_FLAG_HIDDEN);
+
+    switch (v.estado) {
+        case OTA_RX_COMPROBANDO:
+            lv_label_set_text(s_ota_lbl, "Buscando version nueva...");
+            lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_TEXT_SOFT, 0);
+            break;
+
+        case OTA_RX_HAY_NUEVA: {
+            lv_label_set_text_fmt(s_ota_lbl, "Hay version nueva: %s", v.ofrecida);
+            lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_CYAN, 0);
+            if (!s_ota_preguntando && !confirm_screen_is_open()) {
+                s_ota_preguntando = true;
+                const esp_app_desc_t *app = esp_app_get_description();
+                snprintf(s_ota_body, sizeof(s_ota_body),
+                         "Instalada: %s     Nueva: %s",
+                         (app && app->version[0]) ? app->version : "?", v.ofrecida);
+                /* Verde = aceptar (derecha), rojo = cancelar (izquierda): la
+                 * norma del dueño, y confirm_screen ya la cumple. */
+                confirm_screen_open("Actualizar pantalla?", s_ota_body,
+                                    UI_COLOR_ORANGE_HEX, "Si, actualizar", "Cancelar",
+                                    ota_aceptar_cb, NULL);
+                /* El rojo tiene que OLVIDAR la oferta. Sin esto, al cancelar el
+                 * estado seguiria en HAY_NUEVA y el cartel volveria a salir en
+                 * el siguiente tic: un bucle imposible de cerrar. */
+                confirm_screen_no_accion(ota_cancelar_cb, NULL);
+            }
+            break;
+        }
+
+        case OTA_RX_AL_DIA: {
+            const esp_app_desc_t *app = esp_app_get_description();
+            lv_label_set_text_fmt(s_ota_lbl, "Estas al dia (%s)",
+                                  (app && app->version[0]) ? app->version : "?");
+            lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_GREEN, 0);
+            break;
+        }
+
+        case OTA_RX_DESCARGANDO:
+            lv_label_set_text_fmt(s_ota_lbl, "Descargando... %d %%", v.pct);
+            lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_YELLOW, 0);
+            break;
+
+        case OTA_RX_LISTO:
+            lv_label_set_text(s_ota_lbl, "Listo, reiniciando");
+            lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_GREEN, 0);
+            break;
+
+        case OTA_RX_ERROR:
+            lv_label_set_text(s_ota_lbl,
+                              v.motivo[0] ? v.motivo : "No se pudo actualizar");
+            lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_RED, 0);
+            break;
+
+        default:
+            break;
+    }
+}
+
 /* (aqui vivia brillo_btn_cb, el boton de brillo del menu: quitado el 16-oct-2026)
  *
  * El brillo se cambia con el DOBLE TOQUE en la pantalla de datos (y con el
@@ -410,6 +583,10 @@ void view_ajustes_refresh(void)
 
 void view_ajustes_create(lv_obj_t *parent)
 {
+    /* Se guarda la pantalla para que el temporizador de la OTA sepa si esta
+     * delante (ver ota_timer_cb). */
+    s_raiz = parent;
+
     lv_obj_set_style_bg_color(parent, UI_COLOR_BG, 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(parent, 0, 0);
@@ -452,14 +629,27 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(mtitle, &lv_font_montserrat_22, 0);
     lv_obj_align(mtitle, LV_ALIGN_CENTER, 0, 0);   /* TODOS los titulos van centrados (usuario, 16-oct) */
 
-    /* El unico boton, y grande: es lo unico que se toca aqui. */
-    lv_obj_t *wbtn = lv_btn_create(s_menu);
-    lv_obj_set_size(wbtn, lv_pct(100), 110);
+    /* DOS ACCIONES EN LA MISMA FILA: Wi-Fi y "Actualizar pantalla".
+     *
+     * La actualizacion por Wi-Fi la pidio el dueño el 17-oct-2026 y vive aqui
+     * porque es donde se mira la version instalada. Comparten fila y alto (110
+     * px) para no quitarle sitio a la tarjeta de la version: dos botones de 377
+     * px con 14 de aire suman los 768 utiles. */
+    lv_obj_t *acciones = lv_obj_create(s_menu);
+    lv_obj_set_size(acciones, lv_pct(100), 110);
+    lv_obj_set_style_bg_opa(acciones, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(acciones, 0, 0);
+    lv_obj_set_style_pad_all(acciones, 0, 0);
+    lv_obj_clear_flag(acciones, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *wbtn = lv_btn_create(acciones);
+    lv_obj_set_size(wbtn, 377, 110);
     /* SIN flex_grow (16-oct-2026): pedia altura extra y se la quitaba a la
      * tarjeta de la version, que es la que tiene texto que enseñar. El boton se
      * queda en sus 110 px, que ya es un boton grande. */
     lv_obj_set_flex_grow(wbtn, 0);
     lv_obj_set_style_bg_color(wbtn, UI_COLOR_CYAN, 0);
+    lv_obj_align(wbtn, LV_ALIGN_LEFT_MID, 0, 0);
     lv_obj_add_event_cb(wbtn, wifi_open_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *wlbl = lv_label_create(wbtn);
     lv_label_set_text(wlbl, LV_SYMBOL_WIFI "   Wi-Fi");
@@ -467,6 +657,19 @@ void view_ajustes_create(lv_obj_t *parent)
      * px de ancho entra de sobra, y asi se lee de lejos. */
     lv_obj_set_style_text_font(wlbl, &lv_font_montserrat_30, 0);
     lv_obj_center(wlbl);
+
+    lv_obj_t *ubtn = lv_btn_create(acciones);
+    lv_obj_set_size(ubtn, 377, 110);
+    lv_obj_set_flex_grow(ubtn, 0);
+    lv_obj_set_style_bg_color(ubtn, UI_COLOR_CYAN, 0);
+    lv_obj_align(ubtn, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_add_event_cb(ubtn, ota_btn_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *ulbl = lv_label_create(ubtn);
+    lv_label_set_text(ulbl, "Actualizar pantalla");
+    /* Letra 26 y no 30: "Actualizar pantalla" es mucho mas largo que "Wi-Fi".
+     * Con la 26 entra en los 377 px y se sigue leyendo de lejos. */
+    lv_obj_set_style_text_font(ulbl, &lv_font_montserrat_26, 0);
+    lv_obj_center(ulbl);
 
     /* AQUI ESTABA EL BOTON DE BRILLO ("Brillo: 85 %" / "100 %"). El usuario lo
      * mando quitar el 16-oct-2026: el brillo se cambia con el doble toque (y el
@@ -490,6 +693,23 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_label_set_text(s_enlace, "");
     if (!s_enlace_timer) {
         s_enlace_timer = lv_timer_create(enlace_timer_cb, 1000, NULL);
+    }
+
+    /* EL ESTADO DE LA ACTUALIZACION. Comparte sitio con el del enlace (ver
+     * ota_timer_cb): nace escondido y se enseña solo cuando hay algo que contar,
+     * asi que la fila de dos botones no le quita alto a la tarjeta de abajo. */
+    s_ota_lbl = lv_label_create(s_menu);
+    lv_obj_set_style_text_font(s_ota_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_TEXT_DIM, 0);
+    lv_label_set_text(s_ota_lbl, "");
+    lv_obj_set_width(s_ota_lbl, lv_pct(100));
+    lv_label_set_long_mode(s_ota_lbl, LV_LABEL_LONG_WRAP);
+    lv_obj_add_flag(s_ota_lbl, LV_OBJ_FLAG_HIDDEN);
+    /* 500 ms: el progreso se mueve como mucho cada ~40 ms, asi que medio segundo
+     * va sobrado. El temporizador no hace nada si Ajustes no esta delante. */
+    if (!s_ota_timer) {
+        s_ota_timer = lv_timer_create(ota_timer_cb, 500, NULL);
+        if (!s_ota_timer) ESP_LOGW(TAG, "sin temporizador de OTA: no se vera el progreso");
     }
 
     /* Y el resto de la pantalla, la VERSION. GRANDE y centrada -- letra 40 para

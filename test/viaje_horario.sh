@@ -32,8 +32,13 @@ while True:
         if n == 0: break
     k += 1
 fn = fuente[i:k+1]
+# DOS funciones desde el 17-oct-2026: salida_noches() pregunta
+# reloj_delta_horario_desde(epoch_ini), que es la que decide si el tramo empezo
+# ANTES del cambio de horario. Las dos devuelven lo mismo aqui: el test simula
+# tramos que cruzan el cambio, que es el caso que importa.
 stub = ('static int g_delta = 0;\n'
         'int reloj_delta_horario(void) { return g_delta; }\n'
+        'int reloj_delta_horario_desde(uint32_t epoch_ini) { (void)epoch_ini; return g_delta; }\n'
         '#define ESP_LOGW(tag, ...) do { } while (0)\n')
 # el define del tope, que en salida.c viene del header
 extra = '#define SALIDA_NOCHES_MAX 30\n'
