@@ -76,7 +76,8 @@
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_netif.h"       /* la IP de la STA, para validar el arranque */
-#include "esp_ota_ops.h"     /* esp_ota_*: escribir y marcar la particion */
+#include "esp_ota_ops.h"
+#include "esp_task_wdt.h"     /* esp_ota_*: escribir y marcar la particion */
 #include "esp_partition.h"
 #include "esp_system.h"      /* esp_restart */
 #include "esp_timer.h"
@@ -800,6 +801,36 @@ static uint8_t *reservar_buffer(size_t n)
  * para que ninguna fuga ni ningun handle abierto se quede por el camino: esta
  * funcion puede fallar por diez sitios distintos y la flash tiene que quedar
  * igual de sana en todos. */
+/* ── EL TASK WDT DURANTE LA VENTANA DE FLASH ──────────────────────────────
+ *
+ * Durante el borrado y la escritura de la particion la cache se apaga y NINGUNA
+ * tarea que ejecute desde la flash puede latir: ni app_main ni el supervisor de
+ * LVGL, que son las dos que estan suscritas al Task WDT (10 s, CONFIG_ESP_TASK_
+ * WDT_PANIC=y). La OTA tarda mas que eso -- el borrado del hueco de 4 MB son
+ * varios segundos y escribir 2,2 MB por Wi-Fi, otros quince --, asi que el WDT
+ * reiniciaba la placa A MITAD de la actualizacion. Visto en la placa el
+ * 17-oct-2026 probando la OTA desde el movil ("se reinicio sola, watchdog").
+ *
+ * No se desuscriben las tareas una a una (habria que conocer sus handles y en
+ * que nucleo corre cada una, y una OTA es puntual): se alarga el plazo del WDT
+ * mientras dura la ventana de flash y se devuelve al terminar, pase lo que pase.
+ * El plazo de 90 s es de sobra para el peor caso (tarjeta lenta + Wi-Fi malo) y,
+ * si de verdad se cuelga algo, el WDT sigue saltando, solo que mas tarde. */
+#define OTA_TWDT_FLASH_MS 90000
+static void ota_wdt_ventana(bool flash)
+{
+    esp_task_wdt_config_t cfg = {
+        .timeout_ms     = flash ? OTA_TWDT_FLASH_MS : 10000,
+        .idle_core_mask = 0,        /* como esta configurado: las IDLE no se vigilan */
+        .trigger_panic  = true,     /* igual que sdkconfig */
+    };
+    esp_err_t e = esp_task_wdt_reconfigure(&cfg);
+    if (e != ESP_OK)
+        ESP_LOGW(TAG, "no he podido %s el Task WDT (%s): la flash puede reiniciar "
+                      "la placa a mitad", flash ? "alargar" : "devolver",
+                 esp_err_to_name(e));
+}
+
 static void tarea_actualizar(void *arg)
 {
     (void)arg;
@@ -812,6 +843,7 @@ static void tarea_actualizar(void *arg)
     bool sha_iniciado = false;
     bool ota_abierta = false;
     bool cli_abierto = false;
+    bool wdt_abierto = false;
     bool diferido = false;
     uint32_t escrito = 0;
 
@@ -911,6 +943,10 @@ static void tarea_actualizar(void *arg)
 
     /* esp_ota_begin borra la particion que NO se esta usando. Si falla, la
      * version que corre no se ha tocado. */
+    /* La flash se queda sin cache varios segundos: ver ota_wdt_ventana(). */
+    ota_wdt_ventana(true);
+    wdt_abierto = true;
+
     esp_err_t err = esp_ota_begin(parte, esperado, &ota);
     if (err != ESP_OK) {
         snprintf(motivo, sizeof motivo, "No se pudo preparar la particion (%s)",
@@ -1035,6 +1071,8 @@ static void tarea_actualizar(void *arg)
     esp_restart();
 
 salir:
+    /* El plazo del WDT se devuelve SIEMPRE, salga bien o mal. */
+    if (wdt_abierto) ota_wdt_ventana(false);
     if (sha_iniciado) mbedtls_sha256_free(&sha);
     if (ota_abierta) esp_ota_abort(ota);   /* libera el handle SIN marcar nada */
     if (cli) {
