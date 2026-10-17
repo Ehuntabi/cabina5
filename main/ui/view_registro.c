@@ -1932,13 +1932,14 @@ static lv_obj_t *add_header(lv_obj_t *form, const char *title, lv_color_t color,
     /* Centrado en la fila, no respecto al hueco que deja el boton: asi el
      * titulo cae en el eje de la pantalla.
      *
-     * Con ANCHO TOPE, y no es un adorno: el boton ocupa de 0 a 128, asi que un
-     * titulo centrado solo puede medir 2*(232-128) = 208 px antes de metersele
-     * encima. "SERVICIOS DEL ÁREA" media ~219 y lo pisaba. Fijando el ancho, un
-     * titulo demasiado largo sale con puntos suspensivos -- feo, pero visible y
-     * sin tapar el boton, en vez de solaparse en silencio.
-     * En letra 22 caben ~14 caracteres: "VIAJE EN CURSO" (~175 px) y
-     * "MANTENIMIENTO" (~163 px) entran holgados. */
+     * Con ANCHO TOPE, y no es un adorno: el Volver ocupa 192 px y el titulo va
+     * centrado en los 800. Con el tope de 300 px, un titulo de 300 cae entre
+     * x=250 y x=550, o sea 58 px a la derecha del boton. Sin tope, uno largo se
+     * metia debajo del Volver sin que nada lo delatara.
+     * Medido con la Inter 28 (la que usa el rotulo; el comentario viejo decia
+     * 22): "VIAJE EN CURSO" 231 px, "MANTENIMIENTO" 239 y "SERVICIOS DEL AREA"
+     * 289, los tres por debajo del tope. Lo que pase de 300 se recorta sin
+     * puntos (CLIP), como se explica abajo. */
     lv_obj_t *t = lv_label_create(row);
     lv_label_set_text(t, title);
     lv_obj_set_style_text_color(t, color, 0);

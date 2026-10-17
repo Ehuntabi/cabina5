@@ -191,8 +191,11 @@ muestra datos falsos.
 
 ```
 pantalla 3,5"   480x320 px  ->  165 ppp   (la UI original)
-pantalla 5"     800x480 px  ->  181 ppp   (esta)
+pantalla 5"     800x480 px  ->  186,6 ppp (esta)
 ```
+
+(ppp = px por pulgada sobre la diagonal: √(800²+480²) = 932,95 px / 5" = 186,59;
+la 3,5" da √(480²+320²) = 576,9 / 3,5 = 164,8.)
 
 **Casi el mismo píxel físico.** Portar la UI da **MÁS SITIO, no MÁS TAMAÑO**. Para
 que todo se vea más grande hay que subir el tamaño a mano: la letra **ya subió
