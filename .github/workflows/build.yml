@@ -76,8 +76,27 @@ jobs:
 
       - name: mini_proto.h igual en los tres
         run: |
-          diff cabina5/main/net/mini_proto.h 35cabina/main/net/mini_proto.h
-          diff cabina5/main/net/mini_proto.h victron/main/net/mini_proto.h
+          # CARRERA DE PUSH (17-oct-2026): los tres repos se publican de uno en
+          # uno y este job compara contra la rama del vecino en el instante en
+          # que corre; si el vecino va por detras se pone rojo sin que haya
+          # deriva. Se reintenta trayendo la rama del vecino otra vez.
+          for intento in 1 2 3 4; do
+            if diff -q cabina5/main/net/mini_proto.h 35cabina/main/net/mini_proto.h >/dev/null &&
+               diff -q cabina5/main/net/mini_proto.h victron/main/net/mini_proto.h >/dev/null; then
+              echo "mini_proto.h igual en los tres"
+              exit 0
+            fi
+            if [ "$intento" = 4 ]; then break; fi
+            echo "--- intento $intento: alguno de los vecinos puede ir por detras; se reintenta en 45 s"
+            sleep 45
+            for r in 35cabina victron; do
+              git -C "$r" fetch -q origin main && git -C "$r" reset -q --hard origin/main || true
+            done
+          done
+          diff cabina5/main/net/mini_proto.h 35cabina/main/net/mini_proto.h || true
+          diff cabina5/main/net/mini_proto.h victron/main/net/mini_proto.h || true
+          echo "mini_proto.h se ha separado entre los proyectos"
+          exit 1
 
       - name: CUERPO_MAX de las dos cabinas, y que quepa en la P4
         run: |
@@ -98,7 +117,13 @@ jobs:
       # reconcilian o descartan distinto sobre el mismo viaje. Aqui se cae solo.
       - name: El ciclo del viaje, identico en las dos cabinas
         run: |
-          fallo=0
+          # CARRERA DE PUSH (17-oct-2026): los dos repos de las cabinas se
+          # publican de uno en uno y este job compara contra la rama del vecino
+          # en el instante en que corre; si el vecino va por detras se pone rojo
+          # SIN que haya deriva ninguna (paso tres veces seguidas el 17-oct).
+          # Se reintenta trayendo la rama del vecino otra vez: si la diferencia
+          # es de verdad, sigue ahi al cuarto intento y el job cae igual.
+          compara() {
           for f in main/net/viaje_cola.c \
                    main/net/viaje_cola.h \
                    main/net/p4_api.c \
@@ -137,11 +162,20 @@ jobs:
               echo "DISTINTO: $f"
               diff -u <(grep -v '^#include' "cabina5/$f") \
                       <(grep -v '^#include' "35cabina/$f") | head -40
-              fallo=1
+              return 1
             fi
           done
-          [ "$fallo" = 0 ] || { echo "Las dos cabinas tienen que llevar el MISMO ciclo de viaje"; exit 1; }
-          echo "ciclo del viaje identico en las dos cabinas"
+          return 0
+          }
+          for intento in 1 2 3 4; do
+            if compara; then echo "ciclo del viaje identico en las dos cabinas"; exit 0; fi
+            if [ "$intento" = 4 ]; then break; fi
+            echo "--- intento $intento: 35cabina puede ir por detras (se publica de uno en uno); se reintenta en 45 s"
+            sleep 45
+            git -C 35cabina fetch -q origin main && git -C 35cabina reset -q --hard origin/main || true
+          done
+          echo "Las dos cabinas tienen que llevar el MISMO ciclo de viaje"
+          exit 1
 
       # Y la clasificacion de la que depende la garantia del cierre se PRUEBA
       # (saca la funcion real de viaje_cola.c y la compila).
