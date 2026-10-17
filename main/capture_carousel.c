@@ -15,6 +15,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_task_wdt.h"
+#include "esp_heap_caps.h"   /* heap_caps_free: el frame copiado es nuestro */
 #include "mini_proto.h"
 #include "data_model.h"
 #include "ui/view_info.h"
@@ -32,6 +33,15 @@ static void inject_sim_data(void)
     d.shunt_soc_deci       = 782;    /* 78.2 % */
     d.shunt_voltage_centi  = 1342;   /* 13.42 V */
     d.shunt_current_milli  = -3500;  /* -3.5 A */
+    /* LOS INDICADORES DE "HAY DATO", que no se rellenaban (17-oct-2026): la
+     * UI no pinta el numero si `*_valido` es falso, asi que la captura de la
+     * pantalla de Datos de la 5" salia con la bateria en "--" aunque el valor
+     * estuviera puesto. En la 3,5" no se noto porque su modelo no tiene esos
+     * indicadores. Se marcan los tres del shunt; el resto (frigo, exterior,
+     * aguas) ya lleva su `*_has_data` mas abajo. */
+    d.soc_valido           = true;
+    d.v_valido             = true;
+    d.i_valido             = true;
     d.shunt_power_w        = -47;
     d.aux_value_raw        = 1265;   /* 12.65 V */
     d.aux_input            = 0;
@@ -63,6 +73,8 @@ static void inject_sim_data(void)
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>   /* va_list: la guardia de log del volcado */
+#include <unistd.h>   /* write(): el volcado va por el descriptor, sin traducir */
 #include "lvgl.h"
 #include "esp_bsp.h"   /* bsp_mirar_framebuffer: diagnostico */
 #include "lv_port_compat.h"
@@ -76,6 +88,25 @@ static void inject_sim_data(void)
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_task_wdt.h"
+
+/* EL LOG SE TIRA MIENTRAS DURA EL VOLCADO (17-oct-2026).
+ *
+ * Bajar el nivel a ERROR no basta: hay tags con nivel propio (el WiFi, los
+ * componentes) que se saltan el comodin "*", y CUALQUIER linea que salga en
+ * medio del volcado desplaza los pixeles que vienen detras: la imagen sale
+ * cortada por la mitad, con el trozo de abajo corrido. No se detecta mirando
+ * el tamano (los bytes son los que son), solo al abrir el PNG.
+ *
+ * Solucion: se sustituye la salida del log por la de abajo, que no escribe
+ * nada mientras `s_volcando` esta puesto. El volcado (printf/fwrite) no pasa
+ * por aqui, asi que sale entero. */
+static volatile bool s_volcando;
+
+static int log_sin_volcado(const char *fmt, va_list ap)
+{
+    if (s_volcando) return 0;
+    return vprintf(fmt, ap);
+}
 
 /* La segunda definicion de TAG que habia aqui ("capture") sobraba y rompia la
  * compilacion ("redefinition of TAG") en cuanto se encendia
@@ -123,6 +154,14 @@ typedef enum {
  *      PSRAM que no eran suyos (y salian las rayas que se achacaban al formato). */
 static void dump_screen_uart(const char *name)
 {
+    /* LOS DATOS DE EJEMPLO CADUCAN A LOS 5 s y un volcado a 115200 tarda 66 s
+     * por pantalla: sin reinyectarlos antes de cada copia, de la segunda
+     * pantalla en adelante todo saldria en gris ("--"). Y se deja repintar
+     * (sin el cerrojo) antes de copiar, o la copia sale con la cifra vieja:
+     * los objetos ya tienen los numeros nuevos pero el panel aun no. */
+    inject_sim_data();
+    vTaskDelay(pdMS_TO_TICKS(200));
+
     uint16_t w = 0, h = 0;
     uint16_t *pix = NULL;
     if (!lv_port_snapshot(&pix, &w, &h)) {
@@ -161,32 +200,84 @@ static void dump_screen_uart(const char *name)
              (unsigned)(raw_len / 11520));
     esp_log_level_set("*", ESP_LOG_ERROR);
 
-    printf("===BIN:%s:%ux%u:%u===\n", name, (unsigned)hres, (unsigned)vres,
-           (unsigned)raw_len);
-    fflush(stdout);
+    s_volcando = true;
+    /* OJO: POR EL PUERTO NO SE ESCRIBE CON printf/fwrite (17-oct-2026). La
+     * consola de ESP-IDF traduce los saltos de linea al escribir en stdout
+     * (CONFIG_NEWLIB_STDOUT_LINE_ENDING_CRLF): cada byte 0x0A de la imagen
+     * salia como 0x0D 0x0A y el volcado se corria dos bytes por cada uno. Se
+     * veia como imagen "partida por la mitad" y costaba verlo porque el
+     * tamano cuadraba: los bytes que llegan son otros, no faltan.
+     * Escribiendo con write() al descriptor 1, los bytes salen tal cual. */
+    dprintf(STDOUT_FILENO, "===BIN:%s:%ux%u:%u===\n", name, (unsigned)hres,
+            (unsigned)vres, (unsigned)raw_len);
 
-    const size_t TROZO = 2048;
+    /* TROCEADO CON INDICE Y SUMA (17-oct-2026). Antes iba todo del tiron y
+     * CUALQUIER byte que se colara en medio -- y se colaba: el watchdog, un
+     * aviso de otra tarea -- corria los pixeles y la imagen salia partida por
+     * la mitad sin que el tamano lo delatara. Con esta cabecera por trozo el
+     * receptor sabe donde va cada uno y comprueba que llega entero:
+     *
+     *   #<indice>:<bytes>:<suma>
+<bytes en crudo>
+     *
+     * Si un trozo no cuadra, se tira ESE trozo y la imagen sale con una banda
+     * mal, no partida. Y lo que escriba otro entre trozo y trozo se descarta
+     * buscando el siguiente '#'. */
+    const size_t TROZO = 1024;
     for (size_t i = 0; i < raw_len; i += TROZO) {
         size_t n = (raw_len - i < TROZO) ? (raw_len - i) : TROZO;
-        fwrite(fb + i, 1, n, stdout);
-        fflush(stdout);
-        /* ~180 ms por trozo: se cede la CPU (que es lo que deja correr a IDLE y
-         * al watchdog) y se alimenta el WDT por si esta tarea estuviera
-         * suscrita. Sin esto el Task WDT saltaba a mitad del volcado y sus
-         * trazas se colaban en el flujo. */
-        esp_task_wdt_reset();
+        uint16_t suma = 0;
+        for (size_t k = 0; k < n; k++) suma = (uint16_t)(suma + fb[i + k]);
+        dprintf(STDOUT_FILENO, "#%u:%u:%04x\n", (unsigned)(i / TROZO),
+                (unsigned)n, suma);
+        /* write() puede escribir MENOS de lo pedido (la UART es un
+         * periferico: si el buffer de salida se llena, devuelve lo que pudo).
+         * Antes se ignoraba el valor devuelto y se perdia el resto del trozo
+         * sin avisar: la suma no cuadraba en el receptor y la imagen salia con
+         * una banda. Hay que repetir hasta que salga todo. */
+        size_t puesto = 0;
+        while (puesto < n) {
+            ssize_t k = write(STDOUT_FILENO, fb + i + puesto, n - puesto);
+            if (k <= 0) break;
+            puesto += (size_t)k;
+        }
+        /* ~180 ms por trozo: se cede la CPU, que es lo que deja correr a las
+         * tareas de sistema mientras dura el volcado.
+         *
+         * Y EL WDT SE ALIMENTA SOLO SI ESTA TAREA ESTA SUSCRITA (17-oct-2026):
+         * llamarlo sin estarlo NO es inocuo -- esp_task_wdt_reset() escribe
+         * "E task_wdt: esp_task_wdt_reset(707): task not found" por CADA
+         * llamada, o sea 375 lineas de 62 bytes dentro del volcado, y el
+         * receptor, que espera 768.000 bytes exactos, se queda desalineado y
+         * tira la imagen entera. Fue lo que tumbo la tanda de capturas del
+         * 17-oct: el volcado parecia corrompido y era el propio WDT metiendo
+         * texto en medio. */
+        if (esp_task_wdt_status(NULL) == ESP_OK) esp_task_wdt_reset();
         vTaskDelay(1);
     }
-    printf("\n===FIN===\n");
-    fflush(stdout);
+    write(STDOUT_FILENO, "\n===FIN===\n", 11);
+    s_volcando = false;
     esp_log_level_set("*", ESP_LOG_INFO);
+
+    /* lv_port_snapshot() devuelve una COPIA en PSRAM (768.000 B por pantalla en
+     * la 5") y aqui no se liberaba: a la decima captura se acababa la PSRAM,
+     * lv_port_snapshot devolvia false y el carrusel se quedaba sin volcar nada
+     * ("sin frame flasheado"), sin que se viera el motivo. */
+    heap_caps_free(pix);
 }
 
 /* Muestra una pantalla/formulario de registro ya creado (via el "mostrar"
  * que se pase) y lo captura. Settle de 900ms sin el lock: con 500ms se vio
  * algun resto visual de la pantalla anterior colandose en el borde (LVGL
  * necesita soltarse para pintar antes de leer el framebuffer, y a veces no
- * le bastaba). Detectado en la primera tanda de capturas, 08-sep-2026. */
+ * le bastaba). Detectado en la primera tanda de capturas, 08-sep-2026.
+ *
+ * EL VOLCADO VA FUERA DEL CERROJO (17-oct-2026): a 115200 una pantalla de
+ * 800x480 tarda 66 s, y tener el cerrojo de LVGL tomado todo ese rato deja a
+ * la tarea de LVGL sin poder pintar; el Task WDT (10 s) reinicia la placa a
+ * mitad del volcado y lo que se ve en el panel es el splash una y otra vez.
+ * Pasado el 17-oct en la 5"; se diagnostico porque la placa se quedaba
+ * "en el splash, temblando". */
 static void capture_registro_paso(void (*mostrar)(int), int idx, const char *prefijo)
 {
     if (lvgl_port_lock(1000)) {
@@ -194,15 +285,13 @@ static void capture_registro_paso(void (*mostrar)(int), int idx, const char *pre
         lvgl_port_unlock();
     }
     vTaskDelay(pdMS_TO_TICKS(900));
-    if (lvgl_port_lock(1000)) {
-        char nombre[48];
-        const char *n = (mostrar == view_registro_mostrar_pantalla)
-                       ? view_registro_nombre_pantalla(idx)
-                       : view_registro_nombre_formulario(idx);
-        snprintf(nombre, sizeof(nombre), "%s_%s", prefijo, n);
-        dump_screen_uart(nombre);
-        lvgl_port_unlock();
-    }
+    char nombre[48];
+    const char *n = (mostrar == view_registro_mostrar_pantalla)
+                   ? view_registro_nombre_pantalla(idx)
+                   : view_registro_nombre_formulario(idx);
+    snprintf(nombre, sizeof(nombre), "%s_%s", prefijo, n);
+    /* dump_screen_uart() coge el cerrojo solo lo justo para copiar el frame. */
+    dump_screen_uart(nombre);
 }
 
 /* Todos los menus y formularios del carrusel de registro. mostrar_menu()/
@@ -242,7 +331,7 @@ static void carousel_task(void *arg)
         const char *name;
 
         inject_sim_data();
-        for (step = STEP_INCLINACION; step < STEP_COUNT; step++) {
+        for (step = (step_t)0; step < STEP_COUNT; step++) {
             if (!lvgl_port_lock(1000)) continue;
             switch (step) {
             case STEP_INCLINACION: nav_ir_a_inclinacion(); name = "inclinacion"; break;
@@ -257,10 +346,16 @@ static void carousel_task(void *arg)
              * la animacion y el render antes de leer el framebuffer. */
             vTaskDelay(pdMS_TO_TICKS(500));
 
-            if (lvgl_port_lock(1000)) {
-                dump_screen_uart(name);
-                if (step == STEP_AJUSTES) nav_close_ajustes();
-                lvgl_port_unlock();
+            /* El volcado NO con el cerrojo tomado: tarda ~66 s a 115200 y la
+             * tarea de LVGL tiene que seguir pintando (si no, el Task WDT
+             * reinicia la placa a mitad). dump_screen_uart() coge el cerrojo
+             * solo para copiar el frame. */
+            dump_screen_uart(name);
+            /* Cerrar el overlay DESPUES de volcarlo: si se cierra antes, lo
+             * que se captura es la pantalla de debajo (salio la de Datos en
+             * la tanda del 17-oct). */
+            if (step == STEP_AJUSTES) {
+                if (lvgl_port_lock(1000)) { nav_close_ajustes(); lvgl_port_unlock(); }
             }
 
             if (step == STEP_REGISTRO) capture_registro_todo();
@@ -275,6 +370,8 @@ void capture_carousel_start(void)
     lv_timer_set_repeat_count(t, 1);
     return;
 #endif
+    esp_log_set_vprintf(log_sin_volcado);
+
     /* 6 KB y no 8: con 8192 el xTaskCreate DEVOLVIA FALLO (visto el 14-sep-2026
      * con una traza) y el carrusel no llegaba a existir nunca -- no salia
      * ninguna captura y NO habia ni un error en el log, que es la peor forma de
