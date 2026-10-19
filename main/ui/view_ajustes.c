@@ -51,6 +51,7 @@ static bool s_ota_preguntando;
 static char s_ota_body[96];
 static lv_obj_t *s_uptime_lbl;    /* cuanto lleva en marcha (ver diag_reset) */
 static lv_timer_t *s_enlace_timer;
+static int s_ticks_cartel;   /* segundos que lleva puesto el cartel de la OTA */
 static lv_obj_t *s_pass_ta;
 static lv_obj_t *s_status_lbl;
 /* Usuario y clave del PORTAL de la P4 -- NO son los del Wi-Fi. Hacen falta
@@ -265,13 +266,12 @@ static void enlace_diag_sufijo(char *out, size_t n)
 static void enlace_timer_cb(lv_timer_t *t)
 {
     (void)t;
-    if (!s_enlace || lv_obj_has_flag(s_enlace, LV_OBJ_FLAG_HIDDEN)) return;
-    if (!lv_obj_is_visible(s_enlace)) return;
 
-    /* Y de paso, cuanto lleva en marcha: es lo que deja ver de un vistazo si la
-     * pantalla ha vuelto a arrancar desde la ultima vez que se miro (16-oct-2026,
-     * en el banco se reiniciaba por el cable USB). Solo se toca el texto cuando
-     * cambia de verdad -- cada minuto, no cada segundo. */
+    /* CUANTO LLEVA EN MARCHA, ANTES DE NADA Y SIN MIRAR EL ENLACE (17-oct-2026).
+     * Antes esto iba despues del "si el enlace no se ve, sal", y el estado de la
+     * OTA esconde la linea del enlace (comparten sitio) y no siempre se limpia:
+     * resultado, el "En marcha" se quedaba clavado en "1 s" hasta reiniciar.
+     * Es un dato propio: solo necesita que su etiqueta exista. */
     if (s_uptime_lbl) {
         char nuevo[24];
         snprintf(nuevo, sizeof(nuevo), "En marcha: %s", diag_reset_hace_texto());
@@ -279,6 +279,9 @@ static void enlace_timer_cb(lv_timer_t *t)
             lv_label_set_text(s_uptime_lbl, nuevo);
         }
     }
+
+    if (!s_enlace || lv_obj_has_flag(s_enlace, LV_OBJ_FLAG_HIDDEN)) return;
+    if (!lv_obj_is_visible(s_enlace)) return;
 
     char ssid[33] = {0};
     bool asociado = false;
@@ -410,6 +413,25 @@ static void ota_timer_cb(lv_timer_t *t)
 
     ota_rx_vista_t v;
     ota_rx_estado(&v);
+
+    /* EL CARTEL SE RETIRA SOLO (17-oct-2026). La comprobacion automatica deja el
+     * estado en AL_DIA (o en ERROR) y NADIE lo volvia a QUIETO: como el cartel
+     * comparte linea con el enlace y lo esconde, la pantalla se quedaba sin el
+     * "P4: -78 dBm" (y sin el "En marcha", que colgaba del enlace) hasta el
+     * siguiente reinicio. Los carteles informativos duran unos segundos y el
+     * estado vuelve a QUIETO; lo que esta trabajando (o espera respuesta) no se
+     * toca. */
+    if (v.estado == OTA_RX_AL_DIA || v.estado == OTA_RX_ERROR) {
+        if (++s_ticks_cartel > (v.estado == OTA_RX_ERROR ? 20 : 6)) {
+            s_ticks_cartel = 0;
+            ota_rx_olvidar();
+            lv_obj_add_flag(s_ota_lbl, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(s_enlace, LV_OBJ_FLAG_HIDDEN);
+            return;
+        }
+    } else {
+        s_ticks_cartel = 0;
+    }
 
     if (v.estado == OTA_RX_QUIETO) {
         lv_obj_add_flag(s_ota_lbl, LV_OBJ_FLAG_HIDDEN);
