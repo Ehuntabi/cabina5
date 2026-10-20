@@ -28,6 +28,17 @@
  */
 #include "p4_test.h"
 
+/* HERRAMIENTA DE BANCO, APAGADA EN PRODUCCION (tanda 1 de la auditoria del
+ * 18-oct-2026). Este auto-test lanza 5 peticiones HTTP en cada arranque --
+ * una de ellas con credenciales MALAS a proposito -- y crea una tarea de
+ * 5120 B. Es lo que se usa en el banco para ver el canal de viajes, no lo
+ * que tiene que hacer una pantalla montada. Para probarlo: poner el 1 y
+ * grabar un firmware de banco. */
+#define P4_AUTO_TEST 0
+
+#if P4_AUTO_TEST
+
+
 #include <string.h>
 #include "esp_log.h"
 #include "esp_http_client.h"
@@ -403,3 +414,9 @@ void p4_test_start(void)
         ESP_LOGW(TAG, "no se pudo crear la tarea del auto-test (sin memoria)");
     }
 }
+
+#else  /* !P4_AUTO_TEST */
+
+void p4_test_start(void) { }
+
+#endif

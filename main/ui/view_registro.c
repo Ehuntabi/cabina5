@@ -2777,6 +2777,9 @@ static void aviso_envio_fallo(int estado, const char *que)
     confirm_screen_aviso(titulo, cuerpo, COL_ACCION_STOP, "Entendido");
 }
 
+/* Id del inicio pendiente de confirmar (ver viaje_iniciar_real). */
+static uint32_t s_id_inicio;
+
 static void inicio_resultado_cb(bool ok, int estado, void *user_data)
 {
     (void)user_data;
@@ -2795,6 +2798,7 @@ static void inicio_resultado_cb(bool ok, int estado, void *user_data)
         return;
     }
     if (!ok) { aviso_envio_fallo(estado, "Viaje"); return; }
+    s_id_inicio = 0;   /* confirmado: el proximo viaje estrena id */
     viaje_marcar_iniciado();
     /* La P4 ya ha creado su carpeta; aqui se abre la salida que sostiene los
      * menus. Si fallase (sin hora no puede ser: la acabamos de usar) el viaje
@@ -2823,11 +2827,26 @@ static void con_gps_o_seguir(confirm_cb_t seguir)
                         seguir, NULL);
 }
 
+/* ID DEL INICIO PENDIENTE DE CONFIRMAR (tanda 1 de la auditoria del 18-oct-2026).
+ *
+ * Antes cada intento pedia un id nuevo (next_trip_seq()), asi que la rama
+ * idempotente de la P4 -- "si el id es el mismo del viaje ya abierto, contesta
+ * 200 y no toca nada" -- NO SE EJECUTABA NUNCA desde la pantalla. Si el 200 se
+ * perdia (timeout de 8 s, wifi flojo) la P4 se quedaba con el viaje abierto y
+ * la pantalla decia que no habia podido: al reintentar, 409, y el viaje recien
+ * empezado se perdia como viaje.
+ *
+ * Ahora el id se guarda y se REUTILIZA hasta que la P4 confirma (2xx). Solo se
+ * borra al confirmar: un reintento despues de un 200 perdido llega con el mismo
+ * id y la P4 lo reconoce. Si la pantalla se reinicia, el id se pierde (vive en
+ * RAM) y se vuelve al camino de siempre: 409 y el aviso de la P4. */
+
 static void viaje_iniciar_real(void *ud)
 {
     (void)ud;
     uint32_t ahora = reloj_p4();
-    if (!p4_api_viaje_inicio(next_trip_seq(), s_viaje_destino,
+    if (!s_id_inicio) s_id_inicio = next_trip_seq();
+    if (!p4_api_viaje_inicio(s_id_inicio, s_viaje_destino,
                              ahora / 86400u, s_viaje_km_cuadro,
                              inicio_resultado_cb)) {
         aviso_envio_fallo(0, "Viaje");

@@ -65,7 +65,11 @@ void data_model_update_from_msg(const struct mini_msg *msg)
         : 0;
 
     /* Aux del SmartShunt = bateria de arranque/motor. */
-    if (msg->aux_input != MINI_NO_DATA_U8) {
+    /* SOLO 0, 1 y 2 (tanda 1 de la auditoria del 18-oct-2026): view_info solo
+     * trata el 2 como temperatura; cualquier otro valor se pinta como voltios
+     * (crudo Kelvin x100) y un 3..254 enseñaba "655.35 V" bajo MOTOR. Con un
+     * paquete forjado se veia; cerrarlo cuesta una comparacion. */
+    if (msg->aux_input <= 2) {
         tmp.aux_value_raw = msg->aux_value_raw;
         tmp.aux_input     = msg->aux_input;
         tmp.aux_has_data  = true;

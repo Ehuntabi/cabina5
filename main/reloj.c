@@ -106,22 +106,7 @@ void reloj_set_desde_p4(uint32_t epoch_local, int utc_off_quince)
      * entraba cualquier byte. Lo de fuera de -12:00..+14:00 se ignora. */
     bool off_valido = (utc_off_quince >= UTC_OFF_QUINCE_MIN &&
                        utc_off_quince <= UTC_OFF_QUINCE_MAX);
-    if (off_valido) {
-        if (s_off_quince != INT8_MIN && utc_off_quince != s_off_quince) {
-            /* El inicio de un tramo abierto se guardo con el desfase VIEJO: para
-             * que la resta salga bien hay que sumarle la diferencia. */
-            int salto = (utc_off_quince - s_off_quince) * 900;
-            /* CON TOPE, que antes no tenia: esto se ACUMULA en cada cambio y
-             * viene de la red (ver DELTA_HORARIO_MAX). */
-            int nuevo = s_delta_horario + salto;
-            if (nuevo >  DELTA_HORARIO_MAX) nuevo =  DELTA_HORARIO_MAX;
-            if (nuevo < -DELTA_HORARIO_MAX) nuevo = -DELTA_HORARIO_MAX;
-            s_delta_horario = nuevo;
-            ESP_LOGW(TAG, "ha cambiado el horario (%d -> %d cuartos): las "
-                          "duraciones de los tramos ya abiertos se corrigen %d s",
-                     s_off_quince, utc_off_quince, s_delta_horario);
-        }
-    } else {
+    if (!off_valido) {
         ESP_LOGW(TAG, "desfase horario fuera de rango (%d cuartos): lo ignoro",
                  utc_off_quince);
     }
@@ -148,10 +133,25 @@ void reloj_set_desde_p4(uint32_t epoch_local, int utc_off_quince)
      * habian quedado apuntados, y el siguiente epoch bueno calculaba el salto
      * contra el desfase equivocado. */
     if (off_valido) {
-        /* Si CAMBIO, este es el epoch a partir del cual los tramos ya estan en
-         * la escala nueva (ver reloj_delta_horario_desde). */
-        if (s_off_quince != INT8_MIN && utc_off_quince != s_off_quince)
+        /* EL SALTO SE APLICA AQUI, YA VALIDADO EL EPOCH (tanda 1 de la
+         * auditoria del 18-oct-2026). Antes se aplicaba arriba, antes del
+         * "if (epoch fuera de rango) return": un paquete con epoch invalido y
+         * desfase nuevo dejaba el delta apuntado sin apuntar el desfase, y el
+         * siguiente paquete bueno lo aplicaba OTRA vez (doble correccion). */
+        if (s_off_quince != INT8_MIN && utc_off_quince != s_off_quince) {
+            /* El inicio de un tramo abierto se guardo con el desfase VIEJO: para
+             * que la resta salga bien hay que sumarle la diferencia. */
+            int salto = (utc_off_quince - s_off_quince) * 900;
+            /* CON TOPE: esto se ACUMULA en cada cambio y viene de la red. */
+            int nuevo = s_delta_horario + salto;
+            if (nuevo >  DELTA_HORARIO_MAX) nuevo =  DELTA_HORARIO_MAX;
+            if (nuevo < -DELTA_HORARIO_MAX) nuevo = -DELTA_HORARIO_MAX;
+            s_delta_horario = nuevo;
+            ESP_LOGW(TAG, "ha cambiado el horario (%d -> %d cuartos): las "
+                          "duraciones de los tramos ya abiertos se corrigen %d s",
+                     s_off_quince, utc_off_quince, s_delta_horario);
             s_epoch_cambio = epoch_local;
+        }
         s_off_quince = utc_off_quince;
     }
     int64_t ahora_us = esp_timer_get_time();
