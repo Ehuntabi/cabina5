@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
+#include <ctype.h>
 
 static const char *TAG = "config_storage";
 
@@ -30,6 +31,11 @@ static const char *TAG = "config_storage";
 #define PORTAL_PASS_KEY       "http_pass"
 #define PARADA_NAMESPACE      "parada"
 #define PARADA_BLOB_KEY       "estado"   /* blob unico, ver el comentario de save_parada_abierta() */
+/* Token de ESTA pantalla para el 'forzar' de la P4 (tanda 2, 20-oct-2026). Lo
+ * da la P4 en la respuesta del 'inicio' y solo sirve para que esta pantalla
+ * pueda cerrar o apartar el viaje que quiza esta grabando la otra. */
+#define PANTALLA_NAMESPACE    "pantalla"
+#define PANTALLA_TOKEN_KEY    "token"
 
 esp_err_t load_brightness(uint8_t *brightness_out) {
     nvs_handle_t h;
@@ -599,6 +605,49 @@ esp_err_t save_wifi_config(const char *ssid, const char *pass)
 
     err = nvs_set_str(h, WIFI_SSID_KEY, ssid);
     if (err == ESP_OK) err = nvs_set_str(h, WIFI_PASS_KEY, pass);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+/* === Token de esta pantalla (tanda 2, 20-oct-2026) ======================== */
+
+/* Un token de pantalla son 32 digitos hex (16 bytes en hex). Cualquier otra
+ * cosa es "no hay token": vale mas no mandar nada que mandar basura que la P4
+ * acabe comparando. */
+static bool token_hex32(const char *t)
+{
+    if (!t || strlen(t) != 32) return false;
+    for (int i = 0; i < 32; i++)
+        if (!isxdigit((unsigned char)t[i])) return false;
+    return true;
+}
+
+bool load_pantalla_token(char *out, size_t n)
+{
+    if (!out || n < 33) return false;
+    out[0] = 0;
+    nvs_handle_t h;
+    if (nvs_open(PANTALLA_NAMESPACE, NVS_READONLY, &h) != ESP_OK) return false;
+    char tok[33] = {0};
+    size_t len = sizeof(tok);
+    bool vale = (nvs_get_str(h, PANTALLA_TOKEN_KEY, tok, &len) == ESP_OK) && token_hex32(tok);
+    nvs_close(h);
+    if (!vale) return false;
+    /* A minusculas: la P4 lo genera y lo compara asi. */
+    for (int i = 0; i < 32; i++)
+        out[i] = (char)tolower((unsigned char)tok[i]);
+    out[32] = 0;
+    return true;
+}
+
+esp_err_t save_pantalla_token(const char *tok)
+{
+    if (!token_hex32(tok)) return ESP_ERR_INVALID_ARG;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(PANTALLA_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_str(h, PANTALLA_TOKEN_KEY, tok);
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;

@@ -133,18 +133,27 @@ sys.path.insert(0, str(pathlib.Path(sys.argv[1]).resolve() / 'test'))
 from extrae_cuerpo import desde
 repo = pathlib.Path(sys.argv[1]).resolve()
 fuente = (repo / 'main/net/p4_api.c').read_text()
-m = re.search(r'void p4_api_cuerpo_inicio\(char \*out, size_t n, uint32_t id,\s*\n\s*const char \*destino, uint32_t fecha_dias,\s*\n\s*uint32_t km_cuadro\)\s*\n\{', fuente)
+m = re.search(r'void p4_api_cuerpo_inicio\(char \*out, size_t n, uint32_t id,\s*\n\s*const char \*destino, uint32_t fecha_dias,\s*\n\s*uint32_t km_cuadro, const char \*token\)\s*\n\{', fuente)
 if not m:
     raise SystemExit('no encuentro p4_api_cuerpo_inicio() en main/net/p4_api.c')
 fn = desde(fuente, m)
+# El token, que ahora viaja en el cuerpo del inicio: se saca TAMBIEN del fuente
+# (token_o_vacio), o el test estaria probando media funcion.
+m2 = re.search(r'static const char \*token_o_vacio\(const char \*t\)\s*\n\{', fuente)
+if not m2:
+    raise SystemExit('no encuentro token_o_vacio() en main/net/p4_api.c')
+tok_fn = desde(fuente, m2)
 plantilla = '''#include <stdio.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 /* La identidad de la pantalla: en la placa es su MAC; aqui da igual cual sea,
  * lo que se comprueba es el resto del cuerpo. */
 const char *p4_api_dev_id(void) { return "AABBCCDDEEFF"; }
+
+__TOK__
 
 __FN__
 
@@ -152,19 +161,27 @@ int main(int argc, char **argv)
 {
     char cuerpo[224];
     uint32_t km = (argc > 1) ? (uint32_t)strtoul(argv[1], NULL, 10) : 0;
+    const char *tok = (argc > 2) ? argv[2] : "";
     p4_api_cuerpo_inicio(cuerpo, sizeof(cuerpo), 4242,
-                         "Un destino largo ya", 20739, km);
+                         "Un destino largo ya", 20739, km, tok);
     printf("%s\\n", cuerpo);
     return 0;
 }
 '''
-pathlib.Path(sys.argv[2]).write_text(plantilla.replace('__FN__', fn))
+pathlib.Path(sys.argv[2]).write_text(plantilla.replace('__TOK__', tok_fn)
+                                              .replace('__FN__', fn))
 PYEXT2
 gcc -std=gnu17 -Wall -Wextra -I "$AQUI/../main/net" -o "$TMP/inicio" "$TMP/inicio.c"
 
 fallos=0
-comprueba() {   # $1 = km, $2 = esperado ("si"/"no" lleva el campo), $3 = valor
-    json=$("$TMP/inicio" "$1")
+TOK_TOKEN=00112233445566778899aabbccddeeff
+comprueba() {   # $1 km, $2 "si"/"no" km_cuadro, $3 valor, [$4 token que se pasa,
+                # [$5 token que tiene que salir (por defecto, el que se pasa)]]
+    local tok="${4-$TOK_TOKEN}"
+    local esperado="${5-$tok}"
+    local nota=""
+    [ "$#" -ge 5 ] && nota=" (token con mala forma: se manda vacio)"
+    json=$("$TMP/inicio" "$1" "$tok")
     echo "$json" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
@@ -173,19 +190,27 @@ assert d['id'] == 4242, d
 assert d['destino'] == 'Un destino largo ya', d
 assert d['fecha_dias'] == 20739, d
 assert d['dev'] == 'AABBCCDDEEFF', d
+# EL TOKEN (tanda 2, 20-oct-2026): viaja SIEMPRE (vacio si no hay), y con la
+# forma buena tal cual. Un token con comillas o de otra longitud se cae antes de
+# llegar al JSON (romperia el inicio entero).
+assert d['token'] == '$esperado', d
 lleva = 'km_cuadro' in d
 quiere = '$2' == 'si'
 assert lleva == quiere, ('km_cuadro' in d, quiere)
 if quiere: assert d['km_cuadro'] == int('$3'), d
-" 2>/dev/null && { echo "ok     km_cuadro=$1 -> $([ "$2" = si ] && echo "va con $3" || echo "no va (0 = sin lectura)")"; } \
+" 2>/dev/null && { echo "ok     km_cuadro=$1 -> $([ "$2" = si ] && echo "va con $3" || echo "no va (0 = sin lectura)")$nota"; } \
       || { echo "FALLO  km_cuadro=$1 (se esperaba $2)"; echo "       $json"; fallos=1; }
 }
 comprueba 0 no ""
 comprueba 123456 si 123456
 comprueba 999999 si 999999
+# Sin token guardado se manda "" (es lo que le pide a la P4 que empareje).
+comprueba 0 no "" ""
+# Un token que no tiene la forma buena NO se manda: se manda "".
+comprueba 0 no "" "00112233445566778899aabbccddeef" ""
 
 # Y que quepa: el destino mas largo (20) y 6 cifras es el peor caso.
-largo=$("$TMP/inicio" 999999 | tr -d '\n' | wc -c)
+largo=$("$TMP/inicio" 999999 "$TOK_TOKEN" | tr -d '\n' | wc -c)
 if [ "$largo" -lt 224 ]; then
     echo "ok     el cuerpo mas largo mide $largo < 224 (cabe en el buffer del envio)"
 else
@@ -267,3 +292,83 @@ else
 fi
 
 [ "$fallos2" = 0 ] || { echo; echo "FALLOS: $fallos2"; exit 1; }
+
+# ── 4. El TOKEN en el fin/descartar ajenos (tanda 2, 20-oct-2026) ──────────
+#
+# Cerrar o apartar el viaje que quiza esta grabando la OTRA pantalla lleva
+# 'forzar' y, desde la tanda 2, el token de esta pantalla: es lo que hace que la
+# P4 no pida la clave de administracion. Aqui se fija el contrato exacto que
+# espera la P4: el token va SOLO con 'forzar' y solo si tiene forma de token, y
+# un token con comillas no puede romper el JSON (seria un 400 y el viaje ajeno
+# sin cerrar).
+echo
+echo "== el token en el fin/descartar ajenos =="
+python3 - "$AQUI/.." "$TMP/ajeno.c" <<'PYEXT4'
+import re, sys, pathlib
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]).resolve() / 'test'))
+from extrae_cuerpo import desde
+repo = pathlib.Path(sys.argv[1]).resolve()
+fuente = (repo / 'main/net/p4_api.c').read_text()
+def saca(patron, que):
+    m = re.search(patron, fuente)
+    if not m:
+        raise SystemExit('no encuentro %s en main/net/p4_api.c' % que)
+    return desde(fuente, m)
+tok = saca(r'static const char \*token_o_vacio\(const char \*t\)\s*\n\{', 'token_o_vacio()')
+fin = saca(r'void p4_api_cuerpo_fin_ajeno\(char \*out, size_t n, uint32_t id, int forzar,\s*\n\s*const char \*token\)\s*\n\{', 'p4_api_cuerpo_fin_ajeno()')
+des = saca(r'void p4_api_cuerpo_descartar\(char \*out, size_t n, uint32_t id, int forzar,\s*\n\s*const char \*token\)\s*\n\{', 'p4_api_cuerpo_descartar()')
+plantilla = '''#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <ctype.h>
+const char *p4_api_dev_id(void) { return "AABBCCDDEEFF"; }
+__TOK__
+__FIN__
+__DES__
+int main(int argc, char **argv)
+{
+    char cuerpo[192];
+    const char *tok = (argc > 1 && argv[1][0]) ? argv[1] : NULL;
+    int forzar = (argc > 2) ? atoi(argv[2]) : 1;
+    if (argc > 3 && argv[3][0] == 'd')
+        p4_api_cuerpo_descartar(cuerpo, sizeof(cuerpo), 4242, forzar, tok);
+    else
+        p4_api_cuerpo_fin_ajeno(cuerpo, sizeof(cuerpo), 4242, forzar, tok);
+    printf("%s\\n", cuerpo);
+    return 0;
+}
+'''
+pathlib.Path(sys.argv[2]).write_text(
+    plantilla.replace('__TOK__', tok).replace('__FIN__', fin).replace('__DES__', des))
+PYEXT4
+gcc -std=gnu17 -Wall -Wextra -I "$AQUI/../main/net" -o "$TMP/ajeno" "$TMP/ajeno.c"
+
+fallos3=0
+TOK=00112233445566778899aabbccddeeff
+comprueba_ajeno() {   # $1 op (fin/descartar) $2 forzar $3 token $4 "si"/"no" token en el JSON
+    json=$("$TMP/ajeno" "$3" "$2" "$1")
+    echo "$json" | TOK_ESPERADO="$3" python3 -c "
+import json, os, sys
+d = json.load(sys.stdin)
+assert d['op'] == '$1', d
+assert d['id'] == 4242, d
+assert d['dev'] == 'AABBCCDDEEFF', d
+assert ('forzar' in d) == ('$2' != '0'), d
+assert ('token' in d) == ('$4' == 'si'), d
+if '$4' == 'si': assert d['token'] == os.environ['TOK_ESPERADO'], d
+" 2>/dev/null && echo "ok     $1 forzar=$2 token='${3:-ninguno}' -> el token $([ "$4" = si ] && echo va || echo no va)" \
+      || { echo "FALLO  $1 forzar=$2 token='$3'"; echo "       $json"; fallos3=1; }
+}
+comprueba_ajeno fin       1 "$TOK" si
+comprueba_ajeno fin       1 ""     no
+comprueba_ajeno descartar 1 "$TOK" si
+comprueba_ajeno descartar 1 ""     no
+# Sin 'forzar' el token no viaja: la P4 no lo mira y no hay por que mandarlo.
+comprueba_ajeno fin       0 "$TOK" no
+comprueba_ajeno descartar 0 "$TOK" no
+# Un token con comillas, de 31 o de 33 no rompe el JSON: se manda sin token.
+comprueba_ajeno fin       1 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' no
+comprueba_ajeno descartar 1 '00112233445566778899aabbccddeef' no
+
+[ "$fallos3" = 0 ] || { echo; echo "FALLOS: $fallos3"; exit 1; }

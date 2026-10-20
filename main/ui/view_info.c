@@ -1075,8 +1075,12 @@ static void orden_msg(const char *txt, uint32_t ahora_ms)
 }
 
 /* Vuelve del envio, ya en el hilo de LVGL (ver p4_api.h). */
-static void orden_done_cb(bool ok, int estado, void *user_data)
+/* La respuesta del cuerpo no se usa aqui (la orden de silencio no lleva
+ * token); viene por el callback comun de p4_api. */
+static void orden_done_cb(bool ok, int estado, const char *respuesta,
+                          void *user_data)
 {
+    (void)respuesta;
     /* El user_data dice de que alarma era y con que numero de orden salio:
      * si mientras tanto se lanzo otra orden para esa misma alarma (o el plazo
      * de 10 s ya la dio por perdida), esta respuesta es VIEJA y se ignora --

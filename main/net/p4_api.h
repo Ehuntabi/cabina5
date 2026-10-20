@@ -15,9 +15,13 @@ extern "C" {
 
 /* 'ok' es true solo con respuesta 2xx. 'estado' es el codigo HTTP, o 0 si no se
  * llego a conectar (P4 apagada o fuera de alcance). 401 = credenciales del
- * portal mal puestas en Ajustes. 'user_data' es lo que se paso al lanzar el
- * envio, reenviado tal cual: sirve para distinguir de que era la respuesta. */
-typedef void (*p4_api_done_cb)(bool ok, int estado, void *user_data);
+ * portal mal puestas en Ajustes. 'respuesta' son los primeros bytes del CUERPO
+ * de la respuesta (cadena vacia si no vino): ahi va " libre_mb=NNN" y, desde el
+ * 20-oct-2026, el token con el que la P4 empareja a esta pantalla -- ver
+ * token_guardar_de_respuesta() en view_registro.c. 'user_data' es lo que se paso
+ * al lanzar el envio, reenviado tal cual. */
+typedef void (*p4_api_done_cb)(bool ok, int estado, const char *respuesta,
+                               void *user_data);
 
 /* Devuelven false si ni siquiera se pudo lanzar el envio (sin memoria); en ese
  * caso 'cb' NO se llama. */
@@ -25,8 +29,11 @@ typedef void (*p4_api_done_cb)(bool ok, int estado, void *user_data);
  * empezar (0 = no se apunto, y entonces el campo no viaja). Lo teclea el usuario
  * y es OPCIONAL: la 3,5" no lo pide, asi que su inicio tiene que seguir siendo
  * valido tal cual. La P4 lo guarda con el viaje y lo escribe en resumen.txt. */
+/* 'token' es el de esta pantalla (32 hex) o "" si no tiene: mandarlo vacio es lo
+ * que le dice a la P4 "emparejame", y es lo que hace que la respuesta traiga el
+ * token. Una P4 anterior al 20-oct-2026 lo ignora. */
 bool p4_api_viaje_inicio(uint32_t id, const char *destino, uint32_t fecha_dias,
-                         uint32_t km_cuadro, p4_api_done_cb cb);
+                         uint32_t km_cuadro, const char *token, p4_api_done_cb cb);
 
 /* El POST crudo, SINCRONO: bloquea hasta la respuesta. Lo usa el repartidor de
  * la cola (viaje_cola.c), que tiene su propia tarea. NO llamar desde LVGL.
@@ -73,7 +80,7 @@ const char *p4_api_dev_id(void);
 
 void p4_api_cuerpo_inicio(char *out, size_t n, uint32_t id,
                           const char *destino, uint32_t fecha_dias,
-                          uint32_t km_cuadro);
+                          uint32_t km_cuadro, const char *token);
 /* 'eventos' es cuantos apuntes ha generado el viaje, el inicio incluido: con
  * eso la P4 sabe si le falta alguno y marca el viaje como incompleto.
  *
@@ -88,7 +95,10 @@ void p4_api_cuerpo_fin(char *out, size_t n, uint32_t id, uint32_t eventos,
  * estado): no sabemos cuantos apuntes generó, y mandar un numero inventado
  * marcaria el viaje como INCOMPLETO sin serlo. Sin el campo, la P4 lo da por
  * bueno -- ver comprobar_completo() en config_server_viaje.c. */
-void p4_api_cuerpo_fin_ajeno(char *out, size_t n, uint32_t id, int forzar);
+/* 'token' es el de esta pantalla (NULL si no hay): solo se manda con 'forzar',
+ * que es el unico caso en el que la P4 lo mira. */
+void p4_api_cuerpo_fin_ajeno(char *out, size_t n, uint32_t id, int forzar,
+                             const char *token);
 
 /* Avisa a la P4 del destino nuevo SIN renombrar nada: ella lo apunta y lo
  * aplica al cerrar el viaje. Ver p4_api_cuerpo_destino en el .c. */
@@ -97,7 +107,8 @@ void p4_api_cuerpo_destino(char *out, size_t n, uint32_t id, const char *destino
 /* APARTAR el viaje abierto en la P4 en vez de cerrarlo: su carpeta pasa a
  * llamarse DESCARTADO_<nombre> y deja de contar como viaje. Para el que se
  * empezo por error. No borra nada. */
-void p4_api_cuerpo_descartar(char *out, size_t n, uint32_t id, int forzar);
+void p4_api_cuerpo_descartar(char *out, size_t n, uint32_t id, int forzar,
+                             const char *token);
 
 /* ── Silenciar una alarma de la P4 (14-sep-2026) ────────────────────────────
  *

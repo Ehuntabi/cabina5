@@ -32,6 +32,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 static const char *TAG = "p4_api";
 
@@ -76,15 +77,17 @@ typedef struct {
     bool           ok;
     int            estado;      /* codigo HTTP, o 0 si ni siquiera conecto */
     /* El principio del cuerpo de la respuesta: ahi viene " libre_mb=NNN" (el
-     * hueco de la tarjeta de la P4). Ver p4_api_post_resp(). */
-    char           resp[96];
+     * hueco de la tarjeta de la P4) y, desde el 20-oct-2026, " token=<32 hex>"
+     * (el emparejamiento de esta pantalla). 96 no bastaban para los dos con una
+     * carpeta larga: el token se quedaba cortado y no se guardaba. */
+    char           resp[192];
 } trabajo_t;
 
 /* Vuelta al hilo de LVGL para avisar del resultado. */
 static void avisar_cb(void *arg)
 {
     trabajo_t *t = (trabajo_t *)arg;
-    if (t->cb) t->cb(t->ok, t->estado, t->user_data);
+    if (t->cb) t->cb(t->ok, t->estado, t->resp, t->user_data);
     free(t);
 }
 
@@ -95,6 +98,33 @@ static void avisar_cb(void *arg)
  * copias de esto serian dos sitios donde arreglar el mismo fallo. */
 static bool lanzar_a(const char *url, const char *cuerpo, p4_api_done_cb cb,
                      void *user_data);
+
+/* El token, solo si tiene la forma buena (32 hex). Un token con comillas o con
+ * otra longitud romperia el JSON y el envio no saldria; y sin token se manda
+ * "" a proposito en el inicio, porque es lo que le dice a la P4 "emparejame". */
+static const char *token_o_vacio(const char *t)
+{
+    if (!t || strlen(t) != 32) return "";
+    for (int i = 0; i < 32; i++)
+        if (!isxdigit((unsigned char)t[i])) return "";
+    return t;
+}
+
+/* El cuerpo de la peticion, pero con el token tapado. Desde la tanda 2 el inicio
+ * y el fin/descartar con 'forzar' llevan el token de la pantalla, y este log
+ * imprimia el cuerpo entero: un secreto en el registro de serie, que se ve en
+ * cualquier consola y acaba en los logs que se pegan en un informe. */
+static void log_cuerpo(const char *cuerpo, int estado)
+{
+    const char *t = strstr(cuerpo, "\"token\":\"");
+    if (!t) {
+        ESP_LOGI(TAG, "%s -> HTTP %d", cuerpo, estado);
+        return;
+    }
+    const char *cierre = strchr(t + 9, '"');
+    ESP_LOGI(TAG, "%.*s***%s -> HTTP %d", (int)(t - cuerpo), cuerpo,
+             cierre ? cierre : "", estado);
+}
 
 /* El POST de verdad. BLOQUEA hasta tener respuesta o agotar el plazo, asi que
  * NO se llama desde la tarea de LVGL: la usa el repartidor de la cola, que
@@ -196,7 +226,7 @@ bool p4_api_post_url(const char *url, const char *cuerpo, int *estado_out,
             int estado = esp_http_client_get_status_code(c);
             if (estado_out) *estado_out = estado;
             ok = (estado >= 200 && estado < 300);
-            ESP_LOGI(TAG, "%s -> HTTP %d", cuerpo, estado);
+            log_cuerpo(cuerpo, estado);
             /* Drenar el cuerpo de la respuesta si lo hay, para poder reutilizar
              * o cerrar limpio. DE PASO SE GUARDA EL PRINCIPIO (14-oct-2026): la
              * P4 añade " libre_mb=NNN" al final de sus respuestas cortas, y ese
@@ -301,8 +331,12 @@ const char *p4_api_dev_id(void)
 
 void p4_api_cuerpo_inicio(char *out, size_t n, uint32_t id,
                           const char *destino, uint32_t fecha_dias,
-                          uint32_t km_cuadro)
+                          uint32_t km_cuadro, const char *token)
 {
+    /* El token va el ULTIMO y siempre (vacio si no hay): es lo que le dice a la
+     * P4 "emparejame" y lo que hace que su respuesta traiga el token. Una P4
+     * anterior al 20-oct-2026 lo ignora. */
+    const char *tok = token_o_vacio(token);
     /* El destino lo teclea el usuario, asi que se escapan comillas y barras
      * IGUAL QUE EN EL FIN (16-oct-2026: el fin ya lo hacia y el inicio no, y son
      * el mismo dato). Hoy no hay nada que escapar -- el campo solo admite
@@ -327,14 +361,15 @@ void p4_api_cuerpo_inicio(char *out, size_t n, uint32_t id,
     if (km_cuadro > 0) {
         snprintf(out, n,
                  "{\"op\":\"inicio\",\"id\":%lu,\"destino\":\"%s\",\"fecha_dias\":%lu,"
-                 "\"km_cuadro\":%lu,\"dev\":\"%s\"}",
+                 "\"km_cuadro\":%lu,\"dev\":\"%s\",\"token\":\"%s\"}",
                  (unsigned long)id, limpio, (unsigned long)fecha_dias,
-                 (unsigned long)km_cuadro, p4_api_dev_id());
+                 (unsigned long)km_cuadro, p4_api_dev_id(), tok);
     } else {
         snprintf(out, n,
                  "{\"op\":\"inicio\",\"id\":%lu,\"destino\":\"%s\",\"fecha_dias\":%lu,"
-                 "\"dev\":\"%s\"}",
-                 (unsigned long)id, limpio, (unsigned long)fecha_dias, p4_api_dev_id());
+                 "\"dev\":\"%s\",\"token\":\"%s\"}",
+                 (unsigned long)id, limpio, (unsigned long)fecha_dias,
+                 p4_api_dev_id(), tok);
     }
 }
 
@@ -409,23 +444,37 @@ void p4_api_cuerpo_destino(char *out, size_t n, uint32_t id, const char *destino
              (unsigned long)id, limpio);
 }
 
-void p4_api_cuerpo_fin_ajeno(char *out, size_t n, uint32_t id, int forzar)
+void p4_api_cuerpo_fin_ajeno(char *out, size_t n, uint32_t id, int forzar,
+                             const char *token)
 {
     /* 'forzar' SOLO lo manda la pantalla "VIAJE EN LA P4", despues de que el
      * usuario confirme que cierra un viaje que empezo OTRA pantalla. La P4
      * (desde el 14-oct-2026) rechaza con 409 un cierre ajeno sin esta llave,
      * porque el dueño puede seguir grabando; con ella, deja hacerlo -- si no,
      * un viaje cuyo dueño ya no existe no se podria cerrar de ninguna forma. */
-    snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"dev\":\"%s\"%s}",
-             (unsigned long)id, p4_api_dev_id(), forzar ? ",\"forzar\":true" : "");
+    const char *tok = forzar ? token_o_vacio(token) : "";
+    if (tok[0])
+        snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"dev\":\"%s\",\"forzar\":true,"
+                         "\"token\":\"%s\"}",
+                 (unsigned long)id, p4_api_dev_id(), tok);
+    else
+        snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"dev\":\"%s\"%s}",
+                 (unsigned long)id, p4_api_dev_id(), forzar ? ",\"forzar\":true" : "");
 }
 
-void p4_api_cuerpo_descartar(char *out, size_t n, uint32_t id, int forzar)
+void p4_api_cuerpo_descartar(char *out, size_t n, uint32_t id, int forzar,
+                             const char *token)
 {
     /* Ver p4_api_cuerpo_fin_ajeno: 'forzar' es la confirmacion explicita de que
      * se esta apartando un viaje que empezo otra pantalla. */
-    snprintf(out, n, "{\"op\":\"descartar\",\"id\":%lu,\"dev\":\"%s\"%s}",
-             (unsigned long)id, p4_api_dev_id(), forzar ? ",\"forzar\":true" : "");
+    const char *tok = forzar ? token_o_vacio(token) : "";
+    if (tok[0])
+        snprintf(out, n, "{\"op\":\"descartar\",\"id\":%lu,\"dev\":\"%s\","
+                         "\"forzar\":true,\"token\":\"%s\"}",
+                 (unsigned long)id, p4_api_dev_id(), tok);
+    else
+        snprintf(out, n, "{\"op\":\"descartar\",\"id\":%lu,\"dev\":\"%s\"%s}",
+                 (unsigned long)id, p4_api_dev_id(), forzar ? ",\"forzar\":true" : "");
 }
 
 void p4_api_cuerpo_alarma(char *out, size_t n, uint8_t mask)
@@ -461,12 +510,13 @@ bool p4_api_alarma_sentido(uint8_t mask, int silenciar, p4_api_done_cb cb,
 }
 
 bool p4_api_viaje_inicio(uint32_t id, const char *destino, uint32_t fecha_dias,
-                         uint32_t km_cuadro, p4_api_done_cb cb)
+                         uint32_t km_cuadro, const char *token, p4_api_done_cb cb)
 {
     /* El inicio con cuentakilometros lleva 20 caracteres mas que el resto
      * ("km_cuadro":999999,) y con el tope de 6 cifras el cuerpo llega a ~130. */
     char cuerpo[P4_API_CUERPO_MAX];
-    p4_api_cuerpo_inicio(cuerpo, sizeof(cuerpo), id, destino, fecha_dias, km_cuadro);
+    p4_api_cuerpo_inicio(cuerpo, sizeof(cuerpo), id, destino, fecha_dias, km_cuadro,
+                         token);
     return lanzar(cuerpo, cb);
 }
 

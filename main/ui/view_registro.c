@@ -41,6 +41,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 static const char *TAG = "view_registro";
 
@@ -2763,9 +2764,41 @@ static void aviso_envio_fallo(int estado, const char *que)
 /* Id del inicio pendiente de confirmar (ver viaje_iniciar_real). */
 static uint32_t s_id_inicio;
 
-static void inicio_resultado_cb(bool ok, int estado, void *user_data)
+/* ── EL TOKEN DE LA PANTALLA (tanda 2, 20-oct-2026) ─────────────────────────
+ *
+ * La P4 añade " token=<32 hex>" al final de la respuesta del 'inicio' cuando
+ * empareja a esta pantalla, y luego lo exige de vuelta en el fin/descartar con
+ * 'forzar' (el que cierra el viaje que quiza esta grabando la OTRA). Se guarda
+ * en cuanto llega: da igual que el inicio acabe en 200 o en 409/412 -- el viaje
+ * puede no abrirse y la pantalla estar emparejada.
+ *
+ * Si no viene el campo (P4 anterior al 20-oct-2026) no se toca nada, y el
+ * 'forzar' sigue funcionando como siempre. */
+static void token_guardar_de_respuesta(const char *respuesta)
+{
+    const char *p = respuesta ? strstr(respuesta, "token=") : NULL;
+    if (!p) return;
+    p += 6;                                  /* "token=" */
+    char tok[33];
+    for (int i = 0; i < 32; i++) {
+        if (!isxdigit((unsigned char)p[i])) return;
+        tok[i] = (char)tolower((unsigned char)p[i]);
+    }
+    tok[32] = 0;
+    char guardado[33];
+    if (load_pantalla_token(guardado, sizeof(guardado)) && strcmp(guardado, tok) == 0)
+        return;                              /* el mismo: no se escribe la NVS por nada */
+    if (save_pantalla_token(tok) == ESP_OK)
+        ESP_LOGI(TAG, "token de la pantalla guardado: la P4 me ha emparejado");
+    else
+        ESP_LOGW(TAG, "no he podido guardar el token: el 'forzar' pedira la clave");
+}
+
+static void inicio_resultado_cb(bool ok, int estado, const char *respuesta,
+                                void *user_data)
 {
     (void)user_data;
+    token_guardar_de_respuesta(respuesta);
     /* 409 = la P4 ya tiene un viaje abierto que esta pantalla no conocia (se
      * empezo antes de perder el estado, o desde otro sitio). Decir "terminalo
      * antes" y quedarse ahi era un callejon sin salida: el unico aparato que
@@ -2829,8 +2862,12 @@ static void viaje_iniciar_real(void *ud)
     (void)ud;
     uint32_t ahora = reloj_p4();
     if (!s_id_inicio) s_id_inicio = next_trip_seq();
+    /* El token, o "" si no hay: mandarlo vacio es lo que le pide a la P4 que
+     * empareje a esta pantalla (y su respuesta traera el token nuevo). */
+    char token[33] = {0};
+    load_pantalla_token(token, sizeof(token));
     if (!p4_api_viaje_inicio(s_id_inicio, s_viaje_destino,
-                             ahora / 86400u, s_viaje_km_cuadro,
+                             ahora / 86400u, s_viaje_km_cuadro, token,
                              inicio_resultado_cb)) {
         aviso_envio_fallo(0, "Viaje");
     }
@@ -4556,9 +4593,11 @@ static uint8_t       s_puntual_sub, s_puntual_sub2;
  * 09-sep-2026, antes de la primera salida real. */
 static bool s_puntual_iniciando;
 
-static void inicio_puntual_resultado_cb(bool ok, int estado, void *user_data)
+static void inicio_puntual_resultado_cb(bool ok, int estado, const char *respuesta,
+                                        void *user_data)
 {
     (void)user_data;
+    token_guardar_de_respuesta(respuesta);
     s_puntual_iniciando = false;
 
     /* Mismo callejon sin salida que un viaje real: si la P4 ya tiene algo
@@ -4641,8 +4680,11 @@ static void puntual_iniciar_real(void *ud)
     /* Sin cuentakilometros (0): una salida puntual es ir a repostar o a la ITV
      * y volver, no un viaje del cuaderno. La lectura se pide al empezar un
      * VIAJE, que es lo que pidio el usuario. */
+    char token[33] = {0};
+    load_pantalla_token(token, sizeof(token));
     if (!p4_api_viaje_inicio(next_trip_seq(), EV_NOMBRE[s_puntual_tipo],
-                             ahora / 86400u, 0, inicio_puntual_resultado_cb)) {
+                             ahora / 86400u, 0, token,
+                             inicio_puntual_resultado_cb)) {
         /* lanzar() ha fallado en el acto (sin memoria para la tarea): la
          * respuesta nunca va a llegar, asi que aqui nadie mas va a soltar
          * el guardian -- hay que hacerlo ya mismo. */
@@ -4902,17 +4944,26 @@ static void viaje_p4_manda(const char *cuerpo, const char *titulo)
 static void viaje_p4_guardar(void *ud)
 {
     (void)ud;
-    char cuerpo[160];   /* ver el comentario del fin: id + dev */
+    /* 192 y no 160: el cuerpo lleva ahora tambien el token (32 hex + el campo,
+     * ~43 caracteres mas). */
+    char cuerpo[192];
+    /* El token, si esta pantalla esta emparejada: es lo que hace que la P4 deje
+     * cerrar el viaje de la otra sin pedir la clave de administracion. Sin
+     * token el cuerpo va como siempre y la P4 pide la clave (403). */
+    char token[33] = {0};
+    load_pantalla_token(token, sizeof(token));
     /* forzar=1: este boton es la confirmacion explicita (ver su cb). */
-    p4_api_cuerpo_fin_ajeno(cuerpo, sizeof(cuerpo), next_trip_seq(), 1);
+    p4_api_cuerpo_fin_ajeno(cuerpo, sizeof(cuerpo), next_trip_seq(), 1, token);
     viaje_p4_manda(cuerpo, "Viaje guardado");
 }
 
 static void viaje_p4_descartar(void *ud)
 {
     (void)ud;
-    char cuerpo[160];   /* id + dev + forzar, igual que el fin */
-    p4_api_cuerpo_descartar(cuerpo, sizeof(cuerpo), next_trip_seq(), 1);
+    char cuerpo[192];   /* id + dev + forzar + token, igual que el fin */
+    char token[33] = {0};
+    load_pantalla_token(token, sizeof(token));
+    p4_api_cuerpo_descartar(cuerpo, sizeof(cuerpo), next_trip_seq(), 1, token);
     viaje_p4_manda(cuerpo, "Viaje apartado");
 }
 
@@ -5511,7 +5562,7 @@ static void puntual_do_cancelar(void *ud)
         char cuerpo[64];
         /* forzar=0: aqui la salida es NUESTRA (la acabamos de abrir), asi que
          * la P4 no tiene por que dudar del dueño. */
-        p4_api_cuerpo_descartar(cuerpo, sizeof(cuerpo), next_trip_seq(), 0);
+        p4_api_cuerpo_descartar(cuerpo, sizeof(cuerpo), next_trip_seq(), 0, NULL);
         viaje_cola_error_t motivo;
         if (!viaje_cola_push(cuerpo, &motivo)) {
             /* Si esto no se encola, la carpeta se queda abierta de verdad

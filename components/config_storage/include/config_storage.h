@@ -83,6 +83,19 @@ esp_err_t load_portal_creds(char *user_out, size_t *user_len,
                             char *pass_out, size_t *pass_len);
 esp_err_t save_portal_creds(const char *user, const char *pass);
 
+/* ── Token de esta pantalla para el 'forzar' de la P4 (tanda 2, 20-oct-2026) ─
+ *
+ * La P4 solo deja que una pantalla cierre o aparte el viaje que quiza esta
+ * grabando OTRA si el cuerpo lleva el token de esa pantalla (ver
+ * docs/SEGURIDAD_FORZAR.md). Se lo da ella misma en la respuesta del 'inicio':
+ * aqui solo se guarda entre reinicios.
+ *
+ * load: false si no hay token guardado o si lo guardado no tiene forma de token
+ * (32 hex). 'out' tiene que caber 33 bytes (32 + NUL).
+ * save: ESP_ERR_INVALID_ARG si 'tok' no es un token, o el error de la NVS. */
+bool load_pantalla_token(char *out, size_t n);
+esp_err_t save_pantalla_token(const char *tok);
+
 // Parada en curso (NVS namespace: "parada").
 //
 // Una parada en un area, un camping o una pernocta puede durar varios dias, y
