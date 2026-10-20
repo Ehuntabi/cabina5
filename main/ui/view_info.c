@@ -1285,15 +1285,19 @@ static void update_conn_dots(const mini_data_t *d)
 static void refresh_cb(lv_timer_t *t)
 {
     (void)t;
-    if (s_pantalla && lv_screen_active() != s_pantalla) return;   /* no se ve */
-    mini_data_t d;
-    data_model_get(&d);
+    uint32_t ahora_ms = (uint32_t)(esp_timer_get_time() / 1000);
 
-    /* El estado del enlace se enseña en Ajustes -> Configuracion (mudado el
-     * 30-sep-2026: es un dato de diagnostico, no de conduccion, y ahi deja
-     * libre el hueco de abajo). Aqui solo se deja rastro en el log cada 30 s,
-     * que es lo que se mira cuando algo va mal. */
+    /* LO QUE NO ES PINTAR VA ANTES DE LA GUARDA (tanda 2 de la auditoria del
+     * 18-oct-2026): la guarda de "si no se ve, no gastes" se puso delante de
+     * TODO y se llevaba por delante cosas que no son pintar -- el plazo de la
+     * orden de alarma (se quedaba sin caducar y el icono del altavoz mentia) y
+     * el rastro del enlace en el log cada 30 s, que es justo lo que se mira
+     * cuando algo va mal. Solo los refresh_* de widgets van detras. */
+    orden_timeout_check(ahora_ms);
     {
+        /* El estado del enlace se ensena en Ajustes -> Configuracion (mudado el
+         * 30-sep-2026: es un dato de diagnostico, no de conduccion). Aqui solo
+         * se deja rastro en el log cada 30 s. */
         static unsigned cada_30s = 0;
         if (++cada_30s % 60 == 0) {
             char ssid[33] = {0};
@@ -1305,6 +1309,11 @@ static void refresh_cb(lv_timer_t *t)
             else                                 ESP_LOGI("enlace", "P4: %d dBm", rssi);
         }
     }
+
+    if (s_pantalla && lv_screen_active() != s_pantalla) return;   /* no se ve: no se pinta */
+
+    mini_data_t d;
+    data_model_get(&d);
 
     refresh_bat(&d);
     refresh_aux(&d);
@@ -1358,8 +1367,6 @@ static void refresh_cb(lv_timer_t *t)
      * caducidad del aviso. El mismo tick que refresca el resto (500 ms) -- el
      * pitido de la P4 se calla o no en cuanto llegue la orden, y 500 ms de
      * retraso en pintar el icono no los ve nadie. */
-    uint32_t ahora_ms = (uint32_t)(esp_timer_get_time() / 1000);
-    orden_timeout_check(ahora_ms);
     al_refresh_iconos();
     if (s_orden_msg) {
         if (s_orden_msg_ms != 0 && (ahora_ms - s_orden_msg_ms) >= ORDEN_MSG_MS) {

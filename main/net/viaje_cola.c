@@ -280,13 +280,32 @@ static void borrar_cabeza_con_mutex(void)
     }
 }
 
-/* Saca la cabeza. Solo se llama tras una entrega CONFIRMADA. */
-static void descartar_cabeza(void)
+/* Saca la cabeza, PERO SOLO SI SIGUE SIENDO LA ENTRADA 'idx'.
+ *
+ * 'idx' es la entrada que ESTE repartidor tenia en la mano (la que acaba de
+ * entregar o de soltar). Se compara DENTRO del cerrojo (tanda 2 de la auditoria
+ * del 18-oct-2026): antes la comprobacion de generacion se hacia fuera, y entre
+ * "he entregado" y "borro la cabeza" caben milisegundos de NVS en los que el
+ * descarte a mano puede avanzar la cabeza a otra entrada -- que entonces se
+ * borraba SIN haberla entregado nunca.
+ *
+ * UINT32_MAX significa "la que haya": solo lo usa el salto de una cabeza
+ * ILEGIBLE, donde no hay nada que comparar (esa entrada no se puede ni leer).
+ *
+ * Devuelve true si la cabeza avanzo. */
+static bool descartar_cabeza(uint32_t idx)
 {
+    bool avanzada = false;
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    borrar_cabeza_con_mutex();
+    uint32_t cabeza, cola;
+    indices_leer(&cabeza, &cola);
+    if (cabeza < cola && (idx == UINT32_MAX || cabeza == idx)) {
+        borrar_cabeza_con_mutex();
+        avanzada = true;
+    }
     xSemaphoreGive(s_mutex);
     avisar_cambio();
+    return avanzada;
 }
 
 /* ¿Este apunte es un AVISO que se puede soltar si la P4 no lo entiende?
@@ -325,7 +344,7 @@ static bool es_advisory(const char *cuerpo)
     return cuerpo && strstr(cuerpo, "\"op\":\"destino\"") != NULL;
 }
 
-static bool leer_cabeza(char *out, size_t n)
+static bool leer_cabeza(char *out, size_t n, uint32_t *idx_out)
 {
     uint32_t cabeza, cola;
     indices_leer(&cabeza, &cola);
@@ -338,6 +357,7 @@ static bool leer_cabeza(char *out, size_t n)
     size_t len = n;
     esp_err_t e = nvs_get_str(h, clave, out, &len);
     nvs_close(h);
+    if (e == ESP_OK && idx_out) *idx_out = cabeza;
     return e == ESP_OK;
 }
 
@@ -387,12 +407,6 @@ static bool leer_cabeza(char *out, size_t n)
  * corrupcion real posible en la practica, pero era una carrera de datos en
  * sentido formal. Detectado auditando el 08-sep-2026. */
 static _Atomic int s_atasco = VIAJE_COLA_ATASCO_NO;
-
-/* Sube cada vez que la UI descarta una entrada A MANO. El repartidor se queda
- * con el valor ANTES de enviar: si al volver no coincide, la cabeza que creia
- * estar enviando ya no es esa y NO debe sacarla -- sacaria la siguiente, que no
- * ha entregado nadie. Ver viaje_cola_descartar_cabeza(). */
-static _Atomic uint32_t s_generacion = 0;
 
 viaje_cola_atasco_t viaje_cola_atasco(void)
 {
@@ -594,8 +608,10 @@ bool viaje_cola_descartar_cabeza(void)
      *      atascado ENTRA SOLO muchas veces (es lo que dice el propio texto: "si
      *      actualizas la P4, entra solo"): al confirmar, se borraba la cabeza
      *      ACTUAL, que ya era un apunte bueno.
-     * Ahora se comprueba el atasco y se avanza la cabeza en el mismo bloque, y
-     * la generacion sube ANTES de tocar nada. */
+     * Ahora se comprueba el atasco y se avanza la cabeza en el mismo bloque. Y
+     * desde la tanda 2 del 18-oct-2026 el repartidor no borra "la cabeza que
+     * haya": borra SOLO la entrada que tenia en la mano (descartar_cabeza(idx)),
+     * asi que da igual quien gane la carrera. */
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     uint32_t cabeza, cola;
     indices_leer(&cabeza, &cola);
@@ -615,7 +631,6 @@ bool viaje_cola_descartar_cabeza(void)
         ESP_LOGW(TAG, "el apunte de cabeza ya no esta atascado: no descarto nada");
         return false;
     }
-    s_generacion++;                 /* el repartidor no debe sacar la siguiente */
     /* El borrado va DENTRO de este mismo cerrojo (ver borrar_cabeza_con_mutex). */
     borrar_cabeza_con_mutex();
     xSemaphoreGive(s_mutex);
@@ -642,15 +657,14 @@ static void reparto_task(void *arg)
     int intentos_sin_resp = 0;   /* idem con "no contesta" (estado == 0) */
 
     while (1) {
-        /* LA GENERACION SE LEE ANTES DE LEER LA CABEZA, no antes de enviar.
-         * Si se leyera despues de leer_cabeza(), este caso se colaba: el
-         * repartidor lee la entrada A, el usuario descarta a mano (la cabeza
-         * pasa a B), el repartidor captura la generacion YA NUEVA, entrega A
-         * -- que efectivamente estaba en vuelo -- y al volver cree que nadie ha
-         * tocado nada y saca B sin haberlo entregado. Leyendola antes, ese
-         * descarte invalida la comprobacion y no se saca nada. */
-        uint32_t gen = s_generacion;
-        if (!leer_cabeza(cuerpo, sizeof(cuerpo))) {
+        /* SE GUARDA EL INDICE DE LA ENTRADA QUE SE SACA, no una generacion:
+         * al volver solo se borra ESA (descartar_cabeza(idx_enviado)), y la
+         * comprobacion va dentro del mismo cerrojo que el borrado. Antes habia
+         * una generacion, pero se comparaba fuera del cerrojo y quedaba una
+         * ventana de milisegundos (la NVS del descarte a mano) en la que se
+         * podia borrar una entrada que nadie habia entregado. */
+        uint32_t idx_enviado = UINT32_MAX;   /* la entrada que hay en la mano */
+        if (!leer_cabeza(cuerpo, sizeof(cuerpo), &idx_enviado)) {
             /* OJO: leer_cabeza dice que no por dos motivos distintos, y hay que
              * separarlos. Si la cola esta vacia, a dormir. Pero si hay
              * pendientes y aun asi no se puede leer, esa entrada esta rota o no
@@ -659,7 +673,7 @@ static void reparto_task(void *arg)
             if (viaje_cola_pendientes() > 0) {
                 ESP_LOGE(TAG, "la cabeza de la cola no se puede leer: la salto "
                               "para no atascar lo que viene detras");
-                descartar_cabeza();
+                descartar_cabeza(UINT32_MAX);   /* ilegible: la que haya */
                 /* CON ESPERA A PROPOSITO (auditoria del 16-oct-2026): si
                  * indices_escribir() falla de forma persistente, la entrada se
                  * borra pero la cabeza NO avanza, asi que esta rama se repite en
@@ -678,7 +692,7 @@ static void reparto_task(void *arg)
         }
 
         int estado = 0;
-        /* 'gen' se capturo al principio de la vuelta (ver arriba). Si la UI ha
+        /* 'idx_enviado' se guardo al leer la cabeza (ver arriba). Si la UI ha
          * descartado algo mientras tanto, al volver NO se saca nada: la cabeza
          * ya es otra y sacarla seria perder un apunte que nadie ha entregado. */
         /* El cuerpo de la respuesta trae (si la P4 es de hoy) cuanto le queda
@@ -710,8 +724,8 @@ static void reparto_task(void *arg)
             intentos_5xx = 0;
             intentos_sin_resp = 0;
             s_atasco = VIAJE_COLA_ATASCO_NO;
-            if (s_generacion == gen) {
-                descartar_cabeza();
+            if (descartar_cabeza(idx_enviado)) {
+                /* normal: la cabeza era la que se entrego */
             } else {
                 /* Se entrego, pero la entrada que se envio ya no esta en la
                  * cola: no se toca. Se quedara (o no) y, como mucho, se
@@ -830,7 +844,7 @@ static void reparto_task(void *arg)
                               "op: firmware viejo?). Lo SUELTO: el destino va "
                               "tambien en el cierre, y un aviso no puede bloquear "
                               "los apuntes ni el fin que vienen detras");
-                descartar_cabeza();
+                descartar_cabeza(idx_enviado);
                 /* La marca de atasco era de ESE apunte (el aviso) y se va con el:
                  * la cabeza nueva es un apunte SANO y no puede nacer con la
                  * pastilla roja puesta, o "Descartarlo" -- que solo exige
@@ -875,7 +889,7 @@ static void reparto_task(void *arg)
                 if (cabeza_igual(&idx_adv, &intentos_adv)) {
                     ESP_LOGW(TAG, "el aviso de destino no entra (%d): lo suelto, "
                                   "que el destino va tambien en el cierre", estado);
-                    descartar_cabeza();
+                    descartar_cabeza(idx_enviado);
                     /* Ver el mismo arreglo en la rama del 400: la marca de
                      * atasco se va con el apunte que la puso (si no, la cabeza
                      * nueva, que es sana, nace con la pastilla roja y se puede

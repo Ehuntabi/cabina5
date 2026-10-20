@@ -441,19 +441,14 @@ uint32_t next_trip_seq(void)
  * llega a encolarse (cola llena, fallo de NVS), el contador sube igual y la P4
  * vera que le faltan. Si contaramos solo lo encolado, un apunte perdido cuadraria
  * las cuentas y el viaje se daria por completo sin serlo -- justo lo que este
- * contador existe para impedir. */
-uint32_t trip_eventos_get(void)
-{
-    uint32_t n = 0;
-    if (!trip_eventos_get_ok(&n)) return 0;
-    return n;
-}
-
-/* Y ESTA ES LA QUE HAY QUE USAR AL CERRAR (tanda 2 de la auditoria del
- * 18-oct-2026): la de arriba devuelve 0 cuando el blob no se puede leer, y con
- * eso el fin mandaba "eventos":1 -- o sea, "hay un evento" -- aunque faltaran
- * apuntes: la P4 daba el viaje por COMPLETO y sin marca. Si no se sabe, se dice
- * que no se sabe (el fin va sin 'eventos' y la P4 lo marca "SIN VERIFICAR"). */
+ * contador existe para impedir.
+ *
+ * DICE SI SE PUDO LEER (tanda 2 de la auditoria del 18-oct-2026), y por eso ya no
+ * hay un trip_eventos_get() que devuelva solo el numero: ese devolvia 0 cuando el
+ * blob no se podia leer, y el que cerraba le sumaba 1 y mandaba "eventos":1 --
+ * "hay un evento" -- aunque faltaran apuntes, con lo que la P4 daba el viaje por
+ * COMPLETO y sin marca. Si no se sabe, se dice que no se sabe: el fin va sin
+ * 'eventos' y la P4 lo marca "SIN VERIFICAR". */
 bool trip_eventos_get_ok(uint32_t *out)
 {
     trip_blob_t b;
