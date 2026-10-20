@@ -149,6 +149,7 @@ jobs:
                    test/viaje_horario_arnes.c test/viaje_horario.sh \
                    test/viaje_contadores.sh test/viaje_contadores_arnes.c \
                    test/ota_version.sh test/ota_version_arnes.c \
+                   test/extrae_cuerpo.py \
                    main/ui/ui_style.h \
                    test/estilo.sh ; do
             if [ ! -f "cabina5/$f" ] || [ ! -f "35cabina/$f" ]; then

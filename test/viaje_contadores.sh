@@ -129,19 +129,14 @@ echo
 echo "== el km del cuadro en el cuerpo del inicio =="
 python3 - "$AQUI/.." "$TMP/inicio.c" <<'PYEXT2'
 import re, sys, pathlib
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]).resolve() / 'test'))
+from extrae_cuerpo import desde
 repo = pathlib.Path(sys.argv[1]).resolve()
 fuente = (repo / 'main/net/p4_api.c').read_text()
 m = re.search(r'void p4_api_cuerpo_inicio\(char \*out, size_t n, uint32_t id,\s*\n\s*const char \*destino, uint32_t fecha_dias,\s*\n\s*uint32_t km_cuadro\)\s*\n\{', fuente)
 if not m:
     raise SystemExit('no encuentro p4_api_cuerpo_inicio() en main/net/p4_api.c')
-i = m.start(); k = fuente.index('{', i); n = 0
-while True:
-    if fuente[k] == '{': n += 1
-    elif fuente[k] == '}':
-        n -= 1
-        if n == 0: break
-    k += 1
-fn = fuente[i:k+1]
+fn = desde(fuente, m)
 plantilla = '''#include <stdio.h>
 #include <string.h>
 #include <stdint.h>
@@ -210,19 +205,14 @@ echo
 echo "== el km del cuadro en el cuerpo del cierre =="
 python3 - "$AQUI/.." "$TMP/fin.c" <<'PYEXT3'
 import re, sys, pathlib
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]).resolve() / 'test'))
+from extrae_cuerpo import desde
 repo = pathlib.Path(sys.argv[1]).resolve()
 fuente = (repo / 'main/net/p4_api.c').read_text()
 m = re.search(r'void p4_api_cuerpo_fin\(char \*out, size_t n, uint32_t id, uint32_t eventos,\s*\n\s*const char \*destino, uint32_t km_cuadro\)\s*\n\{', fuente)
 if not m:
     raise SystemExit('no encuentro p4_api_cuerpo_fin() en main/net/p4_api.c')
-i = m.start(); k = fuente.index('{', i); n = 0
-while True:
-    if fuente[k] == '{': n += 1
-    elif fuente[k] == '}':
-        n -= 1
-        if n == 0: break
-    k += 1
-fn = fuente[i:k+1]
+fn = desde(fuente, m)
 plantilla = '''#include <stdio.h>
 #include <string.h>
 #include <stdint.h>

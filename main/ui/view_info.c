@@ -203,6 +203,11 @@ static lv_obj_t   *s_bat_dot;
  * VELOCIDAD se quito el 14-oct-2026: la P4 no la manda (su GPS no la saca del
  * NMEA y el protocolo no tiene el campo) y una demo que sube sola no es un dato. */
 static lv_obj_t   *s_gps_card;
+/* La pantalla donde vive esta vista: el refresco de 500 ms se salta si
+ * no es la que se ve (tanda 2 de la auditoria del 18-oct-2026: se
+ * gastaba el 2 Hz en copiar el modelo y repintar widgets ocultos). */
+static lv_obj_t *s_pantalla;
+
 static lv_obj_t   *s_bat_soc;      /* el numero, DENTRO del dibujo */
 static lv_obj_t   *s_bat_volt;     /* solo el numero, alineado a la derecha */
 static lv_obj_t   *s_bat_amp;
@@ -1280,6 +1285,7 @@ static void update_conn_dots(const mini_data_t *d)
 static void refresh_cb(lv_timer_t *t)
 {
     (void)t;
+    if (s_pantalla && lv_screen_active() != s_pantalla) return;   /* no se ve */
     mini_data_t d;
     data_model_get(&d);
 
@@ -1945,6 +1951,7 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_style_radius(s_orden_msg, 8, 0);
     lv_obj_align(s_orden_msg, LV_ALIGN_BOTTOM_MID, 0, -6);
 
+    s_pantalla = lv_obj_get_screen(parent);
     s_refresh_timer = lv_timer_create(refresh_cb, 500, NULL);
 }
 

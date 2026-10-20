@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# auditar.sh — Verificador de la cabina (35cabina). Reglas que evitan que vuelvan
+# auditar.sh — Verificador de la cabina (el mismo en la 5" y en la 3,5"). Reglas
 # fallos ya conocidos de ESTE repo (auditoria del 3-oct-2026).
 #
 # La P4 tiene su propio test/auditar.sh; este es el equivalente aqui, donde hasta
@@ -8,6 +8,10 @@
 # Uso:  bash test/auditar.sh        (desde la raiz del repo)
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
+# El .bin del proyecto se llama como el repo (cabina5.bin / 35cabina.bin). Antes
+# ponia 35cabina.bin a pelo, asi que en la 5" estas comprobaciones del binario no
+# se hacian nunca y decia "sin build".
+APP=$(basename "$PWD")
 fallos=0
 ok()  { printf '  ok    %s\n' "$1"; }
 mal() { printf '  FALLO %s\n' "$1"; fallos=$((fallos+1)); }
@@ -17,8 +21,8 @@ mal() { printf '  FALLO %s\n' "$1"; fallos=$((fallos+1)); }
 # existia build/ ("se omite"), asi que el dia que el step del build falle, se
 # renombre o se cambie el orden, esta auditoria diria OK sin haber mirado nada.
 # En CI el build va ANTES: si falta, es un fallo del workflow y se dice.
-if [ -n "${CI:-}" ] && [ ! -f build/35cabina.bin ]; then
-    mal "no hay build/35cabina.bin y en CI se compila antes de auditar: revisa el workflow (o el step del build)"
+if [ -n "${CI:-}" ] && [ ! -f "build/$APP.bin" ]; then
+    mal "no hay build/$APP.bin y en CI se compila antes de auditar: revisa el workflow (o el step del build)"
 fi
 
 echo "=== 1. El binario es el de la IDF que pide el proyecto (v5.5.5) ==="
@@ -26,7 +30,7 @@ echo "=== 1. El binario es el de la IDF que pide el proyecto (v5.5.5) ==="
 # (P4, cabina 3,5" y cabina 5") compartan un solo entorno. La regla sigue igual
 # de importante: compilar con otra IDF deja el firmware sin probar, y ahora la
 # que vale es la misma que la de la P4.
-BIN=$(ls build/35cabina.bin 2>/dev/null | head -1)
+BIN=$(ls "build/$APP.bin" 2>/dev/null | head -1)
 if [ -n "$BIN" ]; then
     # Se acepta el sufijo "-dirty": el IDF de este PC lleva los parches del
     # proyecto de la P4 sin commitear (scripts/aplicar_parche_idf.sh), asi que
@@ -34,16 +38,35 @@ if [ -n "$BIN" ]; then
     strings "$BIN" | grep -qE '^v5\.5\.5(-dirty)?$' \
         && ok "el .bin lleva IDF v5.5.5 (el mismo arbol parcheado que la P4)" \
         || mal "el .bin NO lleva IDF v5.5.5 ($(strings "$BIN" | grep -oE '^v5\.[0-9]\.[0-9]+(-dirty)?$' | head -1))"
-    ver=$(strings "$BIN" | grep -oE '^v2\.[0-9]+$' | head -1)
+    ver=$(strings "$BIN" | grep -oE '^v[0-9]+\.[0-9]+$' | head -1)
     [ -n "$ver" ] && ok "version embebida: $ver" || mal "el .bin no lleva version embebida (¿build sin tags?)"
 else
     echo "  (sin build: se omite; compila antes con el release.sh del repo)"
 fi
 
-echo "=== 2. LVGL 8.4.0 (la UI esta escrita para esa version) ==="
-grep -A 6 "^  lvgl/lvgl:" dependencies.lock 2>/dev/null | grep -q "version: 8.4.0" \
-    && ok "lvgl/lvgl fijado en 8.4.0" \
-    || mal "lvgl/lvgl NO esta fijado en 8.4.0 en dependencies.lock (subir LVGL rompe la UI)"
+echo "=== 2. LVGL fijado en la version que pide el manifiesto (la UI va con ella) ==="
+# La UI esta escrita para UNA version de LVGL: la 5" va con la 9.2 y la 3,5" con
+# la 8.4, y saltar de rama cambia el dibujado y la API. El pin bueno esta en
+# main/idf_component.yml; dependencies.lock tiene que haberlo resuelto a la
+# MISMA rama (mismo major.minor), que es la que acaba metiendo el build.
+# Antes ponia "8.4.0" a pelo y la 5" (LVGL 9 desde el 8-oct-2026) fallaba aqui.
+pedida=$(awk '
+    /^[[:space:]]*lvgl\/lvgl:/ {
+        if ($0 ~ /[0-9]+\.[0-9]+\.[0-9]+/) { print; exit }
+        dentro = 1; next
+    }
+    dentro && /version:/ { print; exit }
+' main/idf_component.yml 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+fijada=$(grep -A 9 '^  lvgl/lvgl:' dependencies.lock 2>/dev/null | grep -oE 'version: [0-9]+\.[0-9]+\.[0-9]+' | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+if [ -z "$pedida" ] || [ -z "$fijada" ]; then
+    mal "no encuentro el pin de LVGL (manifiesto '$pedida', lock '$fijada')"
+else
+    rama=${pedida%.*}
+    case "$fijada" in
+        "$rama".*) ok "lvgl/lvgl $fijada fijado en dependencies.lock (el manifiesto pide $pedida)" ;;
+        *) mal "lvgl/lvgl $fijada NO es la rama $rama del manifiesto ($pedida): subir LVGL cambia la UI" ;;
+    esac
+fi
 
 echo "=== 3. Particion de coredump (para poder diagnosticar un cuelgue) ==="
 # Sin esta particion, un panic en el campo no deja volcado y solo se sabe que

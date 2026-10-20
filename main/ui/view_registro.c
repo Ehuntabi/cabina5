@@ -633,18 +633,6 @@ static void ta_click_cb(lv_event_t *e)
  * y se corta: era justo lo que se veia en la foto de repostaje ("no se ve
  * completa la parte superior de los blancos"). Poniendo el alto a la linea de
  * su fuente (fija, no automatica) no hay contenedor que lo estire. */
-static void diag_rotulo_size_changed_cb(lv_event_t *e)
-{
-    lv_obj_t *l = lv_event_get_target(e);
-    lv_area_t *old = (lv_area_t *)lv_event_get_param(e);
-    const char *txt = lv_label_get_text(l);
-    ESP_LOGW(TAG, "ROTULO '%s' SIZE_CHANGED: antes %dx%d -> ahora %dx%d (flex_grow propio=%d)",
-             txt ? txt : "?",
-             (int)lv_area_get_width(old), (int)lv_area_get_height(old),
-             (int)lv_obj_get_width(l), (int)lv_obj_get_height(l),
-             (int)lv_obj_get_style_flex_grow(l, LV_PART_MAIN));
-}
-
 static lv_obj_t *make_field_label(lv_obj_t *parent, const char *txt,
                                   const lv_font_t *fuente)
 {
@@ -655,11 +643,6 @@ static lv_obj_t *make_field_label(lv_obj_t *parent, const char *txt,
     lv_obj_set_height(l, lv_font_get_line_height(fuente));
     lv_obj_set_style_max_height(l, lv_font_get_line_height(fuente), 0);
     lv_obj_set_width(l, LV_SIZE_CONTENT);
-    /* TRAZA UNICA (se quita al cerrar el diagnostico): confirma que el rotulo
-     * pasa por aqui y con que alto queda. */
-    ESP_LOGW(TAG, "ROTULO '%s': alto forzado a %d", txt,
-             (int)lv_font_get_line_height(fuente));
-    lv_obj_add_event_cb(l, diag_rotulo_size_changed_cb, LV_EVENT_SIZE_CHANGED, NULL);
     lv_obj_clear_flag(l, LV_OBJ_FLAG_CLICKABLE);
     return l;
 }
@@ -2895,7 +2878,12 @@ static void viaje_do_finalizar(void *ud)
      * el cierre se quedaba en la cola y el viaje no se cerraba (lo cazo la
      * revision adversarial del 13-oct-2026, el mismo dia que se anadio 'dev'). */
     char cuerpo[160];
-    p4_api_cuerpo_fin(cuerpo, sizeof(cuerpo), next_trip_seq(), trip_eventos_get() + 1,
+    /* SI LA CUENTA NO SE PUEDE LEER, EL FIN VA SIN 'eventos' (tanda 2 de la
+     * auditoria del 18-oct-2026): decir 1 daba el viaje por COMPLETO aunque
+     * faltaran apuntes. Sin el campo, la P4 lo marca "SIN VERIFICAR". */
+    uint32_t n_ev = 0;
+    uint32_t eventos_fin = trip_eventos_get_ok(&n_ev) ? n_ev + 1 : 0;
+    p4_api_cuerpo_fin(cuerpo, sizeof(cuerpo), next_trip_seq(), eventos_fin,
                       s_destino_nuevo, s_viaje_km_llegada);
 
     viaje_cola_error_t motivo;
@@ -4143,9 +4131,14 @@ static lv_obj_t *pantalla_crear(lv_obj_t *parent, pantalla_t id,
 
 /* Refresca hora y puntos de TODAS las pantallas de menu. Una sola pasada por
  * segundo: son siete etiquetas, no compensa afinar mas. */
+/* Pantalla de esta vista, para no refrescar la barra cuando no se ve
+ * (tanda 2 de la auditoria del 18-oct-2026). */
+static lv_obj_t *s_pantalla_barra;
+
 static void barra_timer_cb(lv_timer_t *t)
 {
     (void)t;
+    if (s_pantalla_barra && lv_screen_active() != s_pantalla_barra) return;
     mini_data_t d;
     data_model_get(&d);
     uint32_t ms     = (uint32_t)(esp_timer_get_time() / 1000);
@@ -6392,6 +6385,7 @@ void view_registro_create(lv_obj_t *parent)
     confirm_screen_init(parent);
 
     /* Hora y puntos de la franja, una pasada por segundo. */
+    s_pantalla_barra = lv_obj_get_screen(parent);
     lv_timer_create(barra_timer_cb, 1000, NULL);
 
     /* El menu de partida sale del ESTADO, no de un valor por defecto: si se

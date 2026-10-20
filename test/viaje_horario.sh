@@ -18,20 +18,15 @@ trap 'rm -rf "$TMP"' EXIT
 
 python3 - "$AQUI/viaje_horario_arnes.c" "$TMP/t.c" <<'PYEXT'
 import re, sys, pathlib
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]).resolve().parent))
+from extrae_cuerpo import desde
 arnes_path = pathlib.Path(sys.argv[1]).resolve()
 raiz = arnes_path.parent.parent
 fuente = (raiz / 'main/salida.c').read_text()
 m = re.search(r'uint32_t salida_noches\(uint32_t epoch_ini, uint32_t epoch_fin\)\s*\n\{', fuente)
 if not m:
     raise SystemExit('no encuentro salida_noches() en main/salida.c')
-i = m.start(); k = fuente.index('{', i); n = 0
-while True:
-    if fuente[k] == '{': n += 1
-    elif fuente[k] == '}':
-        n -= 1
-        if n == 0: break
-    k += 1
-fn = fuente[i:k+1]
+fn = desde(fuente, m)
 # DOS funciones desde el 17-oct-2026: salida_noches() pregunta
 # reloj_delta_horario_desde(epoch_ini), que es la que decide si el tramo empezo
 # ANTES del cambio de horario. Las dos devuelven lo mismo aqui: el test simula

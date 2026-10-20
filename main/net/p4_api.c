@@ -365,8 +365,17 @@ void p4_api_cuerpo_fin(char *out, size_t n, uint32_t id, uint32_t eventos,
      * la cadena de formato variable los argumentos de las varargs dejaban de
      * cuadrar -- un %lu leyendo un char* es un fallo que aparece en la placa y
      * no al compilar. */
-    int k = snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"eventos\":%lu,\"dev\":\"%s\"",
+    /* eventos == 0 = NO SE SABE, y entonces la clave NO SE MANDA (tanda 2 de la
+     * auditoria del 18-oct-2026): la P4, sin 'eventos', marca el viaje "SIN
+     * VERIFICAR" en vez de darlo por completo. Antes se mandaba el 0 de una
+     * lectura fallida como si fuera "ningun evento de mas". */
+    int k;
+    if (eventos)
+        k = snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"eventos\":%lu,\"dev\":\"%s\"",
                      (unsigned long)id, (unsigned long)eventos, p4_api_dev_id());
+    else
+        k = snprintf(out, n, "{\"op\":\"fin\",\"id\":%lu,\"dev\":\"%s\"",
+                     (unsigned long)id, p4_api_dev_id());
     if (k > 0 && (size_t)k < n && limpio[0]) {
         k += snprintf(out + k, n - (size_t)k, ",\"destino\":\"%s\"", limpio);
     }

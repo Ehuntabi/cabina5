@@ -31,3 +31,7 @@ capturas/
 
 # Credenciales reales del AP (versionar solo la plantilla .example)
 main/wifi_credentials.h
+
+# Bytecode de los ayudantes de los tests (test/extrae_cuerpo.py)
+__pycache__/
+*.pyc

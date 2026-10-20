@@ -71,6 +71,10 @@ uint32_t next_trip_seq(void);
  * activo/destino, pero se actualiza sola (cada apunte, no solo inicio/fin). */
 uint32_t trip_eventos_inc(void);
 uint32_t trip_eventos_get(void);   /* sin incrementar: para el mensaje de fin */
+/* La misma cuenta, pero DICIENDO si se pudo leer. El cierre tiene que usarla:
+ * si el blob no se puede leer, el fin va sin 'eventos' y la P4 lo marca
+ * "SIN VERIFICAR" en vez de darlo por completo (tanda 2, 18-oct-2026). */
+bool trip_eventos_get_ok(uint32_t *out);
 
 /* Usuario y clave del PORTAL de la P4 (no del Wi-Fi). Se ven en la P4, en
  * Ajustes -> Wi-Fi. */

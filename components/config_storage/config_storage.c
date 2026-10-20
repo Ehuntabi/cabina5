@@ -386,7 +386,16 @@ uint32_t next_trip_seq(void)
         return 0;
     }
     nvs_get_u32(h, TRIP_SEQ_KEY, &v);
+    /* SI EL COMMIT FALLA, EL ID NO SE PUEDE REUTILIZAR (tanda 2 de la auditoria
+     * del 18-oct-2026). El valor de la NVS no avanza, y la siguiente llamada
+     * volvia a repartir el MISMO id: dos apuntes distintos con el mismo id, el
+     * anillo de la P4 contesta "duplicado" al segundo y el apunte se pierde SIN
+     * ERROR. Con la cache en RAM, la unicidad no depende del commit: el id que
+     * se ha devuelto una vez no se vuelve a dar en esta sesion. */
+    static uint32_t s_ultimo_seq;
+    if (v < s_ultimo_seq) v = s_ultimo_seq;
     v++;
+    s_ultimo_seq = v;
     esp_err_t err = nvs_set_u32(h, TRIP_SEQ_KEY, v);
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
@@ -435,9 +444,22 @@ uint32_t next_trip_seq(void)
  * contador existe para impedir. */
 uint32_t trip_eventos_get(void)
 {
+    uint32_t n = 0;
+    if (!trip_eventos_get_ok(&n)) return 0;
+    return n;
+}
+
+/* Y ESTA ES LA QUE HAY QUE USAR AL CERRAR (tanda 2 de la auditoria del
+ * 18-oct-2026): la de arriba devuelve 0 cuando el blob no se puede leer, y con
+ * eso el fin mandaba "eventos":1 -- o sea, "hay un evento" -- aunque faltaran
+ * apuntes: la P4 daba el viaje por COMPLETO y sin marca. Si no se sabe, se dice
+ * que no se sabe (el fin va sin 'eventos' y la P4 lo marca "SIN VERIFICAR"). */
+bool trip_eventos_get_ok(uint32_t *out)
+{
     trip_blob_t b;
-    trip_blob_load(&b);
-    return b.n_eventos;
+    if (trip_blob_load(&b) != ESP_OK) return false;   /* ilegible: no se inventa */
+    if (out) *out = b.n_eventos;
+    return true;
 }
 
 uint32_t trip_eventos_inc(void)

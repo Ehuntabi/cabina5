@@ -245,28 +245,46 @@ bool viaje_cola_push(const char *cuerpo, viaje_cola_error_t *motivo_out)
     return true;
 }
 
+/* Saca la cabeza: borra su clave de la NVS y avanza el indice.
+ *
+ * SE LLAMA CON s_mutex COGIDO (por eso no lo coge aqui). Lo partio en dos la
+ * tanda 2 de la auditoria del 18-oct-2026: el descarte a mano soltaba el cerrojo
+ * y volvia a entrar por descartar_cabeza(), asi que en el hueco el repartidor
+ * podia sacar la cabeza vieja y el 200 de ESA entrada llegaba cuando la cabeza
+ * ya era la siguiente (se borraba una entrada que no se habia entregado nunca).
+ * Ahora hay un solo sitio que borra, y siempre bajo el mismo cerrojo. */
+static void borrar_cabeza_con_mutex(void)
+{
+    uint32_t cabeza, cola;
+    indices_leer(&cabeza, &cola);
+    if (cabeza >= cola) return;
+    char clave[16];
+    clave_de(cabeza, clave, sizeof(clave));
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READWRITE, &h) == ESP_OK) {
+        /* SI EL BORRADO FALLA, la entrada puede REAPARECER como huerfana al
+         * arrancar y reenviarse ya entregada. No se puede hacer mas que dejarlo
+         * dicho. */
+        esp_err_t e_er = nvs_erase_key(h, clave);
+        if (e_er != ESP_OK && e_er != ESP_ERR_NVS_NOT_FOUND)
+            ESP_LOGW(TAG, "no puedo borrar %s de la NVS (%s): puede reaparecer "
+                          "como huerfana", clave, esp_err_to_name(e_er));
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    if (!indices_escribir(cabeza + 1, cola)) {
+        /* La entrada ya esta borrada pero la cabeza no avanza: la proxima
+         * lectura no encontrara la clave. Lo recoge el repartidor, que salta
+         * las cabezas ilegibles en vez de atascarse. */
+        ESP_LOGE(TAG, "la cabeza de la cola no avanza; se reintentara");
+    }
+}
+
 /* Saca la cabeza. Solo se llama tras una entrega CONFIRMADA. */
 static void descartar_cabeza(void)
 {
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    uint32_t cabeza, cola;
-    indices_leer(&cabeza, &cola);
-    if (cabeza < cola) {
-        char clave[16];
-        clave_de(cabeza, clave, sizeof(clave));
-        nvs_handle_t h;
-        if (nvs_open(NS, NVS_READWRITE, &h) == ESP_OK) {
-            nvs_erase_key(h, clave);
-            nvs_commit(h);
-            nvs_close(h);
-        }
-        if (!indices_escribir(cabeza + 1, cola)) {
-            /* La entrada ya esta borrada pero la cabeza no avanza: la proxima
-             * lectura no encontrara la clave. Lo recoge el repartidor, que
-             * salta las cabezas ilegibles en vez de atascarse. */
-            ESP_LOGE(TAG, "la cabeza de la cola no avanza; se reintentara");
-        }
-    }
+    borrar_cabeza_con_mutex();
     xSemaphoreGive(s_mutex);
     avisar_cambio();
 }
@@ -598,9 +616,10 @@ bool viaje_cola_descartar_cabeza(void)
         return false;
     }
     s_generacion++;                 /* el repartidor no debe sacar la siguiente */
+    /* El borrado va DENTRO de este mismo cerrojo (ver borrar_cabeza_con_mutex). */
+    borrar_cabeza_con_mutex();
     xSemaphoreGive(s_mutex);
-
-    descartar_cabeza();             /* coge el mutex y avisa del cambio el solo */
+    avisar_cambio();                /* el contador de la pantalla, ya sin cerrojo */
     /* El atasco era de ESA entrada: la marca se va con ella. Si la siguiente
      * vuelve a fallar, se volvera a marcar sola en unos segundos. */
     s_atasco = VIAJE_COLA_ATASCO_NO;

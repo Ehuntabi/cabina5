@@ -82,6 +82,12 @@ static int64_t ultimo_rx_leer(void)
 }
 
 /* Diagnostico del ultimo descarte: ver udp_rx_diagnostico(). */
+/* LOS TRES CAMPOS DEL DESCARTE VAN JUNTOS (tanda 2 de la auditoria del
+ * 18-oct-2026): los escribe la tarea de recepcion y los lee la de dibujo, y
+ * "volatile" no hace atomico un grupo: la pantalla podia enseñar el motivo de
+ * un paquete con la version o el tamaño de otro. Se copian en bloque bajo el
+ * mismo cerrojo. */
+static portMUX_TYPE s_mux_drop = portMUX_INITIALIZER_UNLOCKED;
 static volatile udp_rx_drop_t s_drop_motivo = UDP_RX_DROP_NO;
 static volatile int s_drop_version = -1;
 static volatile int s_drop_tam = -1;
@@ -782,9 +788,11 @@ static void rx_task(void *arg)
         if (src.sin_addr.s_addr != p4_addr) {
             ESP_LOGW(TAG, "drop: origen %s no es la P4",
                      inet_ntoa(src.sin_addr));
+            portENTER_CRITICAL(&s_mux_drop);
             s_drop_motivo = UDP_RX_DROP_ORIGEN;
             s_drop_version = -1;
             s_drop_tam = n;
+            portEXIT_CRITICAL(&s_mux_drop);
             s_msgs_bad++;
             continue;
         }
@@ -802,9 +810,11 @@ static void rx_task(void *arg)
             int v = (n >= 1) ? (int)((const uint8_t *)buf)[0] : -1;
             ESP_LOGW(TAG, "drop: tam %d != %u (version %d)", n,
                      (unsigned)sizeof(mini_msg_t), v);
+            portENTER_CRITICAL(&s_mux_drop);
             s_drop_motivo = UDP_RX_DROP_TAM;
             s_drop_version = v;
             s_drop_tam = n;
+            portEXIT_CRITICAL(&s_mux_drop);
             s_msgs_bad++;
             continue;
         }
@@ -812,9 +822,11 @@ static void rx_task(void *arg)
         if (msg->version != MINI_PROTO_VERSION) {
             ESP_LOGW(TAG, "drop: version %u (esta pantalla habla la %u)",
                      msg->version, (unsigned)MINI_PROTO_VERSION);
+            portENTER_CRITICAL(&s_mux_drop);
             s_drop_motivo = UDP_RX_DROP_VERSION;
             s_drop_version = (int)msg->version;
             s_drop_tam = n;
+            portEXIT_CRITICAL(&s_mux_drop);
             s_msgs_bad++;
             continue;
         }
@@ -822,9 +834,11 @@ static void rx_task(void *arg)
         if (expected != msg->crc32) {
             ESP_LOGW(TAG, "drop: crc 0x%08lx != 0x%08lx",
                      (unsigned long)msg->crc32, (unsigned long)expected);
+            portENTER_CRITICAL(&s_mux_drop);
             s_drop_motivo = UDP_RX_DROP_CRC;
             s_drop_version = (int)msg->version;
             s_drop_tam = n;
+            portEXIT_CRITICAL(&s_mux_drop);
             s_msgs_bad++;
             continue;
         }
@@ -982,8 +996,10 @@ void udp_rx_enlace(char *ssid, size_t ssid_len, bool *asociado,
 
 void udp_rx_diagnostico(udp_rx_drop_t *motivo, int *version_vista, int *tam_visto)
 {
+    portENTER_CRITICAL(&s_mux_drop);
     if (motivo)       *motivo = s_drop_motivo;
     if (version_vista) *version_vista = s_drop_version;
     if (tam_visto)     *tam_visto = s_drop_tam;
+    portEXIT_CRITICAL(&s_mux_drop);
 }
 
