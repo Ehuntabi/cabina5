@@ -210,8 +210,10 @@ Aquel día se midió de una vez para siempre, con la prueba de barrido de
 `capture_carousel.c` (`PRUEBA_BRILLO`): pantalla negra, el valor en grande, y a
 bajar el duty paso a paso. Respuesta del usuario: **"4000 por debajo de 80 ya muy
 oscuro"**. O sea que el **rango útil de esta retroiluminación es 80–100 % y no hay
-más**: el 50 se ve negro, el 30 negro del todo. Los dos niveles definitivos son
-**100 % y 85 %**.
+más**: el 50 se ve negro, el 30 negro del todo. Así que hay **dos niveles: 100 %
+y el mínimo que se elija en Configuración**, de 5 en 5 entre **5 y 80 %** (por
+defecto 80; el doble toque en Datos alterna entre los dos). Antes el mínimo estaba
+clavado en 85 % y había que recompilar para cambiarlo.
 
 Antes de tocar nada, dos comprobaciones que están en el log de arranque:
 
@@ -223,14 +225,15 @@ Antes de tocar nada, dos comprobaciones que están en el log de arranque:
    prueba: el 9-oct decía "32 % de muestras negras, brillo medio 29,7" mientras
    el usuario veía negro → era luz, no UI.
 
-El brillo se cambia con el botón **"Brillo: N%"** de la pantalla de Ajustes (o
-con el doble toque/long press en la de datos). **Cambia solo la luz**: el modo
+El nivel se cambia con el **doble toque** (o toque largo) en la pantalla de
+datos; el **valor del mínimo** se elige en Configuración, con los botones − / +
+(y ahí se ve aplicado en el acto si la pantalla está en el nivel bajo). **Cambia solo la luz**: el modo
 contraste (blanco y negro) iba pegado a él y se quitó el 9-oct, porque hacía que
 los dos niveles pareciesen dos pantallas distintas en vez del mismo cuadro más
 claro o más oscuro. La pantalla de datos es **siempre en color**. El modo
 contraste sigue en `view_info.c` por si algún día se quiere un "modo sol" con su
 propio botón.
-**Al encender siempre arranca al 100 %**, aunque lo último usado fuera el 85 %:
+**Al encender siempre arranca al 100 %**, aunque lo último usado fuera el mínimo:
 así una pantalla a oscuras nunca se queda grabada y siempre se sale
 desenchufando. El cambio de nivel se aplica con una rampa de 8 tramos de 15 ms
 (antes saltaba de golpe, y eso era el "no funciona bien").

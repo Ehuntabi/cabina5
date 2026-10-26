@@ -20,6 +20,7 @@
 #include "../net/mini_proto.h"   /* MINI_PROTO_VERSION: el diagnostico del enlace */
 #include "confirm_screen.h"
 #include "config_storage.h"
+#include "brillo.h"   /* el minimo de brillo, ajustable desde aqui */
 #include "diag_reset.h"
 #include "entry_screen.h"
 #include "nav.h"
@@ -41,6 +42,30 @@ static lv_obj_t *s_raiz;
 static lv_obj_t *s_ver_lbl;
 static lv_obj_t *s_ssid_ta;
 static lv_obj_t *s_enlace;        /* estado del enlace con la P4 */
+/* El numero del minimo de brillo ("80 %"), que se repinta al cambiarlo. */
+static lv_obj_t *s_brillo_min_lbl;
+
+/* EL MINIMO DE BRILLO, AJUSTABLE (21-oct-2026, peticion del usuario).
+ *
+ * Hasta hoy los dos niveles eran fijos (100 y 85) y para cambiar el bajo habia
+ * que recompilar y grabar. El doble toque (y el toque largo) en Datos alterna
+ * 100 con ESTE valor, asi que aqui es donde se elige cual es, de 5 en 5.
+ *
+ * Se llama a brillo_min_set(), que lo acota, lo guarda y -- si la pantalla esta
+ * ahora en el nivel bajo -- lo aplica en el acto. Asi se ve lo que se esta
+ * eligiendo sin tocar la pantalla de datos. */
+static void brillo_min_pinta(void)
+{
+    if (!s_brillo_min_lbl) return;
+    lv_label_set_text_fmt(s_brillo_min_lbl, "%u %%", (unsigned)brillo_min_get());
+}
+
+static void brillo_min_cb(lv_event_t *e)
+{
+    int delta = (int)(intptr_t)lv_event_get_user_data(e);
+    brillo_min_set(brillo_min_get() + delta * BRILLO_MIN_PASO);
+    brillo_min_pinta();
+}
 static lv_obj_t *s_ota_lbl;       /* estado de la actualizacion (comparte sitio) */
 static lv_timer_t *s_ota_timer;
 /* Cierto mientras el cartel "hay version nueva" ya se abrio para esta oferta.
@@ -508,12 +533,12 @@ static void ota_timer_cb(lv_timer_t *t)
 
 /* (aqui vivia brillo_btn_cb, el boton de brillo del menu: quitado el 16-oct-2026)
  *
- * El brillo se cambia con el DOBLE TOQUE en la pantalla de datos (y con el
- * toque largo, que es lo que sale a la primera): los dos llaman a
- * brillo_alternar() y alternan los dos niveles de brillo.h (85 % y 100 %). El
- * boton existia porque el gesto no se descubre solo, pero en el menu sobraba.
- * OJO: si algun dia se quita tambien el gesto, el brillo se queda sin forma de
- * cambiarse en marcha. */
+ * El nivel (100 <-> minimo) se cambia con el DOBLE TOQUE en la pantalla de datos
+ * (y con el toque largo, que es lo que sale a la primera): los dos llaman a
+ * brillo_alternar(). Lo que SI vive en el menu desde el 21-oct-2026 es el VALOR
+ * del minimo, que se elige con los botones - / + (ver brillo_min_cb).
+ * OJO: si algun dia se quita tambien el gesto, el nivel no se podria cambiar en
+ * marcha (el minimo si, desde aqui). */
 
 static void wifi_back_cb(lv_event_t *e)
 {
@@ -750,9 +775,51 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(ulbl, &lv_font_montserrat_26, 0);
     lv_obj_center(ulbl);
 
-    /* AQUI ESTABA EL BOTON DE BRILLO ("Brillo: 85 %" / "100 %"). El usuario lo
-     * mando quitar el 16-oct-2026: el brillo se cambia con el doble toque (y el
-     * toque largo) en la pantalla de datos, que es donde se esta mirando. */
+    /* EL MINIMO DE BRILLO (21-oct-2026). El nivel alto es siempre 100 y se
+     * alterna con el doble toque en la pantalla de datos; lo que se elige AQUI
+     * es el nivel bajo, de 5 en 5 entre 5 y 80 (por encima de 80 este panel no
+     * se nota y por debajo de 5 se queda sin luz, ver brillo.h). */
+    lv_obj_t *brow = lv_obj_create(s_menu);
+    lv_obj_set_size(brow, lv_pct(100), 88);
+    lv_obj_set_style_bg_opa(brow, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(brow, 0, 0);
+    lv_obj_set_style_pad_all(brow, 0, 0);
+    lv_obj_clear_flag(brow, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(brow, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(brow, LV_FLEX_ALIGN_SPACE_BETWEEN,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t *blbl = lv_label_create(brow);
+    lv_label_set_text(blbl, "Brillo mínimo");
+    lv_obj_set_style_text_font(blbl, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(blbl, UI_COLOR_TEXT, 0);
+
+    lv_obj_t *bmenos = lv_btn_create(brow);
+    lv_obj_set_size(bmenos, 76, 76);
+    lv_obj_set_style_radius(bmenos, 38, 0);
+    lv_obj_set_style_bg_color(bmenos, UI_COLOR_BOTON, 0);
+    lv_obj_add_event_cb(bmenos, brillo_min_cb, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
+    lv_obj_t *ml = lv_label_create(bmenos);
+    lv_label_set_text(ml, LV_SYMBOL_MINUS);
+    lv_obj_set_style_text_font(ml, &lv_font_montserrat_28, 0);
+    lv_obj_center(ml);
+
+    s_brillo_min_lbl = lv_label_create(brow);
+    lv_obj_set_width(s_brillo_min_lbl, 120);
+    lv_obj_set_style_text_align(s_brillo_min_lbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(s_brillo_min_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(s_brillo_min_lbl, UI_COLOR_TEXT, 0);
+    brillo_min_pinta();
+
+    lv_obj_t *bmas = lv_btn_create(brow);
+    lv_obj_set_size(bmas, 76, 76);
+    lv_obj_set_style_radius(bmas, 38, 0);
+    lv_obj_set_style_bg_color(bmas, UI_COLOR_BOTON, 0);
+    lv_obj_add_event_cb(bmas, brillo_min_cb, LV_EVENT_CLICKED, (void *)(intptr_t)1);
+    lv_obj_t *pl = lv_label_create(bmas);
+    lv_label_set_text(pl, LV_SYMBOL_PLUS);
+    lv_obj_set_style_text_font(pl, &lv_font_montserrat_28, 0);
+    lv_obj_center(pl);
 
     /* AQUI ESTABA EL BOTON "Ver todas las pantallas" (modo paseo). El usuario lo
      * mando quitar el 16-oct-2026: es una herramienta de taller y en el menu de

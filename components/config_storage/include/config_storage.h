@@ -11,6 +11,12 @@
 esp_err_t load_brightness(uint8_t *brightness_out);
 esp_err_t save_brightness(uint8_t brightness);
 
+/* El nivel MINIMO de brillo que se elige en Configuracion (5..80 %). Es al que
+ * baja el doble toque; el alto es siempre el 100 %. Se guarda aparte del nivel
+ * actual (save_brightness), que solo sirve para el log y para el contraste. */
+esp_err_t load_brillo_min(uint8_t *out);
+esp_err_t save_brillo_min(uint8_t pct);
+
 // STA Wi-Fi (AP de la P4 a la que se asocia, NVS namespace: "wifi").
 // Permite cambiar de P4 (ej. la de repuesto) sin reflashear -- ver
 // main/wifi_credentials.h para el valor de fabrica usado la primera vez

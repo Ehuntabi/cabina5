@@ -31,10 +31,11 @@
 
 static const char *TAG = "brillo";
 
-/* Los pasos, y en cual estamos. Lo que se guarda es el PORCENTAJE, asi que la
- * lista se puede cambiar sin invalidar lo que ya hay en NVS. */
-static const uint8_t s_pasos[BRILLO_NIVELES_N] = BRILLO_NIVELES;
-static int s_paso = BRILLO_NIVELES_N - 1;      /* el maximo */
+/* Los dos niveles: el alto, fijo en BRILLO_ALTO, y el minimo, que se elige en
+ * Configuracion (5..80). Se guarda el porcentaje, no un indice, asi que cambiar
+ * la escala no invalida lo que ya hay en NVS. */
+static int s_nivel = BRILLO_ALTO;
+static int s_min   = BRILLO_MIN_DEFECTO;
 
 /* ── La rampa ─────────────────────────────────────────────────────────────── */
 #define RAMPA_PASOS   8
@@ -110,14 +111,18 @@ void brillo_init(void)
     uint8_t guardado = 0;
     if (load_brightness(&guardado) != ESP_OK) guardado = 0;
 
-    s_paso = BRILLO_NIVELES_N - 1;                  /* el maximo */
+    /* El minimo si se aplica como valor de referencia (es lo que el usuario
+     * eligio), pero el nivel de arranque es SIEMPRE el alto. */
+    uint8_t min = BRILLO_MIN_DEFECTO;
+    if (load_brillo_min(&min) != ESP_OK) min = BRILLO_MIN_DEFECTO;
+    s_min = brillo_min_acota((int)min);
+    s_nivel = BRILLO_ALTO;
 
-    ESP_LOGI(TAG, "Brillo inicial %u%% (paso %d de %d; en NVS habia %u%%, no se aplica)",
-             (unsigned)s_pasos[s_paso], s_paso + 1, BRILLO_NIVELES_N,
-             (unsigned)guardado);
+    ESP_LOGI(TAG, "Brillo inicial %d%% (minimo %d%%; en NVS habia %u%%, no se aplica)",
+             s_nivel, s_min, (unsigned)guardado);
 
-    s_rampa_hasta = s_pasos[s_paso];
-    bsp_display_brightness_set(s_pasos[s_paso]);
+    s_rampa_hasta = s_nivel;
+    bsp_display_brightness_set(s_nivel);
 
     /* El tic de la rampa, EN MARCHA DESDE AQUI Y PARA SIEMPRE (ver rampa_cb:
      * arrancarlo y pararlo en cada toque es lo que hacia que el cambio de brillo
@@ -134,23 +139,53 @@ void brillo_init(void)
     }
 }
 
-uint8_t brillo_nivel(void) { return s_pasos[s_paso]; }
+uint8_t brillo_nivel(void) { return (uint8_t)s_nivel; }
+
+/* Las dos decisiones puras (ver brillo.h): se prueban en el host. */
+int brillo_min_acota(int pct)
+{
+    if (pct < BRILLO_MIN_SUELO) pct = BRILLO_MIN_SUELO;
+    if (pct > BRILLO_MIN_TOPE)  pct = BRILLO_MIN_TOPE;
+    return pct;
+}
+
+int brillo_alterna_desde(int actual, int min)
+{
+    /* Se arranca arriba: el primer toque baja (quitar deslumbramiento) y el
+     * siguiente vuelve a subir. Cualquier nivel que no sea el alto cuenta como
+     * "estoy abajo", aunque venga de una version con otro minimo. */
+    return (actual >= BRILLO_ALTO) ? brillo_min_acota(min) : BRILLO_ALTO;
+}
+
+uint8_t brillo_min_get(void) { return (uint8_t)s_min; }
+
+uint8_t brillo_min_set(int pct)
+{
+    s_min = brillo_min_acota(pct);
+    if (save_brillo_min((uint8_t)s_min) != ESP_OK)
+        ESP_LOGW(TAG, "No se pudo guardar el minimo de brillo");
+    /* Si la pantalla esta AHORA en el nivel bajo, se aplica ya: si no, el
+     * usuario elige un minimo nuevo y no ve nada hasta el siguiente toque. */
+    if (s_nivel != BRILLO_ALTO) {
+        s_nivel = s_min;
+        aplicar_con_rampa(s_nivel);
+        if (save_brightness((uint8_t)s_nivel) != ESP_OK)
+            ESP_LOGW(TAG, "No se pudo guardar el brillo");
+    }
+    ESP_LOGI(TAG, "Brillo minimo -> %d%%", s_min);
+    return (uint8_t)s_min;
+}
 
 uint8_t brillo_alternar(void)
 {
-    /* Al OTRO nivel: 100 -> 30 -> 100. Con dos pasos, "+1 y modulo" y "hacia
-     * abajo" son lo mismo, pero se deja escrito el porque del signo: se arranca
-     * arriba, asi que el primer toque baja (quitar deslumbramiento) y el
-     * siguiente vuelve a subir. */
-    s_paso = (s_paso + BRILLO_NIVELES_N - 1) % BRILLO_NIVELES_N;
-    aplicar_con_rampa(s_pasos[s_paso]);
+    s_nivel = brillo_alterna_desde(s_nivel, s_min);
+    aplicar_con_rampa(s_nivel);
 
     /* Se escribe solo al cambiarlo, no periodicamente: son dos toques de vez en
      * cuando, no hay riesgo de desgastar la flash. */
-    if (save_brightness(s_pasos[s_paso]) != ESP_OK) {
+    if (save_brightness((uint8_t)s_nivel) != ESP_OK) {
         ESP_LOGW(TAG, "No se pudo guardar el brillo");
     }
-    ESP_LOGI(TAG, "Brillo -> %u%% (paso %d de %d)",
-             (unsigned)s_pasos[s_paso], s_paso + 1, BRILLO_NIVELES_N);
-    return s_pasos[s_paso];
+    ESP_LOGI(TAG, "Brillo -> %d%% (minimo %d%%)", s_nivel, s_min);
+    return (uint8_t)s_nivel;
 }

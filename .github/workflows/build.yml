@@ -212,6 +212,12 @@ jobs:
       - name: El estilo de la UI (fuentes, paleta, titulos)
         run: bash cabina5/test/estilo.sh
 
+      # Y el minimo de brillo (21-oct-2026): se elige en Configuracion de 5 en 5
+      # entre 5 y 80, y las dos decisiones que pueden salir mal (el acotado y a
+      # que nivel lleva el doble toque) son puras y se prueban sacadas del fuente.
+      - name: El minimo de brillo (rango y doble toque)
+        run: bash cabina5/test/brillo_min.sh
+
       # Y las decisiones de la actualizacion OTA (comparacion de versiones y
       # sha256): se sacan del ota_rx.c real y se compilan en el runner. Un error
       # aqui deja la pantalla con un firmware que no arranca.

@@ -11,6 +11,10 @@ static const char *TAG = "config_storage";
 
 #define BRIGHTNESS_NAMESPACE "display"
 #define BRIGHTNESS_KEY       "brightness"
+/* Nivel MINIMO elegido en Configuracion (5..80 %): es el nivel al que baja el
+ * doble toque. Distinto de BRIGHTNESS_KEY, que es el nivel en el que se quedo la
+ * pantalla (y que no se aplica al arrancar). */
+#define BRILLO_MIN_KEY       "brillo_min"
 #define SALIDA_NAMESPACE      "salida"
 #define SALIDA_ESTADO_KEY     "estado"
 #define SALIDA_VIDA_KEY       "vida"
@@ -60,6 +64,31 @@ esp_err_t save_brightness(uint8_t brightness) {
     esp_err_t err = nvs_open(BRIGHTNESS_NAMESPACE, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
     err = nvs_set_u8(h, BRIGHTNESS_KEY, brightness);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+esp_err_t load_brillo_min(uint8_t *out)
+{
+    if (!out) return ESP_ERR_INVALID_ARG;
+    /* 80 = el defecto historico (el rango util medido empieza ahi, ver
+     * brillo.h). Si no hay nada guardado no es un error: se devuelve el. */
+    *out = 80;
+    nvs_handle_t h;
+    if (nvs_open(BRIGHTNESS_NAMESPACE, NVS_READONLY, &h) != ESP_OK) return ESP_OK;
+    uint8_t v = 0;
+    if (nvs_get_u8(h, BRILLO_MIN_KEY, &v) == ESP_OK) *out = v;
+    nvs_close(h);
+    return ESP_OK;
+}
+
+esp_err_t save_brillo_min(uint8_t pct)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(BRIGHTNESS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(h, BRILLO_MIN_KEY, pct);
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;
