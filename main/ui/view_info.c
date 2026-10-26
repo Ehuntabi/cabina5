@@ -1017,6 +1017,22 @@ static bool al_info_activa(al_info_t i)
  * El color se pone con lv_obj_set_style_text_color y NO con paleta_texto(): esa
  * REGISTRA el objeto cada vez que se la llama y esto corre cada 500 ms, asi que
  * en dos minutos se comia las 48 plazas de la paleta. */
+/* El tiempo CONDUCIENDO, con sus unidades: "2h 35m" y, si pasa de un dia,
+ * "1d 2h 35m". Antes se pintaba "2:35" y una "h" aparte, que se lee peor (y de
+ * un vistazo no se distingue de una hora del reloj).
+ *
+ * PURA (sin LVGL) a proposito: asi se prueba en el host, ver
+ * test/viaje_contadores.sh. Los minutos van a dos cifras para que el texto no
+ * cambie de ancho; las horas no, porque "05h 32m" se lee peor que "5h 32m". */
+static void conduccion_texto(unsigned min, char *b, size_t n)
+{
+    if (min >= 24u * 60u)
+        snprintf(b, n, "%ud %uh %02um",
+                 min / (24u * 60u), (min % (24u * 60u)) / 60u, min % 60u);
+    else
+        snprintf(b, n, "%uh %02um", min / 60u, min % 60u);
+}
+
 static void refresh_viaje(const mini_data_t *d)
 {
     if (!s_viaje_km || !s_viaje_h) return;
@@ -1033,10 +1049,9 @@ static void refresh_viaje(const mini_data_t *d)
          * asi el numero se mueve mientras se conduce, que es lo que se mira. */
         snprintf(b, sizeof(b), "%.1f", (double)d->viaje_km_decimas / 10.0);
         lv_label_set_text(s_viaje_km, b);
-        /* Las horas como "2:35": en horas y minutos, que es como se lee un
-         * cuaderno de viaje (y "2.58 h" no lo dice nadie). */
-        unsigned min = (unsigned)d->viaje_minutos;
-        snprintf(b, sizeof(b), "%u:%02u", min / 60u, min % 60u);
+        /* "2h 35m" (o "1d 2h 35m"): horas y minutos, con sus unidades, que es
+         * como se lee un cuaderno de viaje. */
+        conduccion_texto((unsigned)d->viaje_minutos, b, sizeof(b));
         lv_label_set_text(s_viaje_h, b);
     } else {
         lv_label_set_text(s_viaje_km, "--");
@@ -1546,20 +1561,14 @@ static void make_viaje_card(lv_obj_t *grid)
     lv_label_set_text(s_viaje_h, "--");
     paleta_texto(s_viaje_h, 0xFFFFFF, 0xFFFFFF);
     lv_obj_set_style_text_font(s_viaje_h, &lv_font_montserrat_32, 0);
-    lv_obj_set_width(s_viaje_h, 150);
+    /* 260 y no 150 (21-oct-2026): el tiempo conduciendo lleva ahora sus
+     * unidades dentro ("1d 2h 35m") y la "h" suelta de la derecha ya no
+     * existe; el hueco que deja es el que necesita el texto largo, alineado al
+     * borde derecho de la tarjeta. */
+    lv_obj_set_width(s_viaje_h, 260);
     lv_obj_set_style_text_align(s_viaje_h, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_clear_flag(s_viaje_h, LV_OBJ_FLAG_CLICKABLE);
-    /* -62 y no -50: la "h" se queda donde estaba (-30, alineada con la columna
-     * MOTOR de la bateria) y lo que se corre hacia dentro es el numero, para
-     * dejar el mismo hueco que en los km. */
-    lv_obj_align(s_viaje_h, LV_ALIGN_RIGHT_MID, -62, 0);
-
-    lv_obj_t *u_h = lv_label_create(card);
-    lv_label_set_text(u_h, "h");
-    paleta_texto(u_h, 0xCCCCCC, 0xFFFFFF);
-    lv_obj_set_style_text_font(u_h, &lv_font_montserrat_24, 0);
-    lv_obj_clear_flag(u_h, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(u_h, LV_ALIGN_RIGHT_MID, -30, 4);
+    lv_obj_align(s_viaje_h, LV_ALIGN_RIGHT_MID, -24, 0);
 }
 
 /* DIAGNOSTICO: vuelca el arbol de esta pantalla con posiciones y tamanos. */

@@ -372,3 +372,64 @@ comprueba_ajeno fin       1 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' no
 comprueba_ajeno descartar 1 '00112233445566778899aabbccddeef' no
 
 [ "$fallos3" = 0 ] || { echo; echo "FALLOS: $fallos3"; exit 1; }
+
+# ── 5. El tiempo conduciendo de la tarjeta VIAJE (21-oct-2026) ──────────────
+#
+# La tarjeta lo pinta ahora con sus unidades ("2h 35m" y, pasado un dia,
+# "1d 2h 35m"); antes era "2:35" y una "h" suelta. Aqui se saca la funcion REAL
+# (view_info.c, conduccion_texto) y se comprueban los cortes y que quepa.
+echo
+echo "== el tiempo conduciendo de la tarjeta VIAJE =="
+python3 - "$AQUI/.." "$TMP/cond.c" <<'PYEXT5'
+import re, sys, pathlib
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]).resolve() / 'test'))
+from extrae_cuerpo import desde
+repo = pathlib.Path(sys.argv[1]).resolve()
+fuente = (repo / 'main/ui/view_info.c').read_text()
+m = re.search(r'static void conduccion_texto\(unsigned min, char \*b, size_t n\)\s*\n\{', fuente)
+if not m:
+    raise SystemExit('no encuentro conduccion_texto() en main/ui/view_info.c')
+fn = desde(fuente, m)
+plantilla = '''#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+__FN__
+
+int main(int argc, char **argv)
+{
+    (void)argc;
+    char b[24];
+    conduccion_texto((unsigned)strtoul(argv[1], NULL, 10), b, sizeof(b));
+    printf("%s\\n", b);
+    return 0;
+}
+'''
+pathlib.Path(sys.argv[2]).write_text(plantilla.replace('__FN__', fn))
+PYEXT5
+gcc -std=gnu17 -Wall -Wextra -o "$TMP/cond" "$TMP/cond.c"
+
+fallos4=0
+comprueba_cond() {   # $1 minutos  $2 texto esperado
+    local got
+    got=$("$TMP/cond" "$1")
+    if [ "$got" = "$2" ]; then
+        echo "ok     $1 min -> $got"
+    else
+        echo "FALLO  $1 min -> '$got' (esperado '$2')"; fallos4=1
+    fi
+}
+comprueba_cond 0      "0h 00m"
+comprueba_cond 1      "0h 01m"
+comprueba_cond 59     "0h 59m"
+comprueba_cond 60     "1h 00m"
+comprueba_cond 155    "2h 35m"
+comprueba_cond 1439   "23h 59m"
+comprueba_cond 1440   "1d 0h 00m"
+comprueba_cond 1505   "1d 1h 05m"
+comprueba_cond 10000  "6d 22h 40m"
+# Y que quepa en el bufer de 24 del rotulo (peor caso: 99 dias).
+comprueba_cond 143999 "99d 23h 59m"
+
+[ "$fallos4" = 0 ] || { echo; echo "FALLOS: $fallos4"; exit 1; }
