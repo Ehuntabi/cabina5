@@ -206,6 +206,13 @@ jobs:
       - name: Los km y las horas de conduccion llegan enteros
         run: bash cabina5/test/viaje_contadores.sh
 
+      # El tiempo conduciendo de la tarjeta VIAJE ("2h 35m" y "1d 2h 35m"). Va en
+      # su propio fichero porque esa tarjeta SOLO existe en la 5": metido en
+      # viaje_contadores.sh -- que el paso de arriba compara byte a byte entre las
+      # dos cabinas -- rompe el contrato y el CI se cae (paso el 27-oct-2026).
+      - name: El tiempo conduciendo se pinta con sus unidades
+        run: bash cabina5/test/viaje_tiempo_card.sh
+
       # Y el estilo de la UI: ningun nombre de fuente sin alias (si se queda,
       # tira de la del SDK y el texto sale al tamaño literal: el fallo que se
       # colo el 16-oct-2026), ningun color a mano y los titulos centrados.
