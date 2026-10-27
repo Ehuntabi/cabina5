@@ -252,14 +252,17 @@ void entry_screen_open(lv_obj_t *target, const char *label, bool numeric)
      * no el 'target'), y el limite puesto en el destino -- 40 en el motivo de
      * "Otros", por ejemplo -- no protegia nada mientras se tecleaba.
      *
-     * Y EL MODO CONTRASENA, TAMBIEN (D3): el campo de destino lo lleva (los dos
-     * campos de clave de Ajustes lo activan) y este editor no lo copiaba, asi
-     * que la clave se leia EN CLARO a letra 40. close_overlay() lo limpia al
-     * cerrar para que el siguiente campo -- SSID, destino... -- no salga con
-     * puntitos, y una clave nueva no se quede a la vista. */
+     * EL MODO CONTRASENA NO SE COPIA (D3 lo puso al reves y se ha vuelto atras
+     * el 27-oct-2026, a peticion del usuario): en el EDITOR la clave se ve EN
+     * CLARO mientras se teclea. Con puntitos, LVGL ensena el ultimo caracter
+     * 1,5 s y lo tapa: tecleando una clave larga y aleatoria (Wi-Fi o portal)
+     * no hay forma de comprobar lo escrito y se acaba borrando y repitiendo.
+     * El campo de destino sigue en puntitos y close_overlay() limpia el modo al
+     * cerrar, asi que en Ajustes la clave se ve tapada y aqui solo mientras se
+     * esta escribiendo. */
     lv_textarea_set_accepted_chars(s_value, lv_textarea_get_accepted_chars(target));
     lv_textarea_set_max_length(s_value, lv_textarea_get_max_length(target));
-    lv_textarea_set_password_mode(s_value, lv_textarea_get_password_mode(target));
+    lv_textarea_set_password_mode(s_value, false);   /* ver el comentario de arriba */
     lv_textarea_set_text(s_value, lv_textarea_get_text(target));
     lv_keyboard_set_mode(s_kb, numeric ? LV_KEYBOARD_MODE_NUMBER
                                        : LV_KEYBOARD_MODE_TEXT_LOWER);
