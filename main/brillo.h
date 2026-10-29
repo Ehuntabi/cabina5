@@ -88,7 +88,6 @@ void brillo_init(void);
 uint8_t brillo_alternar(void);
 
 /* Nivel actual (porcentaje). */
-uint8_t brillo_nivel(void);
 
 /* El minimo elegido (5..80). */
 uint8_t brillo_min_get(void);

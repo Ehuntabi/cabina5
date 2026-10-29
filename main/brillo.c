@@ -136,7 +136,6 @@ void brillo_init(void)
     }
 }
 
-uint8_t brillo_nivel(void) { return (uint8_t)s_nivel; }
 
 /* Las dos decisiones puras (ver brillo.h): se prueban en el host. */
 int brillo_min_acota(int pct)

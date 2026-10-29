@@ -453,12 +453,6 @@ viaje_cola_atasco_t viaje_cola_atasco(void)
     return (viaje_cola_atasco_t)s_atasco;
 }
 
-bool viaje_cola_bloqueada(void)
-{
-    viaje_cola_atasco_t a = (viaje_cola_atasco_t)s_atasco;
-    return a == VIAJE_COLA_ATASCO_NUMERACION || a == VIAJE_COLA_ATASCO_RECHAZO ||
-           a == VIAJE_COLA_ATASCO_REZAGADO;   /* 409 del apunte: tambien se atasca */
-}
 
 bool viaje_cola_credenciales_mal(void)
 {

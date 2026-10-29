@@ -43,7 +43,6 @@ esp_err_t save_wifi_config(const char *ssid, const char *pass);
 // destino="" o al reves. Detectado auditando el 07-sep-2026.
 //
 /* ¿Hay un viaje en marcha? (para reconciliar al arrancar, ver el .c) */
-bool load_trip_activo(void);
 
 /* 1 activo, 0 no activo, -1 no se pudo leer (ver el .c). */
 int load_trip_activo_estado(void);
@@ -130,7 +129,6 @@ typedef struct {
 
 // Si no hay nada guardado devuelve .abierta=false (sin error).
 esp_err_t load_parada_abierta(parada_abierta_t *out);
-esp_err_t save_parada_abierta(const parada_abierta_t *p);
 esp_err_t clear_parada_abierta(void);
 
 // Salida en curso y lo que dejo abierto (NVS namespace: "salida").

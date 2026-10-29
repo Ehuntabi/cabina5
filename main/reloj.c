@@ -71,7 +71,6 @@ static int s_delta_horario = 0;
  * Sirve para NO corregir los tramos que empezo DESPUES del cambio. */
 static uint32_t s_epoch_cambio = 0;
 
-int reloj_delta_horario(void) { return s_delta_horario; }
 
 int reloj_delta_horario_desde(uint32_t epoch_ini)
 {

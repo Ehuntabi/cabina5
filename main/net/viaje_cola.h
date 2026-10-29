@@ -100,13 +100,10 @@ typedef enum {
 
 viaje_cola_atasco_t viaje_cola_atasco(void);
 
-/* true si el apunte de cabeza lleva mucho rato recibiendo 409 de la P4 sin
- * avanzar (ver el comentario de INTENTOS_409_ATASCO en el .c): o es un choque de
- * numeracion entre los dos dispositivos, o un apunte del viaje anterior
- * (VIAJE_COLA_ATASCO_REZAGADO). Lo que NO significa es que la P4 este apagada.
- * No se pierde el apunte: sigue en cola y se reintenta igual, esto es solo para
- * poder avisar de verdad en vez de dejarlo mudo. */
-bool viaje_cola_bloqueada(void);
+/* (viaje_cola_bloqueada() SE QUITO el 29-oct-2026, auditoria X14: no la llamaba
+ * nadie desde que la pantalla usa viaje_cola_atasco(), que dice lo mismo con mas
+ * detalle. Lo de "el apunte de cabeza lleva mucho rato con 409" sale hoy de
+ * VIAJE_COLA_ATASCO_REZAGADO.) */
 
 /* true si el ultimo tramo de intentos viene fallando con 401 (credenciales
  * del portal mal puestas en Ajustes): a diferencia de "la P4 esta apagada",

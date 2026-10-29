@@ -336,16 +336,6 @@ static esp_err_t trip_blob_save(const trip_blob_t *in)
     return err;
 }
 
-/* ¿Hay un viaje en marcha segun ESTA pantalla? Lo usa la reconciliacion del
- * arranque (hallazgo M5): el blob del viaje y el de la salida se comiten por
- * separado y un corte entre los dos los deja descuadrados. */
-bool load_trip_activo(void)
-{
-    trip_blob_t b;
-    if (trip_blob_load(&b) != ESP_OK) return false;   /* ilegible: no se inventa */
-    return b.activo != 0;
-}
-
 /* Como load_trip_activo(), pero distingue "no hay viaje" de "no se pudo leer"
  * (auditoria del 14-oct-2026): con el blob ilegible, load_trip_activo() devuelve
  * false y la reconciliacion del arranque lo interpretaba como "aqui no hay
@@ -598,25 +588,12 @@ esp_err_t load_parada_abierta(parada_abierta_t *out)
     return ESP_OK;
 }
 
-/* Blob unico y un solo commit, no 5 claves sueltas con 5 escrituras
- * independientes: un apagon a mitad (el contacto se corta a menudo con la
- * 3.5" en marcha) podia dejar 'abierta' y 'epoch_inicio' grabados pero
- * 'cobro'/'moneda'/'precio' todavia con los de la parada ANTERIOR -- una
- * parada que mezclaba datos de dos paradas distintas sin ningun aviso. El
- * proyecto ya usa este patron para "salida" (ver save_salida_blob());
- * aqui no se habia aplicado. Detectado auditando el 07-sep-2026. */
-esp_err_t save_parada_abierta(const parada_abierta_t *p)
-{
-    if (!p) return ESP_ERR_INVALID_ARG;
-
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(PARADA_NAMESPACE, NVS_READWRITE, &h);
-    if (err != ESP_OK) return err;
-    err = nvs_set_blob(h, PARADA_BLOB_KEY, p, sizeof(*p));
-    if (err == ESP_OK) err = nvs_commit(h);
-    nvs_close(h);
-    return err;
-}
+/* (save_parada_abierta() SE QUITO el 29-oct-2026, auditoria X14: no la llamaba
+ * nadie desde que la parada abierta la lleva el blob del viaje. load_ y clear_
+ * se quedan porque la reconciliacion del arranque de la 5" todavia las usa; con
+ * nada que grabe, el blob solo puede estar vacio y load devuelve NOT_FOUND, que
+ * el llamante ya trata como "no hay parada". El blob unico con un solo commit
+ * sigue siendo el criterio de load_/clear_: no volver a 5 claves sueltas.) */
 
 esp_err_t clear_parada_abierta(void)
 {

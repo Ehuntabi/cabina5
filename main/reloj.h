@@ -25,7 +25,6 @@ void reloj_set_desde_p4(uint32_t epoch_local, int utc_off_quince);
  * horario de invierno) que hay que sumar al INICIO de un tramo abierto antes del
  * cambio. La hora de pared que se enseña NO se toca: se corrige el calculo, no
  * el dato. */
-int reloj_delta_horario(void);
 
 /* El delta que hay que sumarle al INICIO de un tramo, o 0 si el tramo empezo en
  * o despues del ultimo cambio de horario (ver reloj.c). */
