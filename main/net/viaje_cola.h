@@ -86,6 +86,16 @@ typedef enum {
                                       * apunte es del viaje ANTERIOR y no va a entrar
                                       * nunca en el que hay abierto. Al final del enum
                                       * a proposito: los valores de arriba no se mueven. */
+    VIAJE_COLA_ATASCO_FORZAR,        /* 403 del 'forzar': la P4 pide la CLAVE DE
+                                      * ADMINISTRACION (no es que la del portal este
+                                      * mal) para cerrar o apartar el viaje que esta
+                                      * grabando otra pantalla -- ver el comentario de
+                                      * token_autoriza_forzar() en la P4. No se arregla
+                                      * solo ni reescribiendo la clave del portal, y la
+                                      * cola no avanza: desde la pantalla se puede
+                                      * DESCARTAR. Auditoria del 27-oct-2026,
+                                      * cab5-net-02. Al final, como REZAGADO, para que
+                                      * los valores de arriba no se muevan. */
 } viaje_cola_atasco_t;
 
 viaje_cola_atasco_t viaje_cola_atasco(void);

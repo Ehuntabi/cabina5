@@ -2044,6 +2044,11 @@ static void pendientes_aplicar(void *arg)
      * de INTENTOS_401_ATASCO en viaje_cola.c. */
     viaje_cola_atasco_t atasco = viaje_cola_atasco();
     bool cred_mal   = (atasco == VIAJE_COLA_ATASCO_CLAVE);
+    /* La P4 pide la clave de ADMINISTRACION para cerrar o apartar el viaje de
+     * otra pantalla (403 del 'forzar'): NO es que la clave del portal este mal,
+     * asi que aqui no se manda a Ajustes. Auditoria del 27-oct-2026,
+     * cab5-net-02. */
+    bool pide_admin = (atasco == VIAJE_COLA_ATASCO_FORZAR);
     bool atascada   = (atasco == VIAJE_COLA_ATASCO_NUMERACION ||
                        atasco == VIAJE_COLA_ATASCO_REZAGADO ||
                        atasco == VIAJE_COLA_ATASCO_RECHAZO);
@@ -2056,6 +2061,10 @@ static void pendientes_aplicar(void *arg)
     bool sin_resp = (atasco == VIAJE_COLA_ATASCO_SIN_RESPUESTA);
     if (cred_mal) {
         lv_label_ins_text(s_pendientes, LV_LABEL_POS_LAST, "  -  CLAVE MAL, AJUSTES");
+    } else if (pide_admin) {
+        /* Ni "clave mal" ni "atascado" a secas: lo que falta es OTRA clave (la
+         * de administracion), y eso no se arregla en Ajustes -> WiFi. */
+        lv_label_ins_text(s_pendientes, LV_LABEL_POS_LAST, "  -  LA P4 PIDE CLAVE ADMIN");
     } else if (p4_no_escribe) {
         lv_label_ins_text(s_pendientes, LV_LABEL_POS_LAST, "  -  LA P4 NO PUEDE ESCRIBIR");
     } else if (atascada) {
@@ -2069,7 +2078,7 @@ static void pendientes_aplicar(void *arg)
     } else if (casi) {
         lv_label_ins_text(s_pendientes, LV_LABEL_POS_LAST, "  -  CASI LLENA");
     }
-    bool rojo = (casi || atascada || cred_mal || p4_no_escribe || sin_resp);
+    bool rojo = (casi || atascada || cred_mal || pide_admin || p4_no_escribe || sin_resp);
     /* Mismos valores de siempre, pero por token: el color de "error" y el de
      * "aviso" son de la paleta, no numeros sueltos. El texto va en blanco o en
      * negro segun el fondo porque la pastilla es CLARA. */
@@ -2124,6 +2133,24 @@ static void pendientes_click_cb(lv_event_t *e)
                             "Se ponen aqui al lado, en\nAjustes -> WiFi.",
                             0xFF4444, "Ir a Ajustes", "Ahora no",
                             ir_a_ajustes_cb, NULL);
+        return;
+    }
+    /* 403 DEL FORZAR (auditoria del 27-oct-2026, cab5-net-02): la P4 pide la
+     * clave de ADMINISTRACION para cerrar o apartar el viaje que esta grabando
+     * otra pantalla. No es la clave del portal (eso es el 401) y no se arregla
+     * en Ajustes -> WiFi, asi que aqui NO se manda alli: se ofrece DESCARTAR el
+     * apunte, que es la unica salida que hay desde la pantalla para que la cola
+     * drene. Antes este 403 se pintaba como "CLAVE MAL, AJUSTES" y, como esa
+     * rama sale antes de la de descartar, la cola se quedaba sin salida y el
+     * viaje seguia abierto en la P4. */
+    if (s_pend_valor > 0 && atasco == VIAJE_COLA_ATASCO_FORZAR) {
+        confirm_screen_open("LA P4 PIDE LA CLAVE DE ADMINISTRACION",
+                            "El mas antiguo de la cola cierra\no aparta el viaje que esta\ngrabando OTRA pantalla.\n\n"
+                            "La P4 pide para eso la clave de\nadministracion (la de la propia\nP4), no la del portal.\n\n"
+                            "Si lo descartas, ese cierre NO\nllega: el viaje seguira abierto.",
+                            COL_ACCION_STOP, "Descartarlo", "Esperar",
+                            descartar_apunte_cb, NULL);
+        confirm_screen_ok_destructivo();
         return;
     }
     if (s_pend_valor > 0 && atasco != VIAJE_COLA_ATASCO_NO) {

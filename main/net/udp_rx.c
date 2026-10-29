@@ -696,7 +696,14 @@ static void manda_latido(int sock)
     mini_latido_t l;
     memset(&l, 0, sizeof(l));
     l.magic   = MINI_LATIDO_MAGIC;
-    l.version = MINI_PROTO_VERSION;
+    /* MINI_LATIDO_VERSION Y NO MINI_PROTO_VERSION (auditoria del 27-oct-2026,
+     * B1/p4-net-04): el latido es su propio struct de 12 bytes, asi que su
+     * version tiene que poder subir SOLA. Atada a la del struct grande, el dia
+     * que se suba esa por un cambio que el latido ni usa, la P4 se queda
+     * exigiendo la nueva y tira los latidos de toda cabina sin regrabar; y al
+     * reves, un cambio del latido obligaria a subir la telemetria entera. Hoy
+     * las dos valen 5, asi que el cable no cambia: es solo desacoplarlas. */
+    l.version = MINI_LATIDO_VERSION;
     int64_t t_rx = ultimo_rx_leer();
     int64_t ref = t_rx ? t_rx : s_escucha_desde_us;
     /* El campo es int16 en el protocolo: se SATURA en vez de dar la vuelta.

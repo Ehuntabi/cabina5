@@ -22,6 +22,7 @@
  * repositorio de referencia ESP32-S3-JC8048W550-LVGL-ESPIDF-EEZ.
  */
 #include <string.h>
+#include <unistd.h>   /* write(): el volcado de pantalla va por el descriptor, sin traducir */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -379,6 +380,30 @@ void bsp_mirar_framebuffer(const char *etiqueta)
              (unsigned)(no_negro_ini == total ? 0 : no_negro_ini));
 }
 
+/* Escribe 'n' bytes en stdout SIN que newlib traduzca los saltos de linea.
+ *
+ * POR QUE write() Y NO printf/fwrite (auditoria del 27-oct-2026, cab5-ui-02):
+ * el proyecto compila con CONFIG_NEWLIB_STDOUT_LINE_ENDING_CRLF=y, asi que
+ * stdout convierte CADA 0x0A en 0x0D 0x0A. En un volcado binario eso mete un
+ * byte de mas por cada 0x0A de los pixeles y, a partir del primero, todo lo que
+ * viene detras queda desplazado: el PNG sale corrido o partido (cientos de
+ * bytes de mas: con div=2, ~750). write() al descriptor 1 escribe los bytes tal
+ * cual, que es lo que capture_carousel.c ya hace desde el 17-oct-2026.
+ *
+ * Se repite hasta que salga todo: write() puede escribir MENOS de lo pedido si
+ * el buffer de salida de la UART se llena. Devuelve false si no se pudo. */
+static bool escribe_todo(const void *p, size_t n)
+{
+    const uint8_t *b = (const uint8_t *)p;
+    size_t puesto = 0;
+    while (puesto < n) {
+        ssize_t k = write(STDOUT_FILENO, b + puesto, n - puesto);
+        if (k <= 0) return false;
+        puesto += (size_t)k;
+    }
+    return true;
+}
+
 /* Vuelca a la consola el framebuffer DEL PANEL en crudo, para poder verlo en el
  * PC. DIAGNOSTICO (ver bsp_mirar_framebuffer, que es la version de una linea).
  *
@@ -418,25 +443,35 @@ void bsp_volcar_framebuffer(const char *etiqueta, int div)
      * segundos, justo durante el volcado). */
     esp_log_level_set("*", ESP_LOG_NONE);
 
-    printf("===BIN:%s:%dx%d:%u===\n", etiqueta, dw, dh, (unsigned)nbytes);
-    fflush(stdout);
+    /* CABECERA, FILAS Y PIE CON write() (auditoria del 27-oct-2026, cab5-ui-02):
+     * con printf/fwrite el CRLF de newlib doblaba cada 0x0A de los pixeles y el
+     * volcado salia corrido. Ver el comentario de escribe_todo(). */
+    char cab[96];
+    int n = snprintf(cab, sizeof(cab), "===BIN:%s:%dx%d:%u===\n",
+                     etiqueta, dw, dh, (unsigned)nbytes);
+    bool completo = (n > 0 && (size_t)n < sizeof(cab)) && escribe_todo(cab, (size_t)n);
 
-    uint8_t *fila = malloc((size_t)dw * 2);
-    for (int y = 0; fila && y < dh; y++) {
+    uint8_t *fila = completo ? malloc((size_t)dw * 2) : NULL;
+    if (!fila) completo = false;
+    for (int y = 0; completo && y < dh; y++) {
         for (int x = 0; x < dw; x++) {
             const uint16_t v = px[(size_t)(y * div) * LCD_H_RES + (x * div)];
             fila[x * 2]     = (uint8_t)(v & 0xFF);
             fila[x * 2 + 1] = (uint8_t)(v >> 8);
         }
-        fwrite(fila, 1, (size_t)dw * 2, stdout);
-        fflush(stdout);
+        completo = escribe_todo(fila, (size_t)dw * 2);
         esp_task_wdt_reset();
         vTaskDelay(1);   /* cede la CPU: que el watchdog y lo demas respiren */
     }
     free(fila);
-    printf("\n===FIN===\n");
-    fflush(stdout);
+    /* El pie SOLO si el frame ha salido entero: con el flujo a medias, un
+     * ===FIN=== haria que el decodificador diese por bueno un PNG corrupto. */
+    if (completo) completo = escribe_todo("\n===FIN===\n", 11);
     esp_log_level_set("*", ESP_LOG_INFO);
+    if (!completo) {
+        ESP_LOGE(TAG, "volcado de pantalla INCOMPLETO: no he podido escribir todo "
+                      "el frame (el PNG no vale)");
+    }
 }
 
 static bool IRAM_ATTR bsp_rgb_vsync_cb(esp_lcd_panel_handle_t panel,

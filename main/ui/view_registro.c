@@ -2808,6 +2808,16 @@ static void inicio_resultado_cb(bool ok, int estado, const char *respuesta,
     if (!ok && (estado == 409 || estado == 412)) {
         s_viaje_p4_ajeno = (estado == 412);
         viaje_p4_aviso_actualizar();   /* el aviso depende de POR QUE es el 409 */
+        /* AL CARRUSEL ANTES DE ENSENAR EL PANEL (auditoria del 27-oct-2026,
+         * cab5-ui-03): mostrar_menu() solo cambia la VISIBILIDAD de la pagina de
+         * registros. Esta respuesta llega por lv_async_call hasta 8 s despues de
+         * lanzar el POST (P4_TIMEOUT_MS), y en ese rato el usuario puede haberse
+         * ido a Info o a Inclinacion: sin navegar, el aviso caia en una pagina
+         * que no se esta viendo (ni cartel ni sonido) y el unico sitio para
+         * cerrar o apartar el viaje ajeno quedaba fuera de la vista. Es el mismo
+         * patron que cierre_empezar() (navegar y despues abrir). Si ya estas en
+         * registros no hace nada. */
+        nav_ir_a_registros();
         mostrar_menu(PAN_VIAJE_P4);
         return;
     }
@@ -4606,6 +4616,12 @@ static void inicio_puntual_resultado_cb(bool ok, int estado, const char *respues
     if (!ok && (estado == 409 || estado == 412)) {
         s_viaje_p4_ajeno = (estado == 412);
         viaje_p4_aviso_actualizar();   /* el aviso depende de POR QUE es el 409 */
+        /* AL CARRUSEL ANTES DE ENSENAR EL PANEL (auditoria del 27-oct-2026,
+         * cab5-ui-03): mismo motivo que en inicio_resultado_cb -- mostrar_menu()
+         * solo cambia la visibilidad, y este callback llega hasta 8 s despues de
+         * lanzar el POST, cuando el que lo pidio ya puede estar en otra pagina
+         * (y el aviso, sin verse, y sin el panel donde se aparta el viaje). */
+        nav_ir_a_registros();
         mostrar_menu(PAN_VIAJE_P4);
         return;
     }
@@ -5431,6 +5447,18 @@ static bool olvido_preguntar(void)
  * ofrecer. Sin este tope el temporizador se quedaria vivo para siempre. */
 #define OLVIDO_INTENTOS_MAX  150
 
+/* ¿Hay algun formulario de registro a la vista? Los enseña y los esconde
+ * mostrar_menu()/show_form(), y son lo unico de la pagina que se queda abierto
+ * encima del menu. Lo mira el timer del arranque: no puede sacar la pregunta de
+ * OTRO evento mientras el usuario esta rellenando uno. */
+static bool formulario_a_la_vista(void)
+{
+    for (int i = 0; i < CAT_COUNT; i++) {
+        if (s_forms[i] && !lv_obj_has_flag(s_forms[i], LV_OBJ_FLAG_HIDDEN)) return true;
+    }
+    return false;
+}
+
 static void parada_boot_timer_cb(lv_timer_t *t)
 {
     static uint16_t intentos;
@@ -5444,8 +5472,20 @@ static void parada_boot_timer_cb(lv_timer_t *t)
      * "preguntado", pero quedan mas), y esto sustituia la pregunta en
      * pantalla por la siguiente antes de que diera tiempo a contestarla --
      * riesgo real de responder a la que no tocaba. Se reintenta el mismo
-     * tick 2s despues. Detectado el 09-sep-2026. */
-    if (confirm_screen_is_open()) return;
+     * tick 2s despues. Detectado el 09-sep-2026.
+     *
+     * Y TAMPOCO CON UN CIERRE A MEDIAS O UN FORMULARIO ABIERTO (auditoria del
+     * 27-oct-2026, cab5-ui-01): al contestar, el dialogo se cierra y se abre el
+     * formulario del evento, pero el tick siguiente ya no veia dialogo y sacaba
+     * la pregunta del SEGUNDO evento ENCIMA del formulario; al contestarla se
+     * pisaban s_cerrando/s_cerrando_id y lo tecleado para el primero se
+     * encolaba con el id del segundo (y al guardar se borraba el evento 2). El
+     * editor de campo es un overlay, no un dialogo, y el formulario tampoco
+     * cuenta en confirm_screen_is_open(): hay que mirarlos aqui. s_cerrando lo
+     * limpia show_grid(), asi que el timer reanuda solo al salir del
+     * formulario. */
+    if (confirm_screen_is_open() || s_cerrando >= 0 || entry_screen_is_open() ||
+        formulario_a_la_vista()) return;
 
     /* Sin hora de la P4 no hay NADA que se pueda ofrecer todavia: ni
      * "hay algo que cerrar" (cierre_preguntar_en devuelve false sin hora, ver

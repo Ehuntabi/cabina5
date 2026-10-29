@@ -164,6 +164,44 @@ static bool es_op_de_control(const char *cuerpo)
            strstr(cuerpo, "\"op\":\"descartar\"") != NULL;
 }
 
+/* QUE APUNTE ES, PARA LOS LOGS: "op=fin id=12". Y NADA MAS.
+ *
+ * POR QUE NO EL CUERPO ENTERO (auditoria del 27-oct-2026, cab5-net-01): el fin
+ * y el descartar con "forzar" -- los que manda el panel "VIAJE EN LA P4" --
+ * llevan dentro el TOKEN de la pantalla (32 hex) y el "dev". Aqui se imprimia el
+ * cuerpo entero con %s al encolarlo y otra vez en cada rechazo de la P4, asi que
+ * el secreto acababa en el registro de serie que se pega en un informe, y con el
+ * se puede cerrar el viaje que la otra pantalla esta grabando: justo lo que el
+ * token vino a impedir (p4_api.c ya lo tapa en su log con log_cuerpo()). Ahora
+ * solo salen la operacion y el id, que es lo que hace falta para saber QUE
+ * apunte no entra, y asi no hay forma de que un campo nuevo con secreto se cuele
+ * por aqui. */
+static void resumen_apunte(const char *cuerpo, char *out, size_t n)
+{
+    char op[16] = "?";
+    char id[16] = "?";
+    const char *p = cuerpo ? strstr(cuerpo, "\"op\":\"") : NULL;
+    if (p) {
+        p += 6;                                   /* "\"op\":\"" */
+        const char *q = strchr(p, '"');
+        if (q && (size_t)(q - p) < sizeof(op)) {
+            memcpy(op, p, (size_t)(q - p));
+            op[q - p] = 0;
+        }
+    }
+    p = cuerpo ? strstr(cuerpo, "\"id\":") : NULL;
+    if (p) {
+        p += 5;                                   /* "\"id\":" */
+        size_t k = 0;
+        while (p[k] >= '0' && p[k] <= '9' && k + 1 < sizeof(id)) {
+            id[k] = p[k];
+            k++;
+        }
+        id[k] = 0;
+    }
+    snprintf(out, n, "op=%s id=%s", op, id);
+}
+
 bool viaje_cola_push(const char *cuerpo, viaje_cola_error_t *motivo_out)
 {
     if (motivo_out) *motivo_out = VIAJE_COLA_ERR_NINGUNO;
@@ -235,8 +273,10 @@ bool viaje_cola_push(const char *cuerpo, viaje_cola_error_t *motivo_out)
     }
     xSemaphoreGive(s_mutex);
 
+    char resumen[40];
+    resumen_apunte(cuerpo, resumen, sizeof(resumen));
     ESP_LOGI(TAG, "encolado #%lu (%u pendientes): %s",
-             (unsigned long)cola, (unsigned)(cola + 1 - cabeza), cuerpo);
+             (unsigned long)cola, (unsigned)(cola + 1 - cabeza), resumen);
     avisar_cambio();
     /* Si reparto_task esta dormida esperando a que la cola deje de estar
      * vacia, que se entere ya: sin esto, este apunte podia tardar hasta
@@ -655,6 +695,7 @@ static void reparto_task(void *arg)
     int intentos_401 = 0;   /* no distingue apunte: una clave mal puesta falla con cualquiera */
     int intentos_5xx = 0;   /* idem: si la P4 no puede escribir, falla con todos */
     int intentos_sin_resp = 0;   /* idem con "no contesta" (estado == 0) */
+    char resumen[40];            /* op+id del apunte, para los logs (sin token) */
 
     while (1) {
         /* SE GUARDA EL INDICE DE LA ENTRADA QUE SE SACA, no una generacion:
@@ -696,8 +737,12 @@ static void reparto_task(void *arg)
          * descartado algo mientras tanto, al volver NO se saca nada: la cabeza
          * ya es otra y sacarla seria perder un apunte que nadie ha entregado. */
         /* El cuerpo de la respuesta trae (si la P4 es de hoy) cuanto le queda
-         * en la tarjeta: se guarda para poder avisar ANTES de que se llene. */
-        char resp[96];
+         * en la tarjeta: se guarda para poder avisar ANTES de que se llene.
+         * 160 Y NO 96 (auditoria del 27-oct-2026, cab5-net-02): el aviso del 403
+         * del 'forzar' -- "necesita la clave de administracion ..." -- mide 146
+         * bytes, y con 96 se cortaba justo antes de la palabra que hay que leer
+         * para saber POR QUE rechaza (ver la rama del 403). */
+        char resp[160];
         bool ok = p4_api_post_resp(cuerpo, &estado, resp, sizeof(resp));
         if (ok || estado == 507) {
             int libre = parsea_libre_mb(resp);
@@ -747,7 +792,7 @@ static void reparto_task(void *arg)
          * modo que una clave mal intercalada con frenos no llegaba NUNCA a los 3
          * fallos: la pantalla se quedaba sin decir "CLAVE MAL, AJUSTES" y el
          * usuario miraba la corriente de la P4 en vez de Ajustes. */
-        if (estado == 401 || estado == 403 || estado == 429) {
+        if (estado == 401 || estado == 429) {
             intentos_401++;
             if (intentos_401 >= INTENTOS_401_ATASCO && !viaje_cola_credenciales_mal()) {
                 s_atasco = VIAJE_COLA_ATASCO_CLAVE;
@@ -764,6 +809,37 @@ static void reparto_task(void *arg)
          * cero. Ojo: un 2xx ya lo ha hecho mas arriba. */
         intentos_401 = 0;
         if (viaje_cola_credenciales_mal()) s_atasco = VIAJE_COLA_ATASCO_NO;
+
+        /* 403: NO ES "LA CLAVE DEL PORTAL NO VALE" (auditoria del 27-oct-2026,
+         * cab5-net-02). El 403 que contesta la P4 a un 'forzar' es el aviso de
+         * check_basic_auth_strict_aviso(): esa pantalla esta emparejada y el
+         * cuerpo no trae el token bueno, asi que para cerrar o apartar el viaje
+         * de OTRA pantalla hace falta la clave de ADMINISTRACION. Antes caia en
+         * el mismo contador que el 401 y el 429 y a los 3 intentos ponia
+         * VIAJE_COLA_ATASCO_CLAVE: la pastilla decia "CLAVE MAL, AJUSTES" y el
+         * dialogo mandaba a reescribir en Ajustes una clave del portal que
+         * estaba bien. Y como esa rama salia antes de la que ofrece
+         * "Descartarlo", la cola no drenaba y el viaje seguia abierto en la P4.
+         *
+         * El cuerpo del 403 dice POR QUE (la P4 manda ahi su aviso: "... necesita
+         * la clave de administracion ..."). Se lee para el diagnostico, pero NO
+         * se imprime: por este log ya no puede salir nada que no sea nuestro. */
+        if (estado == 403) {
+            bool pide_admin = (strstr(resp, "admin") != NULL);
+            if (viaje_cola_atasco() != VIAJE_COLA_ATASCO_FORZAR) {
+                s_atasco = VIAJE_COLA_ATASCO_FORZAR;
+                ESP_LOGE(TAG, "la P4 contesta 403 al 'forzar' y NO es la clave del "
+                              "portal: %s. La cola no avanza sola; desde la "
+                              "pantalla se puede descartar el apunte",
+                         pide_admin ? "pide la clave de administracion para cerrar "
+                                      "o apartar el viaje de otra pantalla"
+                                    : "revisa el aviso de la P4 (el cuerpo no lo "
+                                      "reconozco)");
+                avisar_cambio();
+            }
+            vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
+            continue;
+        }
 
         if (estado == 409) {
             uint32_t cabeza, cola;
@@ -823,9 +899,10 @@ static void reparto_task(void *arg)
             }
 
             if (intentos_400 < MAX_INTENTOS_400) {
+                resumen_apunte(cuerpo, resumen, sizeof(resumen));
                 ESP_LOGW(TAG, "la P4 rechaza con 400 (intento %d/%d, puede ser "
                               "un recorte de red): %s",
-                         intentos_400, MAX_INTENTOS_400, cuerpo);
+                         intentos_400, MAX_INTENTOS_400, resumen);
                 vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
                 continue;
             }
@@ -857,10 +934,11 @@ static void reparto_task(void *arg)
             }
             if (viaje_cola_atasco() != VIAJE_COLA_ATASCO_RECHAZO) {
                 s_atasco = VIAJE_COLA_ATASCO_RECHAZO;
+                resumen_apunte(cuerpo, resumen, sizeof(resumen));
                 ESP_LOGE(TAG, "la P4 rechaza el apunte con 400 tras %d intentos. "
                               "NO se descarta solo: sigue en cola y se reintenta. "
                               "Suele ser la P4 con firmware viejo: %s",
-                         intentos_400, cuerpo);
+                         intentos_400, resumen);
                 avisar_cambio();
             }
             vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
@@ -871,7 +949,9 @@ static void reparto_task(void *arg)
          * reintentarlo eternamente atascaria la cola entera detras de el. Se
          * tira, pero dejando constancia bien visible en el log.
          *
-         * Cuatro se EXCLUYEN porque significan "ahora no" y no "esto no vale":
+         * Cuatro se EXCLUYEN porque significan "ahora no" y no "esto no vale"
+         * (y el 403 no llega aqui: tiene su rama arriba, la de la clave de
+         * administracion):
          *   400 tiene su propio tratamiento arriba (unos intentos, no al primero).
          *   401 credenciales mal puestas -> se arreglan en Ajustes y entonces
          *       el mismo apunte entra bien. Tirarlo seria perder un repostaje
@@ -900,8 +980,10 @@ static void reparto_task(void *arg)
             }
             if (viaje_cola_atasco() != VIAJE_COLA_ATASCO_RECHAZO) {
                 s_atasco = VIAJE_COLA_ATASCO_RECHAZO;
+                resumen_apunte(cuerpo, resumen, sizeof(resumen));
                 ESP_LOGE(TAG, "la P4 rechaza el apunte con %d. NO se descarta "
-                              "solo: sigue en cola y se reintenta: %s", estado, cuerpo);
+                              "solo: sigue en cola y se reintenta: %s",
+                         estado, resumen);
                 avisar_cambio();
             }
             vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
