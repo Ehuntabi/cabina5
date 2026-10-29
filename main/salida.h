@@ -147,6 +147,14 @@ bool salida_abrir_puntual(const char *nombre);
  * parada -- de ahi en adelante no se vuelve a ofrecer declararla otra vez. */
 void salida_puntual_marcar_declarada(void);
 
+/* Correccion horaria para el INICIO de un tramo, por B19 de la auditoria del
+ * 27-oct-2026. Sustituye a reloj_delta_horario_desde() alli donde el epoch es de
+ * un tramo de ESTA salida: usa el desfase con el que se abrio el tramo, que es
+ * lo unico que desempata bien el cambio de hora de OCTUBRE (la hora local salta
+ * atras y las dos escalas se solapan una hora). Si no lo conoce, o el epoch no es
+ * de un tramo, se comporta como reloj_delta_horario_desde(). */
+int salida_delta_epoch(uint32_t epoch_ini);
+
 /* Deshace la marca anterior. Solo tiene sentido en un sitio: si justo el
  * apunte que se acaba de declarar se deshace con "Deshacer" en el cartel de
  * "Anotado" (mismo dialogo modal, sin nada de por medio), la puntual se

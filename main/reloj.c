@@ -90,6 +90,36 @@ int reloj_delta_horario_desde(uint32_t epoch_ini)
     return s_delta_horario;
 }
 
+/* ── EL DESFASE DE CADA TRAMO (B19, auditoria del 27-oct-2026) ──────────────
+ *
+ * El delta de arriba adivina si un tramo empezo antes o despues del cambio
+ * comparando su epoch con el instante del cambio. Eso funciona en primavera y
+ * FALLA en otono: al entrar en invierno la hora local da un salto ATRAS, asi que
+ * el instante del cambio (escala nueva) es 3600 s MENOR que el inicio de un tramo
+ * abierto justo antes (escala vieja) y la comparacion dice "empezo despues" -> no
+ * corrige. Medido: una parada de 20 minutos que cruza el cambio se grababa como
+ * 0 minutos, y una de varias horas salia una hora corta.
+ *
+ * Con la hora local no se puede desempatar, porque durante la hora siguiente al
+ * cambio las dos escalas se solapan. Lo que si se sabe es CON QUE DESFASE se
+ * abrio el tramo: se apunta al abrirlo (un int8, cuartos de hora) y la correccion
+ * es la diferencia con el desfase de ahora. Eso es exacto en los dos sentidos y
+ * no depende de comparar horas de dos escalas.
+ *
+ * Si el desfase del tramo no se conoce (NVS de una version anterior), se cae al
+ * calculo de siempre: no empeora nada de lo que habia. */
+int8_t reloj_off_quince_actual(void)
+{
+    return (s_off_quince == INT8_MIN) ? RELOJ_OFF_DESCONOCIDO : (int8_t)s_off_quince;
+}
+
+int reloj_delta_horario_off(uint32_t epoch_ini, int8_t off_ini)
+{
+    if (off_ini == RELOJ_OFF_DESCONOCIDO || s_off_quince == INT8_MIN)
+        return reloj_delta_horario_desde(epoch_ini);
+    return (s_off_quince - off_ini) * 900;
+}
+
 void reloj_set_desde_p4(uint32_t epoch_local, int utc_off_quince)
 {
     if (epoch_local == 0) return;          /* la P4 aun no sabe la hora */

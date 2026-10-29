@@ -43,6 +43,27 @@ static salida_vista_t s_vista;
  * salida_init() y se guarda aqui, porque en cuanto la tarea de vida escriba la
  * primera marca el valor de NVS ya sera el de ahora y no el del apagon. */
 static uint32_t s_vida_previa;
+/* Desfases con los que se abrieron los tramos (B19): el de la salida y uno por
+ * evento. RELOJ_OFF_DESCONOCIDO = no se sabe (NVS de una version anterior), y
+ * entonces se usa el calculo de siempre. Se guardan en su propia clave de NVS
+ * para no cambiar la forma del blob de 'salida'. */
+static int8_t s_off_ini = RELOJ_OFF_DESCONOCIDO;
+static int8_t s_off_ev[SALIDA_EVENTOS_MAX];
+
+/* Escribe los desfases. Se llama al abrir y al borrar un tramo, que es cuando
+ * cambian; no en cada cierre. */
+static void offs_guardar(void)
+{
+    int8_t v[1 + SALIDA_EVENTOS_MAX];
+    v[0] = s_off_ini;
+    memcpy(&v[1], s_off_ev, sizeof(s_off_ev));
+    esp_err_t err = save_salida_offs(v, sizeof(v));
+    if (err != ESP_OK)
+        ESP_LOGW(TAG, "no he podido guardar los desfases de los tramos (%s): un "
+                      "corte de hora se corregira con el calculo de antes",
+                 esp_err_to_name(err));
+}
+
 static bool     s_olvido_ya_contestado;
 
 /* ── Persistencia ────────────────────────────────────────────────────────── */
@@ -93,6 +114,17 @@ void salida_init(void)
      * pisa. Si se hace al reves se pierde la hora del apagon y con ella la
      * posibilidad de ofrecer la parada olvidada. */
     s_vida_previa = load_salida_vida();
+
+    /* Desfases de los tramos (B19). Si no estan (firmware anterior) se quedan
+     * en "no se sabe", que es lo que hacian hasta hoy. */
+    {
+        int8_t v[1 + SALIDA_EVENTOS_MAX];
+        memset(v, RELOJ_OFF_DESCONOCIDO, sizeof(v));
+        if (load_salida_offs(v, sizeof(v)) == ESP_OK) {
+            s_off_ini = v[0];
+            memcpy(s_off_ev, &v[1], sizeof(s_off_ev));
+        }
+    }
 
     size_t len = sizeof(s_st);
     esp_err_t err = load_salida_blob(&s_st, &len);
@@ -195,12 +227,28 @@ const salida_vista_t *salida_get(void)
  * multiplica el precio por decenas. Se acota y se avisa. */
 #define SALIDA_NOCHES_MAX 30
 
+/* Lo que hay que sumarle al INICIO de un tramo para que la duracion salga bien
+ * cuando ha cambiado la hora (B19). Es el reemplazo directo de
+ * reloj_delta_horario_desde(): busca el tramo por su hora de inicio y usa el
+ * desfase con el que se abrio; si no lo conoce (o el epoch no es de un tramo
+ * abierto, como "ahora"), delega en el calculo de antes. */
+int salida_delta_epoch(uint32_t epoch_ini)
+{
+    if (epoch_ini == 0) return 0;
+    if (s_st.epoch_ini == epoch_ini)
+        return reloj_delta_horario_off(epoch_ini, s_off_ini);
+    for (int i = 0; i < s_st.n_eventos; i++)
+        if (s_st.eventos[i].epoch_ini == epoch_ini)
+            return reloj_delta_horario_off(epoch_ini, s_off_ev[i]);
+    return reloj_delta_horario_desde(epoch_ini);
+}
+
 uint32_t salida_noches(uint32_t epoch_ini, uint32_t epoch_fin)
 {
     /* Si ha cambiado el horario mientras el tramo estaba abierto, el inicio
      * quedo en la escala vieja: se corrige AQUI, en el calculo, sin tocar la
      * hora de pared que se enseña (ver reloj_delta_horario). */
-    int d = reloj_delta_horario_desde(epoch_ini);
+    int d = salida_delta_epoch(epoch_ini);
     if (d) epoch_ini = (uint32_t)((int32_t)epoch_ini + d);
     if (epoch_fin <= epoch_ini) return 0;
     /* Cambios de dia de calendario, no periodos de 24 h: llegas el viernes por
@@ -325,7 +373,9 @@ bool salida_abrir_viaje(const char *nombre)
      * del 13-oct-2026, hallazgo B1. */
     snprintf(s_st.carpeta, sizeof(s_st.carpeta), "%s_%s", fecha, limpio);
 
+    s_off_ini = reloj_off_quince_actual();   /* B19: con que desfase se abre */
     guardar();
+    offs_guardar();
     refrescar_vista();
     ESP_LOGI(TAG, "viaje abierto: '%s' -> carpeta '%s'", s_st.nombre, s_st.carpeta);
     return true;
@@ -361,7 +411,9 @@ bool salida_abrir_puntual(const char *nombre)
      * del 13-oct-2026, hallazgo B1. */
     snprintf(s_st.carpeta, sizeof(s_st.carpeta), "%s_%s", fecha, limpio);
 
+    s_off_ini = reloj_off_quince_actual();   /* B19: con que desfase se abre */
     guardar();
+    offs_guardar();
     refrescar_vista();
     ESP_LOGI(TAG, "salida puntual abierta: '%s' -> carpeta '%s'", s_st.nombre, s_st.carpeta);
     return true;
@@ -429,6 +481,7 @@ uint32_t salida_evento_abrir(evento_tipo_t tipo, uint8_t sub, uint8_t sub2)
      * descartar duplicados. */
     uint32_t id = next_trip_seq();
 
+    s_off_ev[s_st.n_eventos] = reloj_off_quince_actual();   /* B19 */
     salida_evento_t *e = &s_st.eventos[s_st.n_eventos++];
     e->tipo      = (uint8_t)tipo;
     e->sub       = sub;
@@ -438,6 +491,7 @@ uint32_t salida_evento_abrir(evento_tipo_t tipo, uint8_t sub, uint8_t sub2)
     e->id        = id;
 
     guardar();
+    offs_guardar();
     refrescar_vista();
     ESP_LOGI(TAG, "evento abierto: tipo=%d sub=%u sub2=%u id=%lu (%u abiertos)",
              (int)tipo, (unsigned)sub, (unsigned)sub2,
@@ -451,6 +505,10 @@ bool salida_evento_borrar(int idx)
     for (int i = idx; i + 1 < (int)s_st.n_eventos; i++) {
         s_st.eventos[i] = s_st.eventos[i + 1];
     }
+    for (int i = idx; i + 1 < (int)s_st.n_eventos; i++) {
+        s_off_ev[i] = s_off_ev[i + 1];
+    }
+    s_off_ev[s_st.n_eventos - 1] = RELOJ_OFF_DESCONOCIDO;
     s_st.n_eventos--;
     memset(&s_st.eventos[s_st.n_eventos], 0, sizeof(salida_evento_t));
     guardar();

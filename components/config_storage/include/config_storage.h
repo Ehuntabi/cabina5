@@ -144,6 +144,13 @@ esp_err_t clear_parada_abierta(void);
 esp_err_t load_salida_blob(void *out, size_t *len);
 esp_err_t save_salida_blob(const void *data, size_t len);
 
+// Desfases horarios con los que se abrio cada tramo (B19): el de la salida en
+// curso y uno por evento abierto. Es lo unico que permite corregir bien un
+// tramo que cruza el cambio de hora de octubre (ver reloj.h). Clave aparte del
+// blob grande para no cambiar su forma.
+esp_err_t load_salida_offs(int8_t *out, size_t n);
+esp_err_t save_salida_offs(const int8_t *offs, size_t n);
+
 // Marca de vida: la hora local de la P4, reescrita cada pocos minutos mientras
 // la pantalla esta encendida.
 //

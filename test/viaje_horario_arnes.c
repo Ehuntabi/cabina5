@@ -1,11 +1,11 @@
 /* Arnés del test del cambio de horario (ver viaje_horario.sh).
  *
  * El cuerpo de salida_noches() es el REAL de main/salida.c; aqui solo se
- * sustituyen las dos funciones del reloj que dicen si ha cambiado el horario
- * mientras el tramo estaba abierto: reloj_delta_horario() y
- * reloj_delta_horario_desde(epoch_ini) (esta segunda es la que usa salida_noches
- * desde el 17-oct-2026, para aplicar el delta solo a los tramos que empezaron
- * antes del cambio). */
+ * sustituyen las funciones que dicen si ha cambiado el horario mientras el
+ * tramo estaba abierto: desde el 29-oct-2026 (B19) salida_noches() pregunta
+ * salida_delta_epoch(), que es la que sabe CON QUE DESFASE se abrio el tramo;
+ * aqui se le da el delta fijo de cada caso. Se dejan tambien los stubs de
+ * reloj_delta_horario*() para no tener que tocarlos si vuelven a usarse. */
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>

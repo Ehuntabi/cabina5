@@ -17,6 +17,7 @@ static const char *TAG = "config_storage";
  * pantalla (y que no se aplica al arrancar). */
 #define BRILLO_MIN_KEY       "brillo_min"
 #define SALIDA_NAMESPACE      "salida"
+#define SALIDA_OFFS_KEY       "offs"
 #define SALIDA_ESTADO_KEY     "estado"
 #define SALIDA_VIDA_KEY       "vida"
 #define SALIDA_KM_KEY         "ult_km"
@@ -119,6 +120,36 @@ esp_err_t save_salida_blob(const void *data, size_t len)
     esp_err_t err = nvs_open(SALIDA_NAMESPACE, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
     err = nvs_set_blob(h, SALIDA_ESTADO_KEY, data, len);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+/* Los desfases horarios con los que se abrio cada tramo (B19, auditoria del
+ * 27-oct-2026). Clave aparte del blob grande A PROPOSITO: asi un firmware nuevo
+ * no tiene que cambiar la forma de 'salida', y uno viejo sigue leyendo su estado
+ * sin enterarse de que esto existe. Si la clave no esta (firmware anterior), el
+ * que llama se queda con "no se sabe" y usa el calculo de siempre. */
+esp_err_t load_salida_offs(int8_t *out, size_t n)
+{
+    if (!out || n == 0) return ESP_ERR_INVALID_ARG;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(SALIDA_NAMESPACE, NVS_READONLY, &h);
+    if (err != ESP_OK) return err;
+    size_t len = n;
+    err = nvs_get_blob(h, SALIDA_OFFS_KEY, out, &len);
+    nvs_close(h);
+    if (err == ESP_OK && len != n) return ESP_ERR_INVALID_SIZE;
+    return err;
+}
+
+esp_err_t save_salida_offs(const int8_t *offs, size_t n)
+{
+    if (!offs || n == 0) return ESP_ERR_INVALID_ARG;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(SALIDA_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_blob(h, SALIDA_OFFS_KEY, offs, n);
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;

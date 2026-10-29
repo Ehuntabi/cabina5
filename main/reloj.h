@@ -30,6 +30,23 @@ void reloj_set_desde_p4(uint32_t epoch_local, int utc_off_quince);
  * o despues del ultimo cambio de horario (ver reloj.c). */
 int reloj_delta_horario_desde(uint32_t epoch_ini);
 
+/* EL DESFASE CON EL QUE SE ABRIO CADA TRAMO (B19, auditoria del 27-oct-2026).
+ *
+ * reloj_delta_horario_desde() no puede desempatar en el cambio de OTONO (la hora
+ * local salta atras y las dos escalas se solapan una hora), asi que la correccion
+ * exacta necesita saber con que desfase se abrio el tramo. Se apunta al abrirlo
+ * (ver salida.c) y se corrige con la diferencia contra el desfase de ahora. */
+#define RELOJ_OFF_DESCONOCIDO  INT8_MIN   /* ningun huso real: "no se sabe" */
+
+/* Desfase horario actual en cuartos de hora, o RELOJ_OFF_DESCONOCIDO si la P4
+ * todavia no lo ha mandado. */
+int8_t reloj_off_quince_actual(void);
+
+/* Lo que hay que sumarle al INICIO de un tramo abierto con el desfase 'off_ini'.
+ * Si el desfase del tramo no se conoce, se comporta como
+ * reloj_delta_horario_desde() (el calculo de antes, con su limitacion). */
+int reloj_delta_horario_off(uint32_t epoch_ini, int8_t off_ini);
+
 /* Segundos desde 1970 en hora LOCAL de la P4. false si esta pantalla no ha
  * visto a la P4 desde que arranco: entonces no hay hora de ningun tipo. */
 bool reloj_ahora(uint32_t *out);

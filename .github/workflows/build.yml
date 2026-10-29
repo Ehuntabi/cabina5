@@ -200,6 +200,13 @@ jobs:
       - name: El cambio de horario no acorta las pernoctas
         run: bash cabina5/test/viaje_horario.sh
 
+      # Y el cambio de hora de OCTUBRE, que es otro caso (B19): al atrasar el
+      # reloj, el calculo de antes decia "este tramo empezo despues del cambio" y
+      # no lo corregia. Se prueba la cuenta nueva con los dos cambios y la caida
+      # al calculo viejo cuando no hay desfase apuntado.
+      - name: El cambio de hora no deja mal los tramos abiertos
+        run: bash cabina5/test/reloj_cambio_hora.sh
+
       # Y que los contadores del viaje (km y horas de conduccion) lleguen enteros
       # de la P4 a la cabina: van partidos en cuatro bytes sueltos del struct y
       # cruzarlos no salta a la vista (un viaje de 1200,0 km se lee como 5.739,0).

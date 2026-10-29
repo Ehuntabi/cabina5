@@ -31,9 +31,14 @@ fn = desde(fuente, m)
 # reloj_delta_horario_desde(epoch_ini), que es la que decide si el tramo empezo
 # ANTES del cambio de horario. Las dos devuelven lo mismo aqui: el test simula
 # tramos que cruzan el cambio, que es el caso que importa.
+# DESDE EL 29-OCT-2026 (B19) salida_noches() pregunta salida_delta_epoch(), que
+# es la que sabe con que desfase se abrio el tramo. Aqui se sustituye por el
+# delta fijo que pide cada caso: lo que se prueba es la cuenta de noches, y para
+# los tramos que cruzan el cambio el delta es justo lo que se le da.
 stub = ('static int g_delta = 0;\n'
         'int reloj_delta_horario(void) { return g_delta; }\n'
         'int reloj_delta_horario_desde(uint32_t epoch_ini) { (void)epoch_ini; return g_delta; }\n'
+        'int salida_delta_epoch(uint32_t epoch_ini) { (void)epoch_ini; return g_delta; }\n'
         '#define ESP_LOGW(tag, ...) do { } while (0)\n')
 # el define del tope, que en salida.c viene del header
 extra = '#define SALIDA_NOCHES_MAX 30\n'

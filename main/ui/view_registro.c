@@ -2524,8 +2524,8 @@ static bool apunte_encolar(categoria_t cat)
             u = apunte_campo_txt(b, sizeof(b), u, "inicio", hi);
             u = apunte_campo_txt(b, sizeof(b), u, "fin", hf);
             u = apunte_campo_num(b, sizeof(b), u, "minutos",
-                                 (long)((s_pern_fin > (uint32_t)((int32_t)s_pern_ini + reloj_delta_horario_desde(s_pern_ini)))
-                               ? (s_pern_fin - (uint32_t)((int32_t)s_pern_ini + reloj_delta_horario_desde(s_pern_ini))) / 60
+                                 (long)((s_pern_fin > (uint32_t)((int32_t)s_pern_ini + salida_delta_epoch(s_pern_ini)))
+                               ? (s_pern_fin - (uint32_t)((int32_t)s_pern_ini + salida_delta_epoch(s_pern_ini))) / 60
                                : 0));
             /* La guarda NO es adorno (red team del 14-oct-2026): los dos son
              * uint32 y salen de epoch_local, que NO es monotono -- al entrar en
@@ -4370,7 +4370,7 @@ static void ocultar_menus(void)
  *
  * CON LA CORRECCION DEL CAMBIO DE HORARIO (17-oct-2026). El epoch de un tramo
  * abierto ANTES de un cambio de horario esta en la escala vieja; los "minutos"
- * ya se corregian con reloj_delta_horario_desde(), pero las horas que van al
+ * ya se corregian con salida_delta_epoch(), pero las horas que van al
  * CSV (inicio/fin) y las que se enseñan ("desde las 14:10") iban en crudo, asi
  * que en un tramo que cruza el cambio la hora y la duracion no cuadraban entre
  * si. Se corrige AQUI, en el unico sitio que convierte un epoch en hora de
@@ -4378,7 +4378,7 @@ static void ocultar_menus(void)
  * De paso el que llama no tiene que acordarse de la correccion en cada sitio. */
 static void hora_corta(uint32_t epoch, char *buf, size_t n)
 {
-    int d = reloj_delta_horario_desde(epoch);
+    int d = salida_delta_epoch(epoch);
     uint32_t e = (uint32_t)((int32_t)epoch + d);
     snprintf(buf, n, "%02u:%02u", (unsigned)((e / 3600) % 24),
              (unsigned)((e / 60) % 60));
@@ -5161,8 +5161,8 @@ static void parada_terminar(void *ud)
     u = apunte_campo_txt(cuerpo, sizeof(cuerpo), u, "inicio", hi);
     u = apunte_campo_txt(cuerpo, sizeof(cuerpo), u, "fin", hf);
     u = apunte_campo_num(cuerpo, sizeof(cuerpo), u, "minutos",
-                         (long)((ahora > (uint32_t)((int32_t)ev->epoch_ini + reloj_delta_horario_desde(ev->epoch_ini)))
-                              ? (ahora - (uint32_t)((int32_t)ev->epoch_ini + reloj_delta_horario_desde(ev->epoch_ini))) / 60
+                         (long)((ahora > (uint32_t)((int32_t)ev->epoch_ini + salida_delta_epoch(ev->epoch_ini)))
+                              ? (ahora - (uint32_t)((int32_t)ev->epoch_ini + salida_delta_epoch(ev->epoch_ini))) / 60
                               : 0));
     /* La guarda NO es adorno (misma razon que en la pernocta, ver
      * pernocta_guardar): los dos son uint32 y salen de epoch_local, que NO es
@@ -5240,7 +5240,7 @@ static bool parada_preguntar_en(int idx)
     char hi[8], dur[24];
     hora_corta(ev->epoch_ini, hi, sizeof(hi));
     {
-        uint32_t ini_corr = (uint32_t)((int32_t)ev->epoch_ini + reloj_delta_horario_desde(ev->epoch_ini));
+        uint32_t ini_corr = (uint32_t)((int32_t)ev->epoch_ini + salida_delta_epoch(ev->epoch_ini));
         duracion_texto(ahora > ini_corr ? ahora - ini_corr : 0, dur, sizeof(dur));
     }
 
