@@ -302,7 +302,19 @@ static void reconciliar_viaje_al_arrancar(void)
     if (activo && viaje_cola_ultima_es_op("fin")) {
         ESP_LOGW(TAG, "cierre ENCOLADO y el viaje sigue abierto aqui: lo cierro "
                       "en local en vez de reabrirlo");
-        save_trip_fin();
+        /* EL RETORNO SE MIRA (auditoria del 27-oct-2026, hallazgo cab5-core-03):
+         * aqui se llamaba a save_trip_fin() a ciegas y se apagaba
+         * s_recon_pendiente igual. Si fallaba el commit del viaje y no el de la
+         * salida, el blob se quedaba con activo=1 y sin reintento, y en el
+         * arranque siguiente la rama de "corte al EMPEZAR" REABRIA la salida de
+         * un viaje que la P4 ya habia cerrado. Ahora, si no se graba, se
+         * reintenta (mismo patron que la rama de salida_abrir_viaje()). */
+        if (save_trip_fin() != ESP_OK) {
+            ESP_LOGE(TAG, "no he podido cerrar el viaje en local: lo dejo "
+                          "pendiente y lo reintento");
+            s_recon_pendiente = true;
+            return;
+        }
         salida_cerrar();
         s_recon_pendiente = false;
         return;
@@ -356,11 +368,19 @@ static void reconciliar_viaje_al_arrancar(void)
 
     /* Salida abierta y el viaje NO consta como activo. Hay dos historias
      * posibles y la cola dice cual:
-     *   - hay un "fin" encolado: se pulso terminar y el corte fue antes de
-     *     cerrar aqui -> se cierra la salida (el fin hara su trabajo).
-     *   - no hay fin: el corte fue al empezar una PUNTUAL, entre abrir la
-     *     salida y marcar el contador -> se marca, que es lo que falta. */
-    if (viaje_cola_tiene_op_pendiente("fin")) {
+     *   - el ULTIMO encolado es un "fin": se pulso terminar y el corte fue antes
+     *     de cerrar aqui -> se cierra la salida (el fin hara su trabajo).
+     *   - no hay fin (o el ultimo es otra cosa): el corte fue al empezar una
+     *     PUNTUAL, entre abrir la salida y marcar el contador -> se marca, que
+     *     es lo que falta.
+     *
+     * Mismo criterio que la rama de arriba: 'viaje_cola_ultima_es_op' y NO
+     * 'tiene_op_pendiente' (auditoria del 27-oct-2026, hallazgo cab5-core-04).
+     * Antes preguntaba si habia CUALQUIER fin en la cola -- justo lo que el
+     * comentario de arriba avisa que no hay que hacer --, asi que un fin viejo
+     * atascado cerraba la salida de la puntual nueva: la pantalla la daba por
+     * terminada, la P4 la tenia abierta y los apuntes de esa salida se perdian. */
+    if (viaje_cola_ultima_es_op("fin")) {
         ESP_LOGW(TAG, "salida abierta y el viaje ya no consta activo, con el "
                       "cierre encolado: cierro la salida");
         salida_cerrar();

@@ -102,15 +102,13 @@ static void aplicar_con_rampa(int pct)
  *
  * LA REGLA: la luz NUNCA puede depender de lo que quedo guardado. Al encender,
  * 100 %. Si te pasas bajando al 30 % y no ves nada, se desenchufa y vuelve --
- * siempre hay una salida. Lo que se guarda sigue sirviendo para el contraste de
- * view_info.c y para dejar constancia en el log de por donde ibas. */
+ * siempre hay una salida. El nivel en el que se quedo la pantalla ya NO se lee
+ * ni se escribe desde aqui (auditoria del 27-oct-2026, X15): no lo consumia
+ * nadie -- view_info lo desconecto el 9-oct y este arranque nunca lo aplico --,
+ * y a cambio cada doble toque hacia un nvs_commit. Solo se guarda el MINIMO,
+ * que es el unico valor de brillo que se aplica de verdad. */
 void brillo_init(void)
 {
-    /* Se sigue leyendo para dejar constancia en el log de lo que habia
-     * guardado: si el usuario dice "arranco apagada", el log lo dice. */
-    uint8_t guardado = 0;
-    if (load_brightness(&guardado) != ESP_OK) guardado = 0;
-
     /* El minimo si se aplica como valor de referencia (es lo que el usuario
      * eligio), pero el nivel de arranque es SIEMPRE el alto. */
     uint8_t min = BRILLO_MIN_DEFECTO;
@@ -118,8 +116,7 @@ void brillo_init(void)
     s_min = brillo_min_acota((int)min);
     s_nivel = BRILLO_ALTO;
 
-    ESP_LOGI(TAG, "Brillo inicial %d%% (minimo %d%%; en NVS habia %u%%, no se aplica)",
-             s_nivel, s_min, (unsigned)guardado);
+    ESP_LOGI(TAG, "Brillo inicial %d%% (minimo %d%%)", s_nivel, s_min);
 
     s_rampa_hasta = s_nivel;
     bsp_display_brightness_set(s_nivel);
@@ -169,8 +166,6 @@ uint8_t brillo_min_set(int pct)
     if (s_nivel != BRILLO_ALTO) {
         s_nivel = s_min;
         aplicar_con_rampa(s_nivel);
-        if (save_brightness((uint8_t)s_nivel) != ESP_OK)
-            ESP_LOGW(TAG, "No se pudo guardar el brillo");
     }
     ESP_LOGI(TAG, "Brillo minimo -> %d%%", s_min);
     return (uint8_t)s_min;
@@ -181,11 +176,12 @@ uint8_t brillo_alternar(void)
     s_nivel = brillo_alterna_desde(s_nivel, s_min);
     aplicar_con_rampa(s_nivel);
 
-    /* Se escribe solo al cambiarlo, no periodicamente: son dos toques de vez en
-     * cuando, no hay riesgo de desgastar la flash. */
-    if (save_brightness((uint8_t)s_nivel) != ESP_OK) {
-        ESP_LOGW(TAG, "No se pudo guardar el brillo");
-    }
+    /* AQUI YA NO SE ESCRIBE EN NVS (auditoria del 27-oct-2026, X15): el nivel no
+     * lo leia nadie -- load_brightness() solo alimentaba una linea de log y este
+     * arranque aplica siempre el 100 % --, asi que cada doble toque era un
+     * nvs_set_u8 + nvs_commit para nada (y al cambiar el minimo con la pantalla
+     * baja, DOS commits seguidos). El MINIMO si se guarda, en brillo_min_set():
+     * ese es el que se aplica. */
     ESP_LOGI(TAG, "Brillo -> %d%% (minimo %d%%)", s_nivel, s_min);
     return (uint8_t)s_nivel;
 }

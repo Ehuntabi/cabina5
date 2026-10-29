@@ -656,7 +656,6 @@ static lv_obj_t *make_field_row(lv_obj_t *parent)
      * 142 px de alto para un rotulo de 29) y al no caber en su fila se
      * sale por arriba, cortando lo que hay encima. */
     lv_obj_set_height(cont, LV_SIZE_CONTENT);
-    lv_obj_set_height(cont, LV_SIZE_CONTENT);
     /* MINIMO = EL ALTO DE SU CONTENIDO (rotulo 26 + campo 50 + aire).
      *
      * POR QUE HACE FALTA, medido: aunque el alto sea SIZE_CONTENT, la fila es
@@ -671,14 +670,13 @@ static lv_obj_t *make_field_row(lv_obj_t *parent)
      * llevan dos campos con su rotulo y usan el mismo minimo: su contenido
      * mide ~83. */
     lv_obj_set_style_min_height(cont, 96, 0);
-    /* SIN min_height A PROPOSITO (quitado el 8-oct-2026): esta fila tiene dos
-     * formatos -- etiqueta encima del campo (columna) y etiqueta al lado
-     * (fila, el caso de "Litros + Kilómetros") -- y el min_height que se puso
-     * para el primero RECORTABA al segundo. Medido: en columna la fila mide
-     * 26+50+aire = 84 y el minimo no estorba, pero en fila cada campo mide 50 y
-     * con la etiqueta encima son 84+84 = 168: la fila metia 84 y los dos campos
-     * se solapaban encima del siguiente. Ahora la fila mide lo que mide su
-     * contenido y crece sola. */
+    /* EL MINIMO SE QUEDA PUESTO (repuesto el 9-oct-2026): el 8-oct se quito
+     * porque en las filas en HORIZONTAL el contenido mide ~168 y el minimo las
+     * recortaba, pero sin el los rotulos volvian a salirse por arriba en TODOS
+     * los formularios (los 2-6 px medidos del bloque de arriba). Este
+     * comentario decia "SIN min_height A PROPOSITO ... la fila crece sola" justo
+     * debajo de la linea que lo pone, o sea lo contrario del codigo; se corrigio
+     * en la auditoria del 27-oct-2026 (hallazgo X11). */
     lv_obj_set_flex_grow(cont, 1);
     lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(cont, 0, 0);
@@ -3591,7 +3589,6 @@ static void build_pernocta(lv_obj_t *form)
      * 142 px de alto para un rotulo de 29) y al no caber en su fila se
      * sale por arriba, cortando lo que hay encima. */
     lv_obj_set_height(fila_precio, LV_SIZE_CONTENT);
-    lv_obj_set_height(fila_precio, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(fila_precio, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(fila_precio, 0, 0);
     lv_obj_set_style_pad_all(fila_precio, 0, 0);
@@ -3773,7 +3770,6 @@ static void build_servicios(lv_obj_t *form)
     /* Alto = el de su texto: sin esto el contenedor lo estira (medido:
      * 142 px de alto para un rotulo de 29) y al no caber en su fila se
      * sale por arriba, cortando lo que hay encima. */
-    lv_obj_set_height(bloque, LV_SIZE_CONTENT);
     lv_obj_set_height(bloque, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(bloque, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(bloque, 0, 0);
@@ -5656,7 +5652,6 @@ static lv_obj_t *tira_crear(lv_obj_t *body, int idx)
     /* Alto = el de su texto: sin esto el contenedor lo estira (medido:
      * 142 px de alto para un rotulo de 29) y al no caber en su fila se
      * sale por arriba, cortando lo que hay encima. */
-    lv_obj_set_height(fila_t, LV_SIZE_CONTENT);
     lv_obj_set_height(fila_t, LV_SIZE_CONTENT);
     lv_obj_clear_flag(fila_t, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(fila_t, LV_FLEX_FLOW_ROW);

@@ -6,6 +6,7 @@
 #include "freertos/task.h"
 #include <string.h>
 #include <ctype.h>
+#include <stdlib.h>   /* malloc/free: leer un blob mas largo que la struct */
 
 static const char *TAG = "config_storage";
 
@@ -253,19 +254,51 @@ static esp_err_t trip_blob_load(trip_blob_t *out)
         ESP_LOGE(TAG, "trip_blob: no puedo abrir la NVS (%s)", esp_err_to_name(err));
         return err;
     }
-    /* UN BLOB MAS LARGO NO ES UN ERROR (auditoria del 14-oct-2026): con
-     * nvs_get_blob y un buffer del tamano de ESTA struct, un blob grabado por un
-     * firmware mas nuevo devuelve INVALID_LENGTH, y eso dejaba la pantalla sin
-     * poder abrir, cerrar ni contar (el RELEVO documenta que ya ha pasado al
-     * grabar un binario viejo encima). Se pregunta el tamano y se copian los
-     * primeros bytes: los campos que conocemos van delante. */
+    /* UN BLOB MAS LARGO NO ES UN ERROR (auditoria del 27-oct-2026, hallazgo
+     * cab5-core-01): con nvs_get_blob y un buffer del tamano de ESTA struct, un
+     * blob grabado por un firmware mas nuevo devuelve INVALID_LENGTH y NO COPIA
+     * NI UN BYTE (verificado en nvs_api.cpp del IDF 5.5.5), asi que la pantalla
+     * se quedaba sin poder abrir, cerrar ni contar (el RELEVO documenta que ya
+     * ha pasado al grabar un binario viejo encima) y encima sin una linea que lo
+     * explicase. El arreglo del 14-oct pretendia esto mismo pero solo valia
+     * para el blob MAS CORTO: ahora se pregunta el tamano y se lee el blob
+     * entero en un temporal, y despues se copian los primeros bytes (los campos
+     * que conocemos van delante). */
     size_t len = 0;
     esp_err_t g = nvs_get_blob(h, TRIP_BLOB_KEY, NULL, &len);
-    size_t copiar = sizeof(*out);
-    if (g == ESP_OK) {
-        if (len < copiar) copiar = len;
+    if (g == ESP_OK && len <= sizeof(*out)) {
+        /* CABE: se lee directo en la struct (el caso normal de siempre). */
+        size_t copiar = sizeof(*out);
         g = nvs_get_blob(h, TRIP_BLOB_KEY, out, &copiar);
         if (g == ESP_OK) len = copiar;
+    } else if (g == ESP_OK) {
+        /* MAS LARGO QUE LA STRUCT: nvs_get_blob() con un buffer mas corto que el
+         * blob devuelve INVALID_LENGTH SIN COPIAR NADA, asi que hay que leerlo
+         * ENTERO en un temporal del tamano real (con tope de cordura) y copiar
+         * luego el prefijo util. */
+        if (len > 512) {   /* mas que eso no es un blob de este proyecto */
+            g = ESP_ERR_INVALID_SIZE;
+        } else {
+            uint8_t *tmp = malloc(len);
+            if (!tmp) {
+                /* Sin memoria no se puede leer: se dice y se devuelve error, que
+                 * es lo que impide grabarlo por vacio encima. */
+                nvs_close(h);
+                ESP_LOGE(TAG, "trip_blob: sin memoria para leer %u B del estado "
+                              "del viaje: NO lo tomo por vacio, que grabarlo "
+                              "encima perderia la cuenta de eventos",
+                         (unsigned)len);
+                memset(out, 0, sizeof(*out));
+                return ESP_ERR_NO_MEM;
+            }
+            size_t leido = len;
+            g = nvs_get_blob(h, TRIP_BLOB_KEY, tmp, &leido);
+            if (g == ESP_OK) {
+                memcpy(out, tmp, sizeof(*out));
+                len = leido;
+            }
+            free(tmp);
+        }
     } else if (g == ESP_ERR_NVS_TYPE_MISMATCH || g == ESP_ERR_NVS_INVALID_LENGTH) {
         g = ESP_ERR_NVS_INVALID_LENGTH;   /* se trata abajo, con su log */
     }
@@ -627,6 +660,13 @@ esp_err_t save_wifi_config(const char *ssid, const char *pass)
      * nada, y el que lee (udp_rx.c) no puede distinguir "guardado" de "sin
      * configurar". Se rechaza aqui, ademas de en udp_rx_set_credentials(). */
     if (ssid[0] == '\0') return ESP_ERR_INVALID_ARG;
+    /* Y UNA CLAVE VACIA TAMPOCO (auditoria del 27-oct-2026, hallazgo
+     * cab5-core-02): aqui se asocia siempre con WPA2-PSK (threshold.authmode en
+     * udp_rx.c), que exige 8..63 bytes; la clave vacia o corta se guardaba
+     * "bien" y dejaba la pantalla sin P4 en el arranque siguiente, porque el
+     * fallback de fabrica solo miraba el SSID. Se rechaza aqui, en el mismo
+     * sitio y por la misma razon que el SSID vacio. */
+    if (strlen(pass) < 8) return ESP_ERR_INVALID_ARG;
 
     nvs_handle_t h;
     esp_err_t err = nvs_open(WIFI_NAMESPACE, NVS_READWRITE, &h);

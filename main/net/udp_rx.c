@@ -195,9 +195,17 @@ static void load_or_init_credentials(void)
      * "funcionaba" (devolvia ESP_OK con la cadena vacia). Se podia llegar ahi
      * borrando el campo SSID en Ajustes: se guardaba, la UI decia "Guardado,
      * reconectando...", y luego "P4: sin red (busco )". Se trata como si no
-     * hubiera nada guardado y se vuelve al valor de fabrica. */
-    if (err == ESP_OK && s_ssid[0] == '\0') {
-        ESP_LOGW(TAG, "SSID vacio en NVS: lo trato como 'sin configurar'");
+     * hubiera nada guardado y se vuelve al valor de fabrica.
+     *
+     * Y UNA CLAVE VACIA TAMPOCO (auditoria del 27-oct-2026, hallazgo
+     * cab5-core-02): con WPA2 no hay asociacion posible sin clave, asi que es
+     * el mismo caso -- y el fallback solo miraba el SSID, de modo que una clave
+     * borrada en Ajustes por un firmware viejo dejaba la pantalla sin P4 hasta
+     * que alguien la volviera a teclear. */
+    if (err == ESP_OK && (s_ssid[0] == '\0' || s_pass[0] == '\0')) {
+        ESP_LOGW(TAG, "credenciales incompletas en NVS (ssid=%u B, clave=%u B): "
+                      "las trato como 'sin configurar'",
+                 (unsigned)strlen(s_ssid), (unsigned)strlen(s_pass));
         err = ESP_ERR_NOT_FOUND;
     }
     if (err != ESP_OK) {
@@ -465,9 +473,15 @@ static void reconnect_timer_cb(void *arg)
  * la P4 se reinicia justo mientras se asocia, el DHCP no contesta y aqui nadie
  * lo vuelve a pedir. Antes se quedaba asi para siempre -- asociada, sin socket
  * y sin datos -- y solo se arreglaba desenchufandola. Ahora, si en 20 s no ha
- * llegado la IP, se desconecta y el reintento de siempre la vuelve a conectar.
- * Paso el 30-sep-2026, en el banco y con la P4 reiniciandose. */
-#define DHCP_TIMEOUT_US (20 * 1000 * 1000)
+ * llegado la IP, dhcp_timer_cb() para el dhcpc, se pone la IP FIJA de esta
+ * placa (ver IP_FIJA_CABINA) y levanta WIFI_BIT_GOT_IP para que la tarea de
+ * recepcion abra el socket. Paso el 30-sep-2026, en el banco y con la P4
+ * reiniciandose.
+ *
+ * El plazo vive en DHCP_TIMEOUT_US, definido mas abajo junto a
+ * DHCP_REINTENTO_US: aqui habia una segunda copia del mismo valor que no usaba
+ * nadie y que se quedaba contando otra cosa en cuanto se tocara la de abajo
+ * (auditoria del 27-oct-2026, X2). */
 
 /* Si el DHCP de la P4 no contesta, la cabina se pone una direccion FIJA y sigue
  * funcionando. Es la pieza que fallaba: el servidor DHCP de la P4 se atasca de
@@ -544,9 +558,8 @@ static void dhcp_timer_cb(void *arg)
                   " y sigo (la P4 esta en 192.168.4.1)", ip_txt);
     /* Que la IP quede en el log tambien cuando va bien: es lo que hace falta
      * para saber si las dos pantallas se han pisado alguna vez. */
-    ESP_LOGI(TAG, "IP de esta cabina: %s%s", ip_txt,
-             s_ip_fija ? " (fija)" : "");
-    s_ip_fija = true;
+    s_ip_fija = true;   /* ANTES del log: en este punto la IP es fija siempre */
+    ESP_LOGI(TAG, "IP de esta cabina: %s (fija)", ip_txt);
     s_dhcp_espera_us = DHCP_REINTENTO_US;   /* la proxima vez, ventana corta */
     /* La tarea de recepcion espera esta bandera para abrir el socket. */
     xEventGroupSetBits(s_wifi_events, WIFI_BIT_GOT_IP);

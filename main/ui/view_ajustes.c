@@ -577,6 +577,18 @@ static void do_guardar(void *ud)
         return;
     }
 
+    /* Y SIN CLAVE, TAMPOCO (auditoria del 27-oct-2026, hallazgo cab5-core-02):
+     * aqui se asocia SIEMPRE con WPA2-PSK (threshold.authmode en udp_rx.c), que
+     * exige 8..63 bytes (63 es el tope del campo, ver make_field_en). Antes se
+     * guardaba la clave vacia, la UI decia "Guardado, reconectando..." y en el
+     * arranque siguiente la pantalla se quedaba SIN P4, porque el fallback de
+     * fabrica solo miraba el SSID. Se avisa igual que con el SSID vacio. */
+    if (strlen(pass) < 8) {
+        wifi_estado("Clave Wi-Fi no valida (minimo 8)", false);
+        ESP_LOGW(TAG, "Guardado cancelado: la clave Wi-Fi tiene menos de 8 bytes");
+        return;
+    }
+
     bool ok_wifi = udp_rx_set_credentials(ssid, pass);
 
     /* La referencia pasa a ser lo recien guardado: un segundo toque seguido ya

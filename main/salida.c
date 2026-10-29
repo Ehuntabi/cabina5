@@ -16,6 +16,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>   /* malloc/free: leer un estado guardado mas largo que s_st */
 #include <time.h>
 
 static const char *TAG = "salida";
@@ -95,10 +96,48 @@ void salida_init(void)
 
     size_t len = sizeof(s_st);
     esp_err_t err = load_salida_blob(&s_st, &len);
+    /* El tamano de lo GUARDADO, que no es lo mismo que lo leido: nvs_get_blob
+     * lo deja en 'len' tanto al ir bien (el del blob) como al devolver
+     * INVALID_LENGTH (el real, que no cabia). Se guarda aparte porque 'len' pasa
+     * a significar "bytes utiles leidos" cuando se recupera el prefijo. */
+    size_t guardado = len;
+    /* BLOB MAS LARGO QUE ESTA VERSION (auditoria del 27-oct-2026, hallazgo
+     * cab5-core-09): nvs_get_blob() con un buffer mas corto que el blob NO copia
+     * nada y devuelve INVALID_LENGTH, asi que se lee entero en un temporal y se
+     * copia el prefijo que conocemos (los campos van delante). Antes este caso
+     * se descartaba sin decir ni una palabra. */
+    if (err == ESP_ERR_NVS_INVALID_LENGTH && guardado > sizeof(s_st) &&
+        guardado <= 512) {
+        void *tmp = malloc(guardado);
+        if (tmp) {
+            size_t leido = guardado;
+            esp_err_t g = load_salida_blob(tmp, &leido);
+            if (g == ESP_OK) {
+                memcpy(&s_st, tmp, sizeof(s_st));
+                len = sizeof(s_st);   /* util: el prefijo que conocemos */
+                err = ESP_OK;
+            }
+            free(tmp);
+        } else {
+            ESP_LOGE(TAG, "sin memoria para leer %u B del estado guardado: se "
+                          "descarta", (unsigned)guardado);
+        }
+    }
     if (err != ESP_OK || len != sizeof(s_st) || s_st.version != SALIDA_BLOB_VERSION) {
-        if (err == ESP_OK) {
+        /* SE DICE SIEMPRE QUE PASA (misma auditoria): antes solo se imprimia con
+         * err == ESP_OK, o sea con el blob MAS CORTO, que es justo el que se lee
+         * bien; con el MAS LARGO o con cualquier error de NVS no salia ni una
+         * linea y se perdian en silencio el nombre, la carpeta y los eventos
+         * abiertos. Y "no habia nada" no es lo mismo que "no se pudo leer". */
+        if (err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGI(TAG, "no habia estado guardado: arranco sin salida en curso");
+        } else if (err != ESP_OK) {
+            ESP_LOGE(TAG, "no he podido leer el estado guardado (%s, %u B): se "
+                          "descarta y se pierden los eventos abiertos",
+                     esp_err_to_name(err), (unsigned)guardado);
+        } else {
             ESP_LOGW(TAG, "estado guardado incompatible (version %u, %u bytes): se descarta",
-                     (unsigned)s_st.version, (unsigned)len);
+                     (unsigned)s_st.version, (unsigned)guardado);
         }
         memset(&s_st, 0, sizeof(s_st));
         s_st.version = SALIDA_BLOB_VERSION;

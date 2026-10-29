@@ -205,9 +205,11 @@ bool p4_api_post_url(const char *url, const char *cuerpo, int *estado_out,
         ESP_LOGE(TAG, "no puedo crear el cliente HTTP");
         return false;
     }
-    if (hay_creds) esp_http_client_set_header(c, "Authorization", cab);
-
     esp_http_client_set_header(c, "Content-Type", "application/json");
+    /* UNA SOLA VEZ (auditoria del 27-oct-2026, X4): esta linea estaba puesta
+     * tambien antes del Content-Type, la misma llamada con el mismo valor. No
+     * rompia nada, pero dejaba dos sitios que parecen independientes sobre el
+     * unico punto donde la autenticacion se monta a mano (ver cabecera_basic). */
     if (hay_creds) esp_http_client_set_header(c, "Authorization", cab);
 
     /* ENVIO A MANO (7-oct-2026): con el camino normal (set_post_field +

@@ -13,7 +13,9 @@ esp_err_t save_brightness(uint8_t brightness);
 
 /* El nivel MINIMO de brillo que se elige en Configuracion (5..80 %). Es al que
  * baja el doble toque; el alto es siempre el 100 %. Se guarda aparte del nivel
- * actual (save_brightness), que solo sirve para el log y para el contraste. */
+ * actual (save_brightness), que NINGUNA pantalla aplica al arrancar y que ya no
+ * sirve para el contraste de nadie: la 5" dejo de leerlo y de escribirlo
+ * (auditoria del 27-oct-2026, X15) y la 3,5" solo lo deja en el log. */
 esp_err_t load_brillo_min(uint8_t *out);
 esp_err_t save_brillo_min(uint8_t pct);
 

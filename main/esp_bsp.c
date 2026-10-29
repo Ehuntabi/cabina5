@@ -50,10 +50,6 @@ static const char *TAG = "bsp";
 /* Contador para el informe de refrescos/s (diagnostico). */
 static volatile uint32_t s_refrescos = 0;
 static volatile uint32_t s_vsyncs = 0;
-/* 1 = prueba de banco: congela el refresco a los 8 s para ver si el movimiento
- * es de LVGL o del panel. 0 = comportamiento normal. */
-#define PRUEBA_CONGELAR 1
-
 /* El bus I2C es compartido con lo que se cuelgue despues (acelerometro, etc.).
  * Se crea una sola vez. */
 static i2c_master_bus_handle_t s_i2c_bus = NULL;
@@ -558,10 +554,13 @@ static void bsp_display_fps_cb(lv_timer_t *t)
      * subido (son ~30 lecturas/s). Si no sube, el tactil esta muerto y se ve
      * en el log de arranque, que es donde se mira.
      *
-     * Se quito el informe cada 2 s que hubo durante la puesta a punto: con la
-     * UI en marcha es puro ruido. El contador sigue (cuesta una suma) porque es
-     * lo unico que distingue "el chip no detecta" de "LVGL no lee", que son los
-     * dos fallos que ya nos han costado una tarde cada uno. */
+     * EL INFORME CADA 2 S SIGUE PUESTO Y ES A PROPOSITO (auditoria del
+     * 27-oct-2026, X12: este comentario decia que se habia quitado). Lleva el
+     * heap interno, que es dato de banco, y no estropea las capturas: durante el
+     * volcado de pantalla el nivel de log se pone a NONE (ver
+     * bsp_volcar_framebuffer). El contador sigue (cuesta una suma) porque es lo
+     * unico que distingue "el chip no detecta" de "LVGL no lee", que son los dos
+     * fallos que ya nos han costado una tarde cada uno. */
     if (s_indev && !s_tactil_comprobado) {
         /* No se comprueba a una hora fija: el arranque esta ocupado (WiFi, P4,
          * autotest) y el primer tic del temporizador de LVGL puede tardar mas

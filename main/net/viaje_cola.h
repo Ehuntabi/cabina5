@@ -120,8 +120,11 @@ bool viaje_cola_descartar_cabeza(void);
 size_t viaje_cola_apuntes_libres(void);
 
 /* true si hay encolado algun apunte de esa operacion ("fin", "inicio"...).
- * Se usa AL ARRANCAR para reconciliar el estado del viaje: ver el comentario
- * del .c (hallazgo M5 de la auditoria del 13-oct-2026). */
+ * OJO: NO sirve para decidir si hay que CERRAR al arrancar -- un "fin" viejo de
+ * otro viaje tambien cuenta, que es justo lo que avisa el comentario de al lado.
+ * Por eso la reconciliacion usa viaje_cola_ultima_es_op() desde la auditoria del
+ * 27-oct-2026 (hallazgo cab5-core-04); hoy esta funcion no la llama nadie y se
+ * queda por si hace falta para diagnostico (hallazgo M5 del 13-oct-2026). */
 bool viaje_cola_tiene_op_pendiente(const char *op);
 
 /* true si el ULTIMO apunte de la cola (el mas reciente) es de esa operacion.
