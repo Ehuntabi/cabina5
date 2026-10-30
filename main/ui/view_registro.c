@@ -90,6 +90,15 @@ static uint32_t s_cerrando_id;
 static bool      s_ui_lista;
 /* true si el 409 vino como 412: el viaje abierto lo empezo la OTRA pantalla. */
 static bool      s_viaje_p4_ajeno;
+/* LA P4 TIENE UN VIAJE ABIERTO (M15, resto; auditoria del 27-oct-2026). Antes,
+ * al llegar el 409/412 se abria el panel de las dos salidas tal cual: si en esos
+ * 8 segundos el usuario habia abierto un formulario (que es una capa a pantalla
+ * completa), el panel se dibujaba DEBAJO y no se veia; el viaje no se iniciaba y
+ * no habia forma de resolverlo. Ahora NO se abre nada: se avisa con un cartel
+ * (que si va por encima de todo) y el panel se queda accesible en un boton de la
+ * pantalla principal mientras la P4 siga con ese viaje abierto. */
+static bool      s_p4_ocupada;
+static lv_obj_t *s_btn_p4_abierto;
 
 /* --- Reparto del menu, a pantalla completa (800x480, ver estilos.h) --------
  *
@@ -425,6 +434,8 @@ static const char *const CURRENCY_CODES[] = {
 static void clear_forms(void);
 /* El aviso de VIAJE EN LA P4 se repinta al abrir (ver su comentario). */
 static void viaje_p4_aviso_actualizar(void);
+static void p4_ocupada_set(bool on);   /* fwd: lo usan los cbs del inicio (M15) */
+static void p4_abierto_cb(lv_event_t *e);
 static void filtros_sincroniza(void);
 static void filtros_screen_close(void);
 static void precio_marca_cb(lv_event_t *e);
@@ -2817,11 +2828,20 @@ static void inicio_resultado_cb(bool ok, int estado, const char *respuesta,
          * cerrar o apartar el viaje ajeno quedaba fuera de la vista. Es el mismo
          * patron que cierre_empezar() (navegar y despues abrir). Si ya estas en
          * registros no hace nada. */
-        nav_ir_a_registros();
-        mostrar_menu(PAN_VIAJE_P4);
+        /* NO SE ABRE EL PANEL (M15, resto): ver el comentario de s_p4_ocupada.
+         * Se avisa aqui mismo (el cartel va por encima de cualquier formulario,
+         * que es justo lo que antes tapaba el panel) y se deja el panel a un
+         * toque en la pantalla principal, que es donde el usuario vuelve. */
+        p4_ocupada_set(true);
+        confirm_screen_aviso("La P4 tiene un viaje abierto",
+                             "No he podido empezar el\nnuevo: la P4 ya tiene uno\nabierto.\n\n"
+                             "Se cierra desde Registros: en\nla pantalla principal sale el\n"
+                             "boton \"La P4: viaje abierto\".",
+                             COL_ACCION_STOP, "Entendido");
         return;
     }
     if (!ok) { aviso_envio_fallo(estado, "Viaje"); return; }
+    p4_ocupada_set(false);   /* la P4 ya no tiene el viaje de antes */
     s_id_inicio = 0;   /* confirmado: el proximo viaje estrena id */
     viaje_marcar_iniciado();
     /* La P4 ya ha creado su carpeta; aqui se abre la salida que sostiene los
@@ -4621,8 +4641,16 @@ static void inicio_puntual_resultado_cb(bool ok, int estado, const char *respues
          * solo cambia la visibilidad, y este callback llega hasta 8 s despues de
          * lanzar el POST, cuando el que lo pidio ya puede estar en otra pagina
          * (y el aviso, sin verse, y sin el panel donde se aparta el viaje). */
-        nav_ir_a_registros();
-        mostrar_menu(PAN_VIAJE_P4);
+        /* NO SE ABRE EL PANEL (M15, resto): ver el comentario de s_p4_ocupada.
+         * Se avisa aqui mismo (el cartel va por encima de cualquier formulario,
+         * que es justo lo que antes tapaba el panel) y se deja el panel a un
+         * toque en la pantalla principal, que es donde el usuario vuelve. */
+        p4_ocupada_set(true);
+        confirm_screen_aviso("La P4 tiene un viaje abierto",
+                             "No he podido empezar el\nnuevo: la P4 ya tiene uno\nabierto.\n\n"
+                             "Se cierra desde Registros: en\nla pantalla principal sale el\n"
+                             "boton \"La P4: viaje abierto\".",
+                             COL_ACCION_STOP, "Entendido");
         return;
     }
     if (!ok) { aviso_envio_fallo(estado, EV_NOMBRE[s_puntual_tipo]); return; }
@@ -4972,6 +5000,7 @@ static void viaje_p4_guardar(void *ud)
 static void viaje_p4_descartar(void *ud)
 {
     (void)ud;
+    p4_ocupada_set(false);   /* el usuario ha decidido: el aviso sobra */
     char cuerpo[192];   /* id + dev + forzar + token, igual que el fin */
     char token[33] = {0};
     load_pantalla_token(token, sizeof(token));
@@ -5808,6 +5837,17 @@ static void paseo_salir_cb(lv_event_t *e)
  * de la otra pantalla. Lo cazo la revision adversarial del 13-oct-2026. */
 static lv_obj_t *s_viaje_p4_aviso;
 
+/* Enciende o apaga el aviso de la pantalla principal. Se llama al llegar un
+ * 409/412 (encender) y cuando el asunto se resuelve: un inicio confirmado, o el
+ * usuario decidiendo desde el panel (apagar). */
+static void p4_ocupada_set(bool on)
+{
+    s_p4_ocupada = on;
+    if (!s_btn_p4_abierto) return;
+    if (on) lv_obj_clear_flag(s_btn_p4_abierto, LV_OBJ_FLAG_HIDDEN);
+    else    lv_obj_add_flag(s_btn_p4_abierto, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void viaje_p4_aviso_actualizar(void)
 {
     if (!s_viaje_p4_aviso) return;
@@ -5826,6 +5866,13 @@ static void viaje_p4_aviso_actualizar(void)
         lv_label_set_text(s_viaje_p4_aviso,
             "La P4 tiene un viaje abierto.\nHay que cerrarlo antes de\nempezar otro.");
     }
+}
+
+static void p4_abierto_cb(lv_event_t *e)
+{
+    (void)e;
+    viaje_p4_aviso_actualizar();   /* el texto depende de por que es (409 o 412) */
+    mostrar_menu(PAN_VIAJE_P4);
 }
 
 static void crear_menus(lv_obj_t *parent)
@@ -5858,6 +5905,13 @@ static void crear_menus(lv_obj_t *parent)
      * hiciera falta. */
     boton_chico(body, "Configuración", COL_AJUSTES, lv_pct(100),
                 ajustes_click_cb, NULL);
+
+    /* EL AVISO DE LA P4 (M15, resto). Nace OCULTO: solo aparece si la P4 contesta
+     * que ya tiene un viaje abierto. Lleva al mismo panel de antes (GUARDARLO /
+     * Apartarlo), que sigue siendo la unica salida desde aqui. */
+    s_btn_p4_abierto = boton_chico(body, "La P4: viaje abierto", COL_ACCION_STOP,
+                                   lv_pct(100), p4_abierto_cb, NULL);
+    lv_obj_add_flag(s_btn_p4_abierto, LV_OBJ_FLAG_HIDDEN);
 
     /* --- 2. Tipo de salida --- */
     body = pantalla_crear(parent, PAN_TIPO, "TIPO DE SALIDA", PAN_PRINCIPAL);
