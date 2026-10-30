@@ -175,7 +175,12 @@ static bool es_op_de_control(const char *cuerpo)
  * token vino a impedir (p4_api.c ya lo tapa en su log con log_cuerpo()). Ahora
  * solo salen la operacion y el id, que es lo que hace falta para saber QUE
  * apunte no entra, y asi no hay forma de que un campo nuevo con secreto se cuele
- * por aqui. */
+ * por aqui.
+ *
+ * LA REGLA COMPLETA ESTA EN p4_api.c ("LA REGLA DE LOS LOGS CON CUERPO"): la cola
+ * no imprime cuerpos nunca; el cliente directo si, con los campos de la tabla
+ * SECRETOS tapados. Si algun dia hace falta imprimir un cuerpo aqui, el tapado se
+ * hace con esa tabla, no con un criterio nuevo. */
 static void resumen_apunte(const char *cuerpo, char *out, size_t n)
 {
     char op[16] = "?";

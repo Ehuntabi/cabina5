@@ -110,20 +110,56 @@ static const char *token_o_vacio(const char *t)
     return t;
 }
 
-/* El cuerpo de la peticion, pero con el token tapado. Desde la tanda 2 el inicio
- * y el fin/descartar con 'forzar' llevan el token de la pantalla, y este log
- * imprimia el cuerpo entero: un secreto en el registro de serie, que se ve en
- * cualquier consola y acaba en los logs que se pegan en un informe. */
+/* ── LA REGLA DE LOS LOGS CON CUERPO (una sola, y es esta) ──────────────────
+ *
+ * Los apuntes del viaje llevan dentro el TOKEN de la pantalla (32 hex) y el
+ * "dev". Con ese par se puede cerrar el viaje que OTRA pantalla esta grabando,
+ * que es justo lo que el token vino a impedir. Por eso:
+ *
+ *  1. LA COLA NO IMPRIME CUERPOS NUNCA. Solo "op=fin id=12" (ver resumen_apunte()
+ *     en viaje_cola.c): sus cuerpos son los que llevan el token, y alli se decidio
+ *     no gastar 896 B de pila en copiarlos para taparlos.
+ *  2. EL CLIENTE DIRECTO (este fichero) SI IMPRIME EL CUERPO, porque es lo que
+ *     hace falta para depurar un 400 de la P4, pero con los CAMPOS SECRETOS
+ *     tapados. La lista de secretos esta AQUI y solo aqui: un campo nuevo que no
+ *     pueda salir en un registro se anade a SECRETOS y queda tapado en todos los
+ *     sitios que usan este cliente. Si el tapado se hiciera por fichero, el dia
+ *     que alguien lea el otro no sabra cual es la regla -- y asi se colo el token
+ *     la primera vez (auditoria del 27-oct-2026, cab5-net-01). */
+static const char *const SECRETOS[] = { "token" };
+
+/* Tapa el VALOR de cada campo secreto: "token":"abc..." -> "token":"***". Se
+ * hace sobre una copia en el heap porque hay que ensuciarla, y esto corre una vez
+ * por respuesta (no es un camino caliente). Si no hay memoria, se dice el tamano
+ * y no se imprime: mejor perder una linea de log que el secreto. */
 static void log_cuerpo(const char *cuerpo, int estado)
 {
-    const char *t = strstr(cuerpo, "\"token\":\"");
+    if (!cuerpo) return;
+    size_t n = strlen(cuerpo);
+    char *t = malloc(n + 1);
     if (!t) {
-        ESP_LOGI(TAG, "%s -> HTTP %d", cuerpo, estado);
+        ESP_LOGW(TAG, "cuerpo de %u B (sin memoria para imprimirlo tapado)", (unsigned)n);
         return;
     }
-    const char *cierre = strchr(t + 9, '"');
-    ESP_LOGI(TAG, "%.*s***%s -> HTTP %d", (int)(t - cuerpo), cuerpo,
-             cierre ? cierre : "", estado);
+    memcpy(t, cuerpo, n + 1);
+
+    for (size_t k = 0; k < sizeof(SECRETOS) / sizeof(SECRETOS[0]); k++) {
+        char patron[24];
+        int pl = snprintf(patron, sizeof(patron), "\"%s\":\"", SECRETOS[k]);
+        if (pl <= 0 || pl >= (int)sizeof(patron)) continue;
+        char *p = t;
+        while ((p = strstr(p, patron)) != NULL) {
+            char *v = p + pl;                        /* primer caracter del valor */
+            char *fin = strchr(v, '"');
+            /* SIN COMILLA DE CIERRE (cuerpo cortado): se tapa hasta el final, que
+             * es lo unico seguro; lo que no se puede es dejarlo a la vista. */
+            if (!fin) fin = v + strlen(v);
+            for (char *q = v; q < fin; q++) *q = '*';
+            p = fin;
+        }
+    }
+    ESP_LOGI(TAG, "%s -> HTTP %d", t, estado);
+    free(t);
 }
 
 /* El POST de verdad. BLOQUEA hasta tener respuesta o agotar el plazo, asi que
