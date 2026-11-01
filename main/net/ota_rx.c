@@ -911,9 +911,13 @@ static void tarea_actualizar(void *arg)
         .timeout_ms     = OTA_TIMEOUT_BIN_MS,
         .auth_type      = HTTP_AUTH_TYPE_NONE,   /* la cabecera va a mano */
         .keep_alive_enable = false,
-        .buffer_size    = 1024,
+        /* 4 KB de buffer de recepcion y no 1 KB (29-oct-2026): cada lectura del
+         * socket cuesta una ida y vuelta, y con ventanas TCP pequenas se nota.
+         * El de envio se queda en 512 (aqui no mandamos cuerpo). */
+        .buffer_size    = 4096,
         .buffer_size_tx = 512,
     };
+    const int64_t t_http_us = esp_timer_get_time();   /* ver el log de tiempos */
     cli = esp_http_client_init(&cfg);
     if (!cli) {
         snprintf(motivo, sizeof motivo, "Sin memoria para el cliente HTTP");
@@ -960,6 +964,15 @@ static void tarea_actualizar(void *arg)
     }
     ota_abierta = true;
 
+    /* DE QUE SE VA EL TIEMPO (29-oct-2026). El usuario: "la actualizacion desde
+     * la P4 me ha parecido excesivamente lenta". Medido en la placa: 2,24 MB en
+     * 78 s (~29 KB/s). Con estos tiempos en el log se ve si el que tarda es la
+     * RED, el BORRADO de la particion (esp_ota_begin) o la ESCRITURA, sin
+     * adivinar -- y si el apaño funciono. */
+    const int64_t t_begin_us = esp_timer_get_time();
+    ESP_LOGI(TAG, "OTA: red+borrado %d ms de %u B (a partir de aqui, descarga)",
+             (int)((t_begin_us - t_http_us) / 1000), (unsigned)esperado);
+
     mbedtls_sha256_init(&sha);
     sha_iniciado = true;
     if (mbedtls_sha256_starts(&sha, 0) != 0) {
@@ -998,6 +1011,16 @@ static void tarea_actualizar(void *arg)
         snprintf(motivo, sizeof motivo, "Fichero corto (%" PRIu32 " de %" PRIu32 " bytes)",
                  escrito, esperado);
         goto salir;
+    }
+
+    {
+        const int64_t t_fin_us = esp_timer_get_time();
+        const int64_t ms_descarga = (t_fin_us - t_begin_us) / 1000;
+        const int64_t ms_total    = (t_fin_us - t_http_us) / 1000;
+        ESP_LOGI(TAG, "OTA: %u B en %d ms (%d ms de descarga) = %u KB/s",
+                 (unsigned)escrito, (int)ms_total, (int)ms_descarga,
+                 (unsigned)(ms_descarga > 0
+                            ? (((int64_t)escrito * 1000) / 1024) / ms_descarga : 0));
     }
 
     uint8_t hash[32];
