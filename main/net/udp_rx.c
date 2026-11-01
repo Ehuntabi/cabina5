@@ -411,9 +411,21 @@ static volatile bool s_aplicar_pendiente = false;
  * eventos y lo hace esta tarea, que puede bloquearse ~2 s sin llevarse por
  * delante todos los eventos de Wi-Fi e IP de la placa. */
 static volatile bool s_escaneo_pedido = false;
+/* Cierto mientras wifi_aplicar_task tiene un escaneo en marcha. Lo miran el
+ * temporizador de reconexion y el manejador de la desconexion: ESCANEAR Y
+ * CONECTAR A LA VEZ ABORTA EL ESCANEO (ESP_ERR_WIFI_STATE, ver esp_wifi.h), y un
+ * segundo "desconectado" mientras se escanea volvia a armar el temporizador de
+ * 0,5 s, que abortaba el escaneo y se perdia el cambio de nombre. Mientras esto
+ * esta a true no se conecta; al acabar el escaneo, la tarea rearma el
+ * temporizador (revision independiente del 01-nov-2026). */
+static volatile bool s_escaneando = false;
 
 static void wifi_aplicar_ahora(void)
 {
+    /* Mientras se aplica, el reintento automatico sobra: esta funcion ya
+     * desconecta, configura y conecta. Si saltara en medio, estaria conectando
+     * con la configuracion de antes. */
+    esp_timer_stop(s_reconnect_timer);
     /* DESCONECTAR -> CONFIGURAR -> CONECTAR (16-oct-2026, aviso del usuario:
      * "un cambio guardado en ajustes wifi implica un reinicio para que se
      * aplique"). Antes se configuraba ANTES de desconectar y sin mirar un solo
@@ -472,13 +484,17 @@ static void wifi_aplicar_task(void *arg)
              * cambio de nombre... y como el temporizador es de un solo tiro y
              * nadie miraba el retorno de connect, la cabina se podia quedar
              * desconectada para siempre. */
-            const bool habia_timer = esp_timer_stop(s_reconnect_timer) == ESP_OK;
+            esp_timer_stop(s_reconnect_timer);
+            s_escaneando = true;
             log_redes_visibles();
+            s_escaneando = false;
             if (s_aplicar_pendiente) {
                 s_aplicar_pendiente = false;
                 wifi_aplicar_ahora();      /* este ya conecta el mismo */
-            } else if (habia_timer) {
-                /* Nadie ha tocado las credenciales: el reintento de siempre. */
+            } else {
+                /* SIEMPRE se rearma, haya o no temporizador pendiente: si se
+                 * pidio un escaneo, el manejador no armo el suyo, y sin esto la
+                 * reconexion se quedaria parada. */
                 esp_timer_start_once(s_reconnect_timer, RECONNECT_DELAY_US);
             }
             continue;
@@ -557,8 +573,20 @@ bool udp_rx_set_credentials(const char *ssid, const char *pass)
 static void reconnect_timer_cb(void *arg)
 {
     (void)arg;
+    /* Mientras se escanea NO se conecta: abortaria el escaneo (y con el, la
+     * posibilidad de encontrar la P4 con el otro nombre). Se re-arma y se deja
+     * que lo gobierne la tarea. */
+    if (s_escaneando) {
+        esp_timer_start_once(s_reconnect_timer, 1000 * 1000);
+        return;
+    }
     esp_err_t e = esp_wifi_connect();
-    if (e == ESP_OK || e == ESP_ERR_WIFI_CONN) return;
+    if (e == ESP_OK) return;
+    /* ESP_ERR_WIFI_CONN NO significa "ya esta conectada": es un error interno
+     * del driver (esp_wifi.h). Si estamos asociados no hay nada que reintentar;
+     * si no, se reintenta, porque este temporizador es de UN SOLO TIRO y si no
+     * la cabina se queda sin P4 hasta el proximo reinicio. */
+    if (s_asociado) return;
     ESP_LOGD(TAG, "connect devolvio %s: reintento en 1 s", esp_err_to_name(e));
     esp_timer_start_once(s_reconnect_timer, 1000 * 1000);
 }
@@ -788,7 +816,10 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
                 xEventGroupClearBits(s_wifi_events, WIFI_BIT_CONNECTED | WIFI_BIT_GOT_IP);
                 esp_timer_stop(s_dhcp_timer);        /* sin IP que esperar */
                 esp_timer_stop(s_reconnect_timer);   /* no-op si no estaba armado */
-                esp_timer_start_once(s_reconnect_timer, RECONNECT_DELAY_US);
+                /* Si la tarea esta escaneando, NO se arma: saltaria en mitad
+                 * del escaneo y lo abortaria. Lo rearma la tarea al acabar. */
+                if (!s_escaneando)
+                    esp_timer_start_once(s_reconnect_timer, RECONNECT_DELAY_US);
                 break;
             }
             default: break;
