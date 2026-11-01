@@ -253,10 +253,16 @@ static void wifi_pedir_otro_nombre(void);
 /* Backoff tras fallos seguidos: 60s al principio, hasta 5 min si la red
  * lleva un buen rato sin aparecer. Es solo diagnostico (confirmado con el
  * usuario el 09-sep-2026) -- el listado en si no cambia, pero cada escaneo
- * bloquea esp_wifi_scan_start(..., true) la tarea de EVENTOS DEL SISTEMA
- * (no una tarea propia) ~2s, y en una reconexion larga (fuera de cobertura
- * varias horas) el minuto fijo lo dispara cientos de veces sin aportar nada
- * nuevo al log. */
+ * bloquea ~2s, y en una reconexion larga (fuera de cobertura varias horas) el
+ * minuto fijo lo dispara cientos de veces sin aportar nada nuevo al log.
+ *
+ * OJO, CAMBIADO EL 01-nov-2026: esto se llamaba desde on_wifi_event, que corre
+ * en la TAREA DE EVENTOS DEL SISTEMA; un esp_wifi_scan_start(..., true) ahi
+ * bloquea ~2 s y retrasa TODOS los eventos de Wi-Fi e IP de la placa. Ademas,
+ * como de este escaneo ahora depende el cambio de nombre del AP (ver
+ * WIFI_SSID_HOY), un fallo del driver (ESP_ERR_WIFI_STATE) dejaba a la cabina
+ * sin probar el otro nombre. Ahora la desconexion solo PIDE el escaneo
+ * (s_escaneo_pedido) y lo hace wifi_aplicar_task, que es una tarea normal. */
 #define REDES_BACKOFF_MIN_S   60
 #define REDES_BACKOFF_MAX_S  300
 #define REDES_BACKOFF_TRAS_N_FALLOS  5   /* fallos seguidos antes de espaciar al maximo */
@@ -297,10 +303,11 @@ static void log_redes_visibles(void)
         /* ¿ESTA LA P4 CON EL OTRO NOMBRE? Ver WIFI_SSID_HOY: si el guardado no
          * aparece pero el otro si, es que la han renombrado y hay que seguirlo. */
         const char *otro = wifi_otro_nombre(ssid_ahora);
-        bool vi_el_otro = false;
+        bool vi_esta = false, vi_el_otro = false;
         for (uint16_t i = 0; i < n; i++) {
             const bool es_esta = strcmp((const char *)aps[i].ssid, ssid_ahora) == 0;
             const bool es_otro = otro && strcmp((const char *)aps[i].ssid, otro) == 0;
+            if (es_esta) vi_esta = true;
             if (es_otro) vi_el_otro = true;
             ESP_LOGW(TAG, "  '%s'  canal=%d  rssi=%d  authmode=%d%s%s",
                      (const char *)aps[i].ssid, aps[i].primary, aps[i].rssi,
@@ -308,7 +315,12 @@ static void log_redes_visibles(void)
                      es_esta ? "   <-- ES ESTA" : "",
                      es_otro ? "   <-- ES LA P4 CON EL OTRO NOMBRE" : "");
         }
-        if (vi_el_otro) wifi_pedir_otro_nombre();
+        /* SOLO se cambia si el nombre guardado NO esta a la vista (si esta y no
+         * entra, el problema es la clave, no el nombre) y el otro SI. Antes
+         * bastaba con ver el otro: con los dos nombres en el aire -- dos placas,
+         * un vecino, o la transicion -- la cabina se ponia a saltar de uno a
+         * otro cada escaneo. Revision independiente del 01-nov-2026. */
+        if (!vi_esta && vi_el_otro) wifi_pedir_otro_nombre();
     }
     free(aps);
 }
@@ -395,6 +407,10 @@ void udp_rx_get_credentials(char *ssid_out, size_t ssid_len, char *pass_out, siz
  * es lo que hace que un cambio guardado se aplique SIN reiniciar. */
 static TaskHandle_t s_aplicar_task = NULL;
 static volatile bool s_aplicar_pendiente = false;
+/* Ver el comentario del backoff: el escaneo se pide desde el manejador de
+ * eventos y lo hace esta tarea, que puede bloquearse ~2 s sin llevarse por
+ * delante todos los eventos de Wi-Fi e IP de la placa. */
+static volatile bool s_escaneo_pedido = false;
 
 static void wifi_aplicar_ahora(void)
 {
@@ -442,6 +458,12 @@ static void wifi_aplicar_task(void *arg)
     (void)arg;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        /* Primero el escaneo (puede PEDIR el cambio de nombre) y despues el
+         * cambio, si lo hay: al reves se aplicaria el cambio viejo. */
+        if (s_escaneo_pedido) {
+            s_escaneo_pedido = false;
+            log_redes_visibles();
+        }
         if (!s_aplicar_pendiente) continue;
         s_aplicar_pendiente = false;   /* la peticion se coge AHORA */
         wifi_aplicar_ahora();
@@ -465,7 +487,11 @@ bool udp_rx_set_credentials(const char *ssid, const char *pass)
      * globales que otra tarea podria estar cambiando. */
     creds_guardar(ssid, pass);
 
-    esp_err_t err = save_wifi_config(s_ssid, s_pass);
+    /* LOS ARGUMENTOS, no los globales (revision independiente del 01-nov-2026):
+     * esto leia s_ssid/s_pass fuera del cerrojo, y desde que hay un segundo
+     * escritor (el cambio de nombre del AP) se podia guardar en NVS una pareja
+     * mezclada, o el nombre alternativo que solo debe vivir en RAM. */
+    esp_err_t err = save_wifi_config(ssid, pass);
     if (err != ESP_OK) {
         /* Se reconecta igual (con lo tecleado, que vale para esta sesion),
          * pero se avisa: sin NVS, al apagar el contacto vuelven las de antes
@@ -491,7 +517,7 @@ bool udp_rx_set_credentials(const char *ssid, const char *pass)
     if (s_aplicar_task) {
         s_aplicar_pendiente = true;
         xTaskNotifyGive(s_aplicar_task);
-        ESP_LOGI(TAG, "Credenciales guardadas: aplicando el cambio a '%s'", s_ssid);
+        ESP_LOGI(TAG, "Credenciales guardadas: aplicando el cambio a '%s'", ssid);
     } else {
         /* Sin tarea (no deberia: se crea en udp_rx_start) se hace aqui, que es
          * como se hacia antes. */
@@ -614,21 +640,33 @@ static const char *wifi_otro_nombre(const char *ssid)
 }
 
 /* Deja PEDIDO el cambio al otro nombre (lo aplica wifi_aplicar_task, que es la
- * unica que puede hablar con el driver sin bloquear a nadie). */
+ * unica que puede hablar con el driver sin bloquear a nadie).
+ *
+ * LEER, DECIDIR Y ESCRIBIR BAJO EL MISMO CERROJO (revision independiente del
+ * 01-nov-2026): antes se copiaban las credenciales, se decidia fuera del
+ * cerrojo y se volvian a escribir, asi que un guardado del usuario entre medias
+ * se perdia -- la RAM se quedaba con el nombre alternativo y la clave VIEJA, y
+ * el NVS con lo que tecleo el usuario. */
 static void wifi_pedir_otro_nombre(void)
 {
-    char ssid[sizeof(s_ssid)], pass[sizeof(s_pass)];
-    creds_copiar(ssid, sizeof(ssid), pass, sizeof(pass));
-    const char *otro = wifi_otro_nombre(ssid);
-    if (!otro) return;
     if (!s_aplicar_task) {
-        ESP_LOGW(TAG, "'%s' no aparece y no hay tarea que aplique el cambio a '%s'",
-                 ssid, otro);
+        ESP_LOGW(TAG, "la P4 no aparece con el nombre guardado y no hay tarea que "
+                      "pruebe el otro nombre");
         return;
     }
+    char antes[sizeof(s_ssid)] = {0}, ahora[sizeof(s_ssid)] = {0};
+    CREDS_LOCK();
+    const char *otro = wifi_otro_nombre(s_ssid);
+    if (otro) {
+        snprintf(antes, sizeof(antes), "%s", s_ssid);
+        strncpy(s_ssid, otro, sizeof(s_ssid) - 1);
+        s_ssid[sizeof(s_ssid) - 1] = '\0';
+        snprintf(ahora, sizeof(ahora), "%s", s_ssid);
+    }
+    CREDS_UNLOCK();
+    if (ahora[0] == '\0') return;
     ESP_LOGW(TAG, "la P4 no aparece como '%s': pruebo con '%s' (los dos nombres "
-                  "del AP; el NVS no se toca)", ssid, otro);
-    creds_guardar(otro, pass);
+                  "del AP; el NVS no se toca)", antes, ahora);
     s_aplicar_pendiente = true;
     xTaskNotifyGive(s_aplicar_task);
 }
@@ -694,8 +732,21 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
                  * la encuentra, pero no si es que no esta, si esta con otro
                  * nombre o si la esta descartando por el cifrado. Se lista lo
                  * que ve, de vez en cuando para no llenar el log ni pasarse el
-                 * dia escaneando (un escaneo bloquea la radio ~2 s). */
-                if (d && d->reason == WIFI_REASON_NO_AP_FOUND) log_redes_visibles();
+                 * dia escaneando. AUTH_FAIL y el timeout del 4-way se miran
+                 * tambien: si la cabina se quedo con el nombre equivocado, el
+                 * sintoma es justo ese (la red existe pero no se puede entrar),
+                 * y sin esto no volveria a escanear nunca.
+                 *
+                 * EL ESCANEO NO SE HACE AQUI (ver el comentario del backoff):
+                 * bloquea ~2 s y esto corre en la tarea de eventos del sistema.
+                 * Se PIDE y lo hace wifi_aplicar_task. */
+                if (d && (d->reason == WIFI_REASON_NO_AP_FOUND ||
+                          d->reason == WIFI_REASON_AUTH_FAIL ||
+                          d->reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT)) {
+                    s_escaneo_pedido = true;
+                    if (s_aplicar_task) xTaskNotifyGive(s_aplicar_task);
+                    else log_redes_visibles();   /* sin tarea (no deberia): como antes */
+                }
                 xEventGroupClearBits(s_wifi_events, WIFI_BIT_CONNECTED | WIFI_BIT_GOT_IP);
                 esp_timer_stop(s_dhcp_timer);        /* sin IP que esperar */
                 esp_timer_stop(s_reconnect_timer);   /* no-op si no estaba armado */
@@ -1065,10 +1116,7 @@ void udp_rx_start(void)
 void udp_rx_enlace(char *ssid, size_t ssid_len, bool *asociado,
                    int *rssi_dbm, int *seg_sin_datos)
 {
-    if (ssid && ssid_len) {
-        strncpy(ssid, s_ssid, ssid_len - 1);
-        ssid[ssid_len - 1] = '\0';
-    }
+    if (ssid && ssid_len) creds_copiar(ssid, ssid_len, NULL, 0);   /* bajo cerrojo */
     if (asociado) *asociado = s_asociado;
     if (rssi_dbm) {
         /* Numero guardado: NO se llama aqui a la API de Wi-Fi. Quien pregunta

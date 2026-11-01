@@ -150,12 +150,19 @@ if [ -f ../p4/main/net/mini_proto.h ]; then
             && ok "mini_proto.h identico al de la 5\"" \
             || mal "mini_proto.h DISTINTO del de la 5\" (se sincroniza a mano)"
     fi
-    if [ -x ../p4/test/protocolo_cabina.sh ]; then
+    # -f y no -x (revision del 01-nov-2026): el script de la P4 esta en git como
+    # 100644, asi que -x era SIEMPRE falso y esta comprobacion se saltaba EN
+    # SILENCIO -- el verde de la auditoria no cubria lo que dice cubrir. Y si no
+    # se puede correr, se dice: una comprobacion que no corre no es un OK.
+    if [ -f ../p4/test/protocolo_cabina.sh ]; then
         if bash ../p4/test/protocolo_cabina.sh ../p4 . >/dev/null 2>&1; then
             ok "el contrato completo con la P4 pasa (ops, JSON, campos)"
         else
             mal "el contrato con la P4 FALLA: corre 'bash ../p4/test/protocolo_cabina.sh ../p4 .'"
         fi
+    else
+        echo "  (sin ../p4/test/protocolo_cabina.sh: NO se ha comprobado el contrato)"
+
     fi
 else
     echo "  (sin el repo de la P4 al lado: se omite)"
