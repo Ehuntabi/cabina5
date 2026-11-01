@@ -811,6 +811,18 @@ static void refresh_bat(const mini_data_t *d)
         snprintf(buf, sizeof(buf), "%c%ld.%ld", sgn,
                  (long)(am / 1000), (long)((am % 1000) / 100));
         lv_label_set_text(s_bat_amp, buf);
+        /* LA LETRA SE AJUSTA AL LARGO, y no se parte en dos lineas (30-oct-2026):
+         * "-12.4" (5) entra en la 32; "-150.0" (6) necesita la 28 y "-1234.5"
+         * (7) la 24. Solo se cambia cuando hace falta, que cambiar la fuente
+         * invalida el rotulo. */
+        {
+            size_t largo = strlen(buf);
+            const lv_font_t *f = (largo >= 7) ? &lv_font_montserrat_24
+                               : (largo >= 6) ? &lv_font_montserrat_28
+                                              : &lv_font_montserrat_32;
+            if (lv_obj_get_style_text_font(s_bat_amp, 0) != f)
+                lv_obj_set_style_text_font(s_bat_amp, f, 0);
+        }
         /* Verde cargando, NARANJA consumiendo: se ve si la bateria sube o baja
          * sin pararse a leer el signo. Naranja y no rojo a proposito -- gastar
          * es lo normal, no una averia; el rojo se reserva para el nivel bajo. */
@@ -823,6 +835,8 @@ static void refresh_bat(const mini_data_t *d)
          * texto se salia de su caja de ancho fijo y el hueco vacio parecia un
          * fallo de pintado en vez de una falta de dato. */
         lv_label_set_text(s_bat_amp, "--");
+        if (lv_obj_get_style_text_font(s_bat_amp, 0) != &lv_font_montserrat_32)
+            lv_obj_set_style_text_font(s_bat_amp, &lv_font_montserrat_32, 0);
         /* Devolver el color neutro: si no, el "--" se queda del verde o el
          * naranja de la ultima lectura buena, como si siguiera cargando. */
         lv_obj_set_style_text_color(s_bat_amp, COL_TEXT, 0);
@@ -1696,6 +1710,11 @@ void view_info_create(lv_obj_t *parent)
     /* Mismo tamano que los voltios: los dos son el dato principal de su lado. */
     lv_obj_set_style_text_font(s_bat_amp, &lv_font_montserrat_32, 0);
     lv_obj_set_width(s_bat_amp, 110);
+    /* NUNCA EN DOS LINEAS (30-oct-2026): el hueco del numero es fijo (la "A" va
+     * detras, a 316) y una corriente grande (-150.0) no cabia en la letra 32, asi
+     * que LVGL la partia en dos lineas. Con CLIP se recorta en vez de partir, y
+     * el refresco ademas baja la letra cuando el numero es largo (ver abajo). */
+    lv_label_set_long_mode(s_bat_amp, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(s_bat_amp, LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_clear_flag(s_bat_amp, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(s_bat_amp, LV_ALIGN_LEFT_MID, 200, 0);  /* -- A, detras */
