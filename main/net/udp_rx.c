@@ -245,7 +245,7 @@ static void load_or_init_credentials(void)
 
 /* Ver WIFI_SSID_HOY: los dos nombres del AP de la P4. */
 static const char *wifi_otro_nombre(const char *ssid);
-static void wifi_pedir_otro_nombre(void);
+static void wifi_pedir_otro_nombre(const char *observado);
 
 /* Lista las redes que ve la radio. Solo para diagnostico: cuando la P4 no
  * aparece, esto dice si el problema es que no esta emitiendo, que se llama de
@@ -320,7 +320,7 @@ static void log_redes_visibles(void)
          * bastaba con ver el otro: con los dos nombres en el aire -- dos placas,
          * un vecino, o la transicion -- la cabina se ponia a saltar de uno a
          * otro cada escaneo. Revision independiente del 01-nov-2026. */
-        if (!vi_esta && vi_el_otro) wifi_pedir_otro_nombre();
+        if (!vi_esta && vi_el_otro) wifi_pedir_otro_nombre(ssid_ahora);
     }
     free(aps);
 }
@@ -462,7 +462,26 @@ static void wifi_aplicar_task(void *arg)
          * cambio, si lo hay: al reves se aplicaria el cambio viejo. */
         if (s_escaneo_pedido) {
             s_escaneo_pedido = false;
+            /* EL TEMPORIZADOR DE RECONEXION SE PARA MIENTRAS SE ESCANEA
+             * (revision independiente del 01-nov-2026, y era un fallo de
+             * verdad): el manejador de la desconexion lo arma a 0,5 s y el
+             * escaneo bloqueante dura ~2 s, asi que a mitad de escaneo saltaba
+             * reconnect_timer_cb() y llamaba esp_wifi_connect(). Escanear y
+             * conectar a la vez ABORTA el escaneo (ESP_ERR_WIFI_STATE, ver
+             * esp_wifi.h), asi que el escaneo se quedaba sin resultados, sin
+             * cambio de nombre... y como el temporizador es de un solo tiro y
+             * nadie miraba el retorno de connect, la cabina se podia quedar
+             * desconectada para siempre. */
+            const bool habia_timer = esp_timer_stop(s_reconnect_timer) == ESP_OK;
             log_redes_visibles();
+            if (s_aplicar_pendiente) {
+                s_aplicar_pendiente = false;
+                wifi_aplicar_ahora();      /* este ya conecta el mismo */
+            } else if (habia_timer) {
+                /* Nadie ha tocado las credenciales: el reintento de siempre. */
+                esp_timer_start_once(s_reconnect_timer, RECONNECT_DELAY_US);
+            }
+            continue;
         }
         if (!s_aplicar_pendiente) continue;
         s_aplicar_pendiente = false;   /* la peticion se coge AHORA */
@@ -527,11 +546,21 @@ bool udp_rx_set_credentials(const char *ssid, const char *pass)
 }
 
 /* Corre en la tarea del esp_timer, no en sys_evt: aqui si es seguro que el
- * reintento se retrase sin bloquear el procesado de otros eventos WiFi/IP. */
+ * reintento se retrase sin bloquear el procesado de otros eventos WiFi/IP.
+ *
+ * EL RETORNO SE MIRA (revision independiente del 01-nov-2026): este temporizador
+ * es de UN SOLO TIRO. Si esp_wifi_connect() fallaba (por ejemplo porque habia un
+ * escaneo en marcha: ESP_ERR_WIFI_STATE) no se reintentaba nunca y la cabina se
+ * quedaba sin P4 hasta el siguiente reinicio. Ahora se re-arma; y si el error es
+ * ESP_ERR_WIFI_CONN es que ya esta conectando o conectada, y ahi no hay nada
+ * que hacer. */
 static void reconnect_timer_cb(void *arg)
 {
     (void)arg;
-    esp_wifi_connect();
+    esp_err_t e = esp_wifi_connect();
+    if (e == ESP_OK || e == ESP_ERR_WIFI_CONN) return;
+    ESP_LOGD(TAG, "connect devolvio %s: reintento en 1 s", esp_err_to_name(e));
+    esp_timer_start_once(s_reconnect_timer, 1000 * 1000);
 }
 
 /* Vigilante del DHCP. La cabina puede asociarse y quedarse SIN IP: pasa cuando
@@ -647,7 +676,7 @@ static const char *wifi_otro_nombre(const char *ssid)
  * cerrojo y se volvian a escribir, asi que un guardado del usuario entre medias
  * se perdia -- la RAM se quedaba con el nombre alternativo y la clave VIEJA, y
  * el NVS con lo que tecleo el usuario. */
-static void wifi_pedir_otro_nombre(void)
+static void wifi_pedir_otro_nombre(const char *observado)
 {
     if (!s_aplicar_task) {
         ESP_LOGW(TAG, "la P4 no aparece con el nombre guardado y no hay tarea que "
@@ -656,7 +685,10 @@ static void wifi_pedir_otro_nombre(void)
     }
     char antes[sizeof(s_ssid)] = {0}, ahora[sizeof(s_ssid)] = {0};
     CREDS_LOCK();
-    const char *otro = wifi_otro_nombre(s_ssid);
+    /* Solo si las credenciales SIGUEN siendo las del escaneo: si el usuario ha
+     * guardado otra cosa entre el escaneo y este cerrojo, manda lo suyo. */
+    const char *otro = (observado && strcmp(s_ssid, observado) == 0)
+                     ? wifi_otro_nombre(s_ssid) : NULL;
     if (otro) {
         snprintf(antes, sizeof(antes), "%s", s_ssid);
         strncpy(s_ssid, otro, sizeof(s_ssid) - 1);
@@ -743,9 +775,15 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
                 if (d && (d->reason == WIFI_REASON_NO_AP_FOUND ||
                           d->reason == WIFI_REASON_AUTH_FAIL ||
                           d->reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT)) {
-                    s_escaneo_pedido = true;
-                    if (s_aplicar_task) xTaskNotifyGive(s_aplicar_task);
-                    else log_redes_visibles();   /* sin tarea (no deberia): como antes */
+                    /* Sin tarea NO se escanea aqui (no bloquear 2 s la tarea de
+                     * eventos del sistema para nada: sin tarea tampoco se puede
+                     * cambiar de nombre). La tarea se crea en udp_rx_start
+                     * ANTES de encender la radio, asi que esto no deberia
+                     * pasar. */
+                    if (s_aplicar_task) {
+                        s_escaneo_pedido = true;
+                        xTaskNotifyGive(s_aplicar_task);
+                    }
                 }
                 xEventGroupClearBits(s_wifi_events, WIFI_BIT_CONNECTED | WIFI_BIT_GOT_IP);
                 esp_timer_stop(s_dhcp_timer);        /* sin IP que esperar */
@@ -1076,6 +1114,18 @@ void udp_rx_start(void)
     s_cred_mtx = xSemaphoreCreateMutex();
     if (!s_cred_mtx) ESP_LOGE(TAG, "sin mutex de credenciales: se sigue sin el");
     wifi_configure_sta();
+    /* La tarea que aplica los cambios de red (ver wifi_aplicar_task): existe
+     * para que el guardado desde Ajustes no llame al driver desde la tarea de
+     * LVGL, y para que el escaneo de "¿la P4 se ha renombrado?" no bloquee la
+     * tarea de eventos del sistema. SE CREA ANTES DE ENCENDER LA RADIO
+     * (revision independiente del 01-nov-2026): si se creaba despues, una
+     * desconexion temprana se encontraba s_aplicar_task == NULL. */
+    if (xTaskCreate(wifi_aplicar_task, "wifi_aplicar", 4096, NULL, 3,
+                    &s_aplicar_task) != pdPASS) {
+        s_aplicar_task = NULL;
+        ESP_LOGW(TAG, "sin tarea para aplicar credenciales: se aplicaran en quien llame");
+    }
+
     ESP_ERROR_CHECK(esp_wifi_start());
 
     /* SIN AHORRO DE ENERGIA (17-oct-2026). Por defecto el driver duerme la radio
@@ -1099,15 +1149,6 @@ void udp_rx_start(void)
         ESP_LOGE(TAG, "xTaskCreate(rx_task) fallo: SIN telemetria de la P4");
     }
 
-    /* La tarea que aplica los cambios de red (ver wifi_aplicar_task): existe
-     * para que el guardado desde Ajustes no llame al driver desde la tarea de
-     * LVGL. Sin ella, udp_rx_set_credentials() aplica el cambio el mismo, que
-     * es como se hacia antes. */
-    if (xTaskCreate(wifi_aplicar_task, "wifi_aplicar", 4096, NULL, 3,
-                    &s_aplicar_task) != pdPASS) {
-        s_aplicar_task = NULL;
-        ESP_LOGW(TAG, "sin tarea para aplicar credenciales: se aplicaran en quien llame");
-    }
 }
 
 /* Estado del enlace para la pantalla de informacion. Devuelve el SSID que se
