@@ -109,6 +109,13 @@ void ota_rx_estado(ota_rx_vista_t *out);
  * un destino o contestando a un cartel. */
 void ota_rx_ui_ocupada(bool ocupada);
 
+/* true mientras se esta GRABANDO la flash (descarga de la version nueva).
+ * Las pantallas lo consultan para no repintar en ese rato: cada borrado de
+ * sector deja la cache y el refresco a medias, asi que cualquier repintado que
+ * caiga ahi se ve como basura en la pantalla (29-oct-2026: "cuando detecta la
+ * actualizacion la pantalla principal se vuelve loca"). */
+bool ota_rx_grabando(void);
+
 /* ── Las decisiones, expuestas para probarlas SIN PLACA ─────────────────────
  *
  * test/ota_version.sh saca estas funciones TAL CUAL de ota_rx.c y las compila

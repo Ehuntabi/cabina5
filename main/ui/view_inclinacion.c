@@ -21,6 +21,7 @@
  *     datos: con la letra un escalon mas, el rotulo de dos lineas se comia la
  *     columna y las cifras -- que es lo unico que se mira -- quedaban pequenas.
  */
+#include "net/ota_rx.h"
 #include "view_inclinacion.h"
 #include "ui/ui_style.h"   /* la paleta, en un solo sitio */
 #include "estilos.h"
@@ -184,6 +185,9 @@ static bool  s_texto_escrito;
 
 static void refresh_cb(lv_timer_t *t)
 {
+    /* Ni el nivel mientras se graba la flash (ver ota_rx_grabando). */
+    if (ota_rx_grabando()) return;
+
     (void)t;
     if (!tilt_is_present()) {
         lv_obj_add_flag(s_bubble, LV_OBJ_FLAG_HIDDEN);

@@ -508,6 +508,15 @@ static bool ui_ocupada_ahora(void)
     return atomic_load(&s_ui_ocupada);
 }
 
+/* Ver ota_rx.h: las pantallas no repintan mientras se graba la flash. */
+bool ota_rx_grabando(void)
+{
+    taskENTER_CRITICAL(&s_mtx);
+    bool grabando = (s_vista.estado == OTA_RX_DESCARGANDO);
+    taskEXIT_CRITICAL(&s_mtx);
+    return grabando;
+}
+
 static bool trabajando_ahora(void)
 {
     bool t;

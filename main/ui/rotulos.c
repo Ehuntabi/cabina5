@@ -20,6 +20,7 @@
  *
  * El porque del diseno (temporizador y no evento de LVGL, escalones, cache por
  * ancho) esta documentado en estilos.h, encima de ROTULO_ESCALONES. */
+#include "net/ota_rx.h"
 #include "ui/estilos.h"
 #include "esp_log.h"
 
@@ -60,6 +61,10 @@ static void rotulo_ajustar(lv_obj_t *btn, lv_obj_t *lbl)
 
 static void rotulo_timer_cb(lv_timer_t *t)
 {
+    /* No tocar rotulos mientras se graba la flash (ver ota_rx_grabando): cada
+     * cambio de fuente invalida el rotulo y el repintado se ve a trozos. */
+    if (ota_rx_grabando()) return;
+
     (void)t;
     for (int i = 0; i < s_rotulos_n; i++) {
         lv_obj_t *btn = s_rotulos[i];

@@ -30,6 +30,7 @@
 #include "net/viaje_cola.h"   /* VIAJE_COLA_CAPACIDAD, para el aviso de casi llena */
 #include "net/p4_api.h"       /* mandar la orden de silencio a la P4 */
 #include "net/mini_proto.h"   /* MINI_ALARM_*, el byte de alarmas de la telemetria */
+#include "net/ota_rx.h"      /* ota_rx_grabando(): no repintar mientras se graba la flash */
 #include "salida.h"          /* salida_hay(): si hay salida abierta AQUI */
 #include "nav.h"
 #include "view_registro.h"    /* view_registro_puntual_declarar_llegada() */
@@ -1344,6 +1345,14 @@ static void refresh_cb(lv_timer_t *t)
     }
 
     if (s_pantalla && lv_screen_active() != s_pantalla) return;   /* no se ve: no se pinta */
+
+    /* NI SE PINTA MIENTRAS SE GRABA LA FLASH (29-oct-2026). Lo vio el usuario:
+     * "cuando detecta la actualizacion la pantalla principal se vuelve loca".
+     * Es esto: cada borrado de sector deja la cache y el refresco a medias, asi
+     * que este repintado de cada 500 ms caia a trozos y la pantalla enseñaba
+     * basura. Se deja la ultima imagen quieta un minuto (los numeros se quedan
+     * como estaban; la pantalla se reinicia sola al acabar). */
+    if (ota_rx_grabando()) return;
 
     mini_data_t d;
     data_model_get(&d);
