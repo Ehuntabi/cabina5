@@ -419,6 +419,9 @@ static volatile bool s_escaneo_pedido = false;
  * esta a true no se conecta; al acabar el escaneo, la tarea rearma el
  * temporizador (revision independiente del 01-nov-2026). */
 static volatile bool s_escaneando = false;
+/* Espera del reintento de conexion, que se dobla en cada fallo seguido hasta 8 s
+ * (ver reconnect_timer_cb). Se vuelve a 1 s en cuanto el driver acepta. */
+static int s_reintento_ms = 1000;
 
 static void wifi_aplicar_ahora(void)
 {
@@ -449,19 +452,33 @@ static void wifi_aplicar_ahora(void)
     }
     if (e_cfg == ESP_OK) {
         /* Si connect() devuelve error no se da por fallo: la configuracion nueva
-         * YA esta puesta y el reintento de 0,5 s del evento de desconexion la
-         * usa. Antes se llamaba sin mirar nada y, cuando fallaba, la pantalla se
-         * quedaba sin red hasta el reinicio. */
+         * YA esta puesta y lo reintenta el temporizador. Antes se llamaba sin
+         * mirar nada y, cuando fallaba, la pantalla se quedaba sin red hasta el
+         * reinicio. */
+        /* El evento de la desconexion de arriba pudo rearmar el temporizador a
+         * 0,5 s: se para otra vez para que no salte con la configuracion a
+         * medio poner (revision del 01-nov-2026). */
+        esp_timer_stop(s_reconnect_timer);
         esp_err_t ec = esp_wifi_connect();
-        if (ec != ESP_OK)
+        if (ec != ESP_OK) {
             ESP_LOGW(TAG, "connect devolvio %s: lo reintenta el temporizador (la "
                           "configuracion nueva ya esta puesta)", esp_err_to_name(ec));
+            /* Y SE REARMA DE VERDAD (revision independiente del 01-nov-2026):
+             * esta funcion ha parado el temporizador al entrar y, con la
+             * estacion ya caida, esp_wifi_disconnect() no genera ningun evento
+             * que lo rearme. El aviso de arriba decia "lo reintenta el
+             * temporizador" y el temporizador estaba parado. */
+            esp_timer_start_once(s_reconnect_timer, RECONNECT_DELAY_US);
+        }
         char ssid_ahora[sizeof(s_ssid)];
         creds_copiar(ssid_ahora, sizeof(ssid_ahora), NULL, 0);
         ESP_LOGI(TAG, "Credenciales aplicadas y reconectando a '%s'", ssid_ahora);
     } else {
         ESP_LOGE(TAG, "NO he podido aplicar las credenciales nuevas (%s): la pantalla "
                       "sigue con la red anterior", esp_err_to_name(e_cfg));
+        /* Igual que arriba: sin esto, si la estacion ya estaba caida se queda
+         * sin reintentar (el temporizador se paro al entrar). */
+        esp_timer_start_once(s_reconnect_timer, RECONNECT_DELAY_US);
     }
 }
 
@@ -484,8 +501,11 @@ static void wifi_aplicar_task(void *arg)
              * cambio de nombre... y como el temporizador es de un solo tiro y
              * nadie miraba el retorno de connect, la cabina se podia quedar
              * desconectada para siempre. */
-            esp_timer_stop(s_reconnect_timer);
+            /* El flag PRIMERO: si se para el temporizador antes de levantarlo,
+             * un reconnect_timer_cb ya en marcha puede pasar su comprobacion y
+             * conectar en mitad del escaneo (revision del 01-nov-2026). */
             s_escaneando = true;
+            esp_timer_stop(s_reconnect_timer);
             log_redes_visibles();
             s_escaneando = false;
             if (s_aplicar_pendiente) {
@@ -580,15 +600,20 @@ static void reconnect_timer_cb(void *arg)
         esp_timer_start_once(s_reconnect_timer, 1000 * 1000);
         return;
     }
+    if (s_escaneando) return;   /* ventana minima: se ha pedido el escaneo aqui mismo */
     esp_err_t e = esp_wifi_connect();
-    if (e == ESP_OK) return;
+    if (e == ESP_OK) { s_reintento_ms = 1000; return; }
     /* ESP_ERR_WIFI_CONN NO significa "ya esta conectada": es un error interno
      * del driver (esp_wifi.h). Si estamos asociados no hay nada que reintentar;
      * si no, se reintenta, porque este temporizador es de UN SOLO TIRO y si no
      * la cabina se queda sin P4 hasta el proximo reinicio. */
-    if (s_asociado) return;
-    ESP_LOGD(TAG, "connect devolvio %s: reintento en 1 s", esp_err_to_name(e));
-    esp_timer_start_once(s_reconnect_timer, 1000 * 1000);
+    if (s_asociado) { s_reintento_ms = 1000; return; }
+    ESP_LOGD(TAG, "connect devolvio %s: reintento en %d ms", esp_err_to_name(e),
+             s_reintento_ms);
+    esp_timer_start_once(s_reconnect_timer, (uint64_t)s_reintento_ms * 1000);
+    /* Espaciado 1-2-4-8 s (revision del 01-nov-2026): con un fallo persistente
+     * no tiene sentido machacar al driver cada segundo. */
+    if (s_reintento_ms < 8000) s_reintento_ms *= 2;
 }
 
 /* Vigilante del DHCP. La cabina puede asociarse y quedarse SIN IP: pasa cuando
