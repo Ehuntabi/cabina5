@@ -1030,6 +1030,17 @@ static void tarea_actualizar(void *arg)
                  (unsigned)escrito, (int)ms_total, (int)ms_descarga,
                  (unsigned)(ms_descarga > 0
                             ? (((int64_t)escrito * 1000) / 1024) / ms_descarga : 0));
+        /* Y SE DEJAN APUNTADOS, porque el reinicio se lleva el log y la pantalla
+         * no tiene tarjeta donde guardarlo. En el arranque siguiente se cuentan
+         * solos: asi se puede medir la descarga sin tener el puerto de serie
+         * abierto justo en ese minuto. */
+        nvs_handle_t hn;
+        if (nvs_open("ota", NVS_READWRITE, &hn) == ESP_OK) {
+            uint32_t v[3] = { (uint32_t)ms_total, (uint32_t)ms_descarga,
+                              (uint32_t)escrito };
+            if (nvs_set_blob(hn, "ult", v, sizeof(v)) == ESP_OK) nvs_commit(hn);
+            nvs_close(hn);
+        }
     }
 
     uint8_t hash[32];
@@ -1479,6 +1490,24 @@ static void auto_arrancar(void)
                  esp_err_to_name(err));
         return;
     }
+    /* ¿COMO FUE LA ULTIMA ACTUALIZACION? (29-oct-2026): el reinicio se lleva el
+     * log, asi que los tiempos se dejan en NVS y se cuentan aqui, al arrancar.
+     * Es lo que faltaba para poder medir la descarga sin tener que pillarla en
+     * vivo por el puerto de serie. */
+    {
+        nvs_handle_t hn;
+        uint32_t v[3] = {0};
+        size_t ln = sizeof(v);
+        if (nvs_open("ota", NVS_READONLY, &hn) == ESP_OK) {
+            if (nvs_get_blob(hn, "ult", v, &ln) == ESP_OK && ln == sizeof(v) && v[0] > 0) {
+                ESP_LOGW(TAG, "ULTIMA ACTUALIZACION: %u B en %u ms (%u ms de descarga) "
+                              "= %u KB/s", (unsigned)v[2], (unsigned)v[0], (unsigned)v[1],
+                         (unsigned)(v[1] > 0 ? (((int64_t)v[2] * 1000) / 1024) / v[1] : 0));
+            }
+            nvs_close(hn);
+        }
+    }
+
     ESP_LOGI(TAG, "actualizacion automatica ENCENDIDA: cada %d s pregunta sola y, "
                   "si hay version nueva, la instala sin preguntar",
              OTA_AUTO_PERIODO_MS / 1000);
