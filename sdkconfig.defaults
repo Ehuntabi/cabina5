@@ -27,6 +27,17 @@ CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 
+# ── VENTANA TCP de RECEPCION grande, para la OTA de la propia pantalla ───────
+# La cabina solo RECIBE (2,2 MB del .bin), y lo que manda al pedir son 16 KB de
+# ventana anunciada: el que envia no puede tener mas bytes sin confirmar que
+# eso. Con los 5760 B de fabrica la descarga va a ventana/ida_y_vuelta y se
+# queda en 7-29 KB/s segun el dia (ver el mismo comentario en la P4). Los
+# buffers salen de PSRAM (CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP), no de la RAM
+# interna que necesita LVGL. OOSEQ a 8: si llegan segmentos desordenados y solo
+# caben 4, se tiran y hay que retransmitirlos.
+CONFIG_LWIP_TCP_WND_DEFAULT=16384
+CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS=8
+
 # ── Rendimiento (panel RGB + PSRAM compartida) ──────────────────────────────
 # Con el panel RGB leyendo de PSRAM sin parar, la cache y el compilador
 # importan aqui mas que en otros paneles.

@@ -81,6 +81,7 @@
 #include "esp_partition.h"
 #include "esp_system.h"      /* esp_restart */
 #include "esp_timer.h"
+#include "esp_lvgl_port.h" /* lvgl_port_stop/resume: la pantalla quieta al descargar */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "mbedtls/sha256.h"  /* sha256 AL VUELO, sin guardar 2 MB en ningun sitio */
@@ -121,6 +122,24 @@ static const char *TAG = "ota_rx";
 /* La respuesta de /api/pantalla/info son ~250 bytes. 1 KB da aire de sobra y,
  * si llegara mas, es que no es la respuesta del contrato: se rechaza. */
 #define OTA_INFO_MAX          1024
+
+/* ── LA PANTALLA SE QUEDA QUIETA MIENTRAS SE DESCARGA (01-nov-2026) ──────────
+ *
+ * El dueno, delante de la 5": "va lentisima la descarga desde la P4" y "se
+ * descuadra la pantalla cuando sube el bin". Son el mismo problema visto por
+ * dos lados: el bucle de LVGL sigue repintando (22 refrescos por segundo
+ * medidos, INCLUSO EN REPOSO) mientras la tarea de la OTA lee el socket y
+ * escribe la flash. El panel se queda a medias entre dos cuadros -- eso es el
+ * descuadre -- y el repintado se lleva la CPU que necesita la red.
+ *
+ * Se para el bucle de LVGL (lvgl_port_stop) mientras dura la descarga y se
+ * reanuda un instante cada 10 % para que la barra de progreso avance: sin eso
+ * la pantalla se queda congelada varios minutos y parece colgada.
+ *
+ * Se reanuda SIEMPRE, salga como salga (el `salir:` de abajo): dejarla parada
+ * seria una pantalla muerta con una OTA fallida. */
+#define OTA_REFRESCO_PCT      10
+#define OTA_REFRESCO_MS       180   /* un cuadro a 12-18 fps, con margen */
 
 /* Un .bin de esta pantalla pesa ~1,94 MB. Los topes no son para el usuario:
  * son la red que evita que un "bytes":0 o un numero absurdo acaben en una
@@ -860,6 +879,8 @@ static void tarea_actualizar(void *arg)
     bool wdt_abierto = false;
     bool diferido = false;
     uint32_t escrito = 0;
+    bool ui_parada = false;        /* LVGL parado mientras se descarga (ver arriba) */
+    int siguiente_refresco = OTA_REFRESCO_PCT;
 
     /* Copia local de lo anunciado (ver el comentario de s_oferta). */
     uint32_t esperado;
@@ -990,6 +1011,8 @@ static void tarea_actualizar(void *arg)
     }
 
     fijar_progreso(0);
+    /* Ver OTA_REFRESCO_PCT. Si el port no deja pararla, se sigue como antes. */
+    if (lvgl_port_stop() == ESP_OK) ui_parada = true;
     for (;;) {
         int leido = esp_http_client_read(cli, (char *)buf, OTA_BUFFER);
         if (leido < 0) {
@@ -1013,8 +1036,21 @@ static void tarea_actualizar(void *arg)
         }
         mbedtls_sha256_update(&sha, buf, (size_t)leido);
         escrito += (uint32_t)leido;
-        fijar_progreso((int)(((uint64_t)escrito * 100u) / esperado));
+        const int pct = (int)(((uint64_t)escrito * 100u) / esperado);
+        fijar_progreso(pct);
+        /* Un cuadro cada 10 %: lo justo para ver que avanza sin devolverle a
+         * la red el rato que dura el repintado. */
+        if (ui_parada && pct >= siguiente_refresco) {
+            siguiente_refresco = (pct / OTA_REFRESCO_PCT + 1) * OTA_REFRESCO_PCT;
+            lvgl_port_resume();
+            vTaskDelay(pdMS_TO_TICKS(OTA_REFRESCO_MS));
+            lvgl_port_stop();
+        }
     }
+
+    /* Se acabo la red: la pantalla vuelve antes de verificar y validar, que es
+     * donde el usuario tiene que ver "comprobando" y, si falla, por que. */
+    if (ui_parada) { lvgl_port_resume(); ui_parada = false; }
 
     if (escrito != esperado) {
         snprintf(motivo, sizeof motivo, "Fichero corto (%" PRIu32 " de %" PRIu32 " bytes)",
@@ -1119,6 +1155,8 @@ static void tarea_actualizar(void *arg)
     esp_restart();
 
 salir:
+    /* La pantalla se devuelve SIEMPRE, salga bien o mal (ver OTA_REFRESCO_PCT). */
+    if (ui_parada) { lvgl_port_resume(); ui_parada = false; }
     /* El plazo del WDT se devuelve SIEMPRE, salga bien o mal. */
     if (wdt_abierto) ota_wdt_ventana(false);
     if (sha_iniciado) mbedtls_sha256_free(&sha);
