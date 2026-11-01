@@ -139,8 +139,8 @@ else
 fi
 
 echo "=== 9. mini_proto.h y el contrato, contra el repo de la P4 (si esta al lado) ==="
-if [ -f ../victron/main/net/mini_proto.h ]; then
-    diff -q main/net/mini_proto.h ../victron/main/net/mini_proto.h >/dev/null 2>&1 \
+if [ -f ../p4/main/net/mini_proto.h ]; then
+    diff -q main/net/mini_proto.h ../p4/main/net/mini_proto.h >/dev/null 2>&1 \
         && ok "mini_proto.h identico al de la P4" \
         || mal "mini_proto.h DISTINTO del de la P4 (se sincroniza a mano)"
     # Y con la 5", que desde el 13-oct-2026 tambien se comprueba en el CI (antes
@@ -150,11 +150,11 @@ if [ -f ../victron/main/net/mini_proto.h ]; then
             && ok "mini_proto.h identico al de la 5\"" \
             || mal "mini_proto.h DISTINTO del de la 5\" (se sincroniza a mano)"
     fi
-    if [ -x ../victron/test/protocolo_cabina.sh ]; then
-        if bash ../victron/test/protocolo_cabina.sh ../victron . >/dev/null 2>&1; then
+    if [ -x ../p4/test/protocolo_cabina.sh ]; then
+        if bash ../p4/test/protocolo_cabina.sh ../p4 . >/dev/null 2>&1; then
             ok "el contrato completo con la P4 pasa (ops, JSON, campos)"
         else
-            mal "el contrato con la P4 FALLA: corre 'bash ../victron/test/protocolo_cabina.sh ../victron .'"
+            mal "el contrato con la P4 FALLA: corre 'bash ../p4/test/protocolo_cabina.sh ../p4 .'"
         fi
     fi
 else
@@ -164,9 +164,9 @@ fi
 echo "=== 10. CUERPO_MAX tiene que caber en VIAJE_BODY_MAX ==="
 # Lo vigila el CI (job viaje_body_sync) pero es barato comprobarlo aqui tambien:
 # este repo es el unico que puede romper el limite subiendo CUERPO_MAX.
-if [ -f ../victron/main/portal/config_server_viaje.c ]; then
+if [ -f ../p4/main/portal/config_server_viaje.c ]; then
     cmax=$(grep -oE '#define +CUERPO_MAX +[0-9]+' main/net/viaje_cola.h | grep -oE '[0-9]+' | head -1)
-    vmax=$(grep -oE '#define +VIAJE_BODY_MAX +[0-9]+' ../victron/main/portal/config_server_viaje.c | grep -oE '[0-9]+' | head -1)
+    vmax=$(grep -oE '#define +VIAJE_BODY_MAX +[0-9]+' ../p4/main/portal/config_server_viaje.c | grep -oE '[0-9]+' | head -1)
     if [ -n "$cmax" ] && [ -n "$vmax" ]; then
         [ "$cmax" -lt "$vmax" ] && ok "CUERPO_MAX=$cmax < VIAJE_BODY_MAX=$vmax" \
             || mal "CUERPO_MAX=$cmax NO cabe en VIAJE_BODY_MAX=$vmax"

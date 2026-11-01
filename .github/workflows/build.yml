@@ -51,7 +51,7 @@ jobs:
           path: '.'
 
   # El contrato con la P4 y con la 3,5" (auditoria de comunicacion del
-  # 13-oct-2026): los jobs de victron y de 35cabina ya miran esta repo, pero si
+  # 13-oct-2026): los jobs de p4 y de 35cabina ya miran esta repo, pero si
   # el push toca SOLO cabina5 no se disparan -- y este es el repo que puede
   # romper el protocolo sin que nadie se entere hasta la placa.
   contrato:
@@ -68,11 +68,11 @@ jobs:
           repository: Ehuntabi/35cabina
           path: 35cabina
 
-      - name: Checkout victron
+      - name: Checkout p4
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: Ehuntabi/victron-jc1060p470c-esp32p4
-          path: victron
+          repository: Ehuntabi/p4
+          path: p4
 
       - name: mini_proto.h igual en los tres
         run: |
@@ -82,19 +82,19 @@ jobs:
           # deriva. Se reintenta trayendo la rama del vecino otra vez.
           for intento in 1 2 3 4; do
             if diff -q cabina5/main/net/mini_proto.h 35cabina/main/net/mini_proto.h >/dev/null &&
-               diff -q cabina5/main/net/mini_proto.h victron/main/net/mini_proto.h >/dev/null; then
+               diff -q cabina5/main/net/mini_proto.h p4/main/net/mini_proto.h >/dev/null; then
               echo "mini_proto.h igual en los tres"
               exit 0
             fi
             if [ "$intento" = 4 ]; then break; fi
             echo "--- intento $intento: alguno de los vecinos puede ir por detras; se reintenta en 45 s"
             sleep 45
-            for r in 35cabina victron; do
+            for r in 35cabina p4; do
               git -C "$r" fetch -q origin main && git -C "$r" reset -q --hard origin/main || true
             done
           done
           diff cabina5/main/net/mini_proto.h 35cabina/main/net/mini_proto.h || true
-          diff cabina5/main/net/mini_proto.h victron/main/net/mini_proto.h || true
+          diff cabina5/main/net/mini_proto.h p4/main/net/mini_proto.h || true
           echo "mini_proto.h se ha separado entre los proyectos"
           exit 1
 
@@ -102,7 +102,7 @@ jobs:
         run: |
           propio=$(grep -oP '#define\s+CUERPO_MAX\s+\K[0-9]+' cabina5/main/net/viaje_cola.h)
           otro=$(grep -oP '#define\s+CUERPO_MAX\s+\K[0-9]+' 35cabina/main/net/viaje_cola.h)
-          body=$(grep -oP '#define\s+VIAJE_BODY_MAX\s+\K[0-9]+' victron/main/portal/config_server_viaje.c)
+          body=$(grep -oP '#define\s+VIAJE_BODY_MAX\s+\K[0-9]+' p4/main/portal/config_server_viaje.c)
           echo "CUERPO_MAX cabina5=$propio 35cabina=$otro VIAJE_BODY_MAX=$body"
           [ -n "$propio" ] && [ -n "$otro" ] && [ -n "$body" ] || exit 1
           [ "$propio" = "$otro" ] || { echo "CUERPO_MAX distinto entre cabinas"; exit 1; }
@@ -239,7 +239,7 @@ jobs:
         run: bash cabina5/test/ota_version.sh
 
       - name: El contrato del canal de viaje, contra la P4
-        run: bash victron/test/protocolo_cabina.sh victron cabina5
+        run: bash p4/test/protocolo_cabina.sh p4 cabina5
 
       # ── GUARDAS DE LOS SCRIPTS DE PUBLICAR Y GRABAR (16-oct-2026) ──────────
       # El CI no graba ni publica (no hay placas ni secretos) y eso NO cambia: el

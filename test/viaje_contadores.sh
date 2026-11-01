@@ -20,23 +20,23 @@
 # udp_tx.c de la P4 el trozo que parte los contadores, de data_model.c de la
 # cabina el que los recompone, y se les pasan valores.
 #
-# Uso: bash test/viaje_contadores.sh [ruta del repo victron]
+# Uso: bash test/viaje_contadores.sh [ruta del repo p4]
 set -euo pipefail
 
 AQUI=$(cd "$(dirname "$0")" && pwd)
 
 # DONDE ESTA EL REPO DE LA P4. No vale una ruta fija: en el PC los tres repos son
-# hermanos (~/joint/victron), y en el CI depende de si el propio repo se bajo en
+# hermanos (~/joint/p4), y en el CI depende de si el propio repo se bajo en
 # la raiz del workspace (cabina5: <raiz>/35cabina/test) o en una subcarpeta
 # (35cabina: <raiz>/35cabina/35cabina/test). El 16-oct-2026 esto hizo fallar el
-# CI de la 3,5" con "no encuentro el repo victron" teniendolo al lado.
+# CI de la 3,5" con "no encuentro el repo p4" teniendolo al lado.
 VICT=""
-for c in "${1:-}" "$AQUI/../../victron" "$AQUI/../victron" "$PWD/victron" "$PWD/../victron"; do
+for c in "${1:-}" "$AQUI/../../p4" "$AQUI/../p4" "$PWD/p4" "$PWD/../p4"; do
     [ -n "$c" ] && [ -f "$c/main/net/udp_tx.c" ] && { VICT=$(cd "$c" && pwd); break; }
 done
 
 [ -n "$VICT" ] || {
-    echo "ERROR: no encuentro el repo victron (main/net/udp_tx.c). Pasalo como argumento."; exit 2; }
+    echo "ERROR: no encuentro el repo p4 (main/net/udp_tx.c). Pasalo como argumento."; exit 2; }
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT

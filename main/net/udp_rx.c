@@ -163,6 +163,31 @@ static char s_pass[65];
  */
 static SemaphoreHandle_t s_cred_mtx = NULL;
 
+/* ── LOS DOS NOMBRES DEL AP DE LA P4 (01-nov-2026) ─────────────────────────
+ *
+ * La P4 se llamaba "VictronConfig" y pasa a llamarse "P4Config" (el proyecto ya
+ * no se llama victron: eso es una parte de lo que lleva dentro). El nombre de
+ * fabrica lo cambia la P4, pero las cabinas se quedan con el suyo guardado en
+ * NVS y la app con el suyo apuntado: si la P4 se renombra y la cabina solo
+ * prueba un nombre, la cabina se queda SIN P4 -- ni telemetria, ni apuntes de
+ * viaje, ni OTA para arreglarlo. Y hay dos instaladas en la autocaravana.
+ *
+ * Asi que se prueban los dos, pero SOLO CON PRUEBAS: cuando el driver dice
+ * NO_AP_FOUND (la red no esta con ese nombre) ya se hace un escaneo para el log
+ * -- ver log_redes_visibles --, y si en ESE escaneo aparece el otro nombre se
+ * cambia a el y se reconecta. Nada de cambiar a ciegas cada pocos segundos: una
+ * cabina fuera de cobertura no puede llenar la tarjeta de lineas ni ponerse a
+ * buscar un nombre que no existe.
+ *
+ * El cambio es SOLO en RAM: el NVS no se toca, para no pisar el nombre que
+ * tecleo el usuario en Ajustes (al reiniciar se empieza otra vez por el suyo).
+ * Si el SSID guardado no es ninguno de los dos, no se toca nada.
+ *
+ * Se quita cuando las tres placas y la app esten actualizadas y la P4 ya
+ * anuncie el nombre nuevo desde hace tiempo. */
+#define WIFI_SSID_HOY              "VictronConfig"
+#define WIFI_SSID_NUEVO            "P4Config"
+
 #define CREDS_LOCK()   do { if (s_cred_mtx) (void)xSemaphoreTake(s_cred_mtx, portMAX_DELAY); } while (0)
 #define CREDS_UNLOCK() do { if (s_cred_mtx) xSemaphoreGive(s_cred_mtx); } while (0)
 
@@ -218,6 +243,10 @@ static void load_or_init_credentials(void)
     }
 }
 
+/* Ver WIFI_SSID_HOY: los dos nombres del AP de la P4. */
+static const char *wifi_otro_nombre(const char *ssid);
+static void wifi_pedir_otro_nombre(void);
+
 /* Lista las redes que ve la radio. Solo para diagnostico: cuando la P4 no
  * aparece, esto dice si el problema es que no esta emitiendo, que se llama de
  * otra forma o que su cifrado no pasa el filtro de wifi_configure_sta(). */
@@ -265,12 +294,21 @@ static void log_redes_visibles(void)
         char ssid_ahora[sizeof(s_ssid)];
         creds_copiar(ssid_ahora, sizeof(ssid_ahora), NULL, 0);
         ESP_LOGW(TAG, "Escaneo: %u redes visibles (busco '%s')", n, ssid_ahora);
+        /* ¿ESTA LA P4 CON EL OTRO NOMBRE? Ver WIFI_SSID_HOY: si el guardado no
+         * aparece pero el otro si, es que la han renombrado y hay que seguirlo. */
+        const char *otro = wifi_otro_nombre(ssid_ahora);
+        bool vi_el_otro = false;
         for (uint16_t i = 0; i < n; i++) {
-            ESP_LOGW(TAG, "  '%s'  canal=%d  rssi=%d  authmode=%d%s",
+            const bool es_esta = strcmp((const char *)aps[i].ssid, ssid_ahora) == 0;
+            const bool es_otro = otro && strcmp((const char *)aps[i].ssid, otro) == 0;
+            if (es_otro) vi_el_otro = true;
+            ESP_LOGW(TAG, "  '%s'  canal=%d  rssi=%d  authmode=%d%s%s",
                      (const char *)aps[i].ssid, aps[i].primary, aps[i].rssi,
                      aps[i].authmode,
-                     strcmp((const char *)aps[i].ssid, ssid_ahora) == 0 ? "   <-- ES ESTA" : "");
+                     es_esta ? "   <-- ES ESTA" : "",
+                     es_otro ? "   <-- ES LA P4 CON EL OTRO NOMBRE" : "");
         }
+        if (vi_el_otro) wifi_pedir_otro_nombre();
     }
     free(aps);
 }
@@ -310,7 +348,8 @@ static esp_err_t wifi_configure_sta(void)
      * de fabrica de la placa, hablaba otro protocolo, la configuracion del AP le
      * llegaba vacia y levantaba el suyo por defecto. Se arreglo actualizando el
      * firmware del C6 desde el propio 7" (Ajustes -> Wi-Fi -> Actualizar radio),
-     * y desde entonces el AP es "VictronConfig" con WPA2 de verdad.
+     * y desde entonces el AP es "VictronConfig" (hoy "P4Config") con WPA2 de
+     * verdad. Ver WIFI_SSID_HOY: aqui se aceptan los dos nombres.
      *
      * Por eso esto vuelve a WPA2_PSK: acepta el AP y rechaza redes abiertas o
      * WEP, que es de lo que protege. Si alguna vez reaparece el AP abierto, el
@@ -563,6 +602,35 @@ static void dhcp_timer_cb(void *arg)
     s_dhcp_espera_us = DHCP_REINTENTO_US;   /* la proxima vez, ventana corta */
     /* La tarea de recepcion espera esta bandera para abrir el socket. */
     xEventGroupSetBits(s_wifi_events, WIFI_BIT_GOT_IP);
+}
+
+/* El otro nombre del AP de la P4, o NULL si el SSID que hay no es ninguno de
+ * los dos (entonces lo tecleo el usuario y no se toca). */
+static const char *wifi_otro_nombre(const char *ssid)
+{
+    if (strcmp(ssid, WIFI_SSID_HOY)   == 0) return WIFI_SSID_NUEVO;
+    if (strcmp(ssid, WIFI_SSID_NUEVO) == 0) return WIFI_SSID_HOY;
+    return NULL;
+}
+
+/* Deja PEDIDO el cambio al otro nombre (lo aplica wifi_aplicar_task, que es la
+ * unica que puede hablar con el driver sin bloquear a nadie). */
+static void wifi_pedir_otro_nombre(void)
+{
+    char ssid[sizeof(s_ssid)], pass[sizeof(s_pass)];
+    creds_copiar(ssid, sizeof(ssid), pass, sizeof(pass));
+    const char *otro = wifi_otro_nombre(ssid);
+    if (!otro) return;
+    if (!s_aplicar_task) {
+        ESP_LOGW(TAG, "'%s' no aparece y no hay tarea que aplique el cambio a '%s'",
+                 ssid, otro);
+        return;
+    }
+    ESP_LOGW(TAG, "la P4 no aparece como '%s': pruebo con '%s' (los dos nombres "
+                  "del AP; el NVS no se toca)", ssid, otro);
+    creds_guardar(otro, pass);
+    s_aplicar_pendiente = true;
+    xTaskNotifyGive(s_aplicar_task);
 }
 
 static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data)
