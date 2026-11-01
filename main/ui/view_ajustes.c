@@ -502,18 +502,33 @@ static void ota_timer_cb(lv_timer_t *t)
             break;
         }
 
-        case OTA_RX_DESCARGANDO:
-            /* La automatica avisa de donde viene: el dueño subio el .bin desde
-             * el movil y no ha tocado la pantalla, asi que el cartel se lo
-             * cuenta sin pedirle que confirme nada. */
-            if (v.automatica) {
-                lv_label_set_text_fmt(s_ota_lbl,
-                    "Actualizacion recibida de la P4: descargando... %d %%", v.pct);
-            } else {
-                lv_label_set_text_fmt(s_ota_lbl, "Descargando... %d %%", v.pct);
+        case OTA_RX_DESCARGANDO: {
+            /* PINTAR POCO, Y SOLO LO QUE CAMBIA (29-oct-2026). Esto repintaba el
+             * cartel cada 500 ms con un numero distinto, y ademas le ponia el
+             * color en cada vuelta (lv_obj_set_style_text_color invalida
+             * SIEMPRE). Mientras se escribe la flash, cada borrado de sector
+             * deja la cache y el refresco de la pantalla a medias, asi que cada
+             * repintado es una ocasion de ver la pantalla a trozos o con restos:
+             * el usuario lo describio como "cosas aleatorias intermitentes".
+             *
+             * Ahora se repinta al 10 % (10 veces en toda la descarga en vez de
+             * ~100), el texto lleva el numero a ancho fijo para que no se
+             * recoloque, y el color se pone una sola vez al entrar. */
+            static int s_pct_paso = -1;
+            int paso = v.pct / 10;
+            if (paso != s_pct_paso) {
+                s_pct_paso = paso;
+                char txt[80];
+                snprintf(txt, sizeof(txt),
+                         v.automatica
+                             ? "Actualizacion recibida de la P4: descargando... %3d %%"
+                             : "Descargando... %3d %%",
+                         v.pct);
+                lv_label_set_text(s_ota_lbl, txt);
+                lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_YELLOW, 0);
             }
-            lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_YELLOW, 0);
             break;
+        }
 
         case OTA_RX_LISTO:
             lv_label_set_text(s_ota_lbl, "Listo, reiniciando");
