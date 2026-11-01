@@ -600,7 +600,6 @@ static void reconnect_timer_cb(void *arg)
         esp_timer_start_once(s_reconnect_timer, 1000 * 1000);
         return;
     }
-    if (s_escaneando) return;   /* ventana minima: se ha pedido el escaneo aqui mismo */
     esp_err_t e = esp_wifi_connect();
     if (e == ESP_OK) { s_reintento_ms = 1000; return; }
     /* ESP_ERR_WIFI_CONN NO significa "ya esta conectada": es un error interno
