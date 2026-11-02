@@ -90,6 +90,12 @@ esp_err_t load_portal_creds(char *user_out, size_t *user_len,
                             char *pass_out, size_t *pass_len);
 esp_err_t save_portal_creds(const char *user, const char *pass);
 
+/* Canal del AP de la P4 que funciono la ultima vez (ver config_storage.c).
+ * Sirve para asociarse sin escanear los 13 canales (~1,5 s menos). 0 o
+ * ESP_ERR_NOT_FOUND = "no hay apuntado, escanea normal". */
+esp_err_t save_wifi_canal(uint8_t canal);
+esp_err_t load_wifi_canal(uint8_t *canal_out);
+
 /* ── Token de esta pantalla para el 'forzar' de la P4 (tanda 2, 20-oct-2026) ─
  *
  * La P4 solo deja que una pantalla cierre o aparte el viaje que quiza esta
