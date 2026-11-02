@@ -50,6 +50,7 @@ static const char *TAG = "bsp";
 
 /* Contador para el informe de refrescos/s (diagnostico). */
 static volatile uint32_t s_refrescos = 0;
+static volatile uint32_t s_px_refrescados = 0;   /* suma de areas volcadas (ver el flush) */
 static volatile uint32_t s_vsyncs = 0;
 /* El bus I2C es compartido con lo que se cuelgue despues (acelerometro, etc.).
  * Se crea una sola vez. */
@@ -573,6 +574,12 @@ static void bsp_lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t
 #endif
     lv_display_flush_ready(disp);
     s_refrescos++;
+    /* CUANTO se refresca, no solo cuantas veces (02-nov-2026). 22 refrescos/s en
+     * reposo no dicen nada por si solos: si son trozos de 20x20 no cuestan casi
+     * nada y si son de 800x60 son media pantalla cada vez. Con los pixeles se
+     * compara de verdad y se ve si el repintado se esta comiendo la CPU que
+     * necesita la red (la 5" tarda 1,9 s en asociarse y la 3,5" 0,18 s). */
+    s_px_refrescados += (uint32_t)lv_area_get_width(area) * (uint32_t)lv_area_get_height(area);
 }
 
 /* DIAGNOSTICO: refrescos por segundo. Sirve para comparar configuraciones (con
@@ -630,10 +637,16 @@ static void bsp_display_fps_cb(lv_timer_t *t)
 
     if (t0 == 0) t0 = ahora;
     if (ahora - t0 >= 2000) {
-        ESP_LOGI(TAG, "refrescos LVGL: %.1f/s | barrido del panel: %.1f Hz | heap interno %u KB",
+        /* Los pixeles en "pantallas por segundo": 800x480 = 384000 px. Asi el
+         * numero se lee de un vistazo (0,2 = se repinta un 20% de la pantalla
+         * cada segundo; 3,0 = tres pantallas enteras por segundo). */
+        const double px_s = s_px_refrescados * 1000.0 / (ahora - t0);
+        ESP_LOGI(TAG, "refrescos LVGL: %.1f/s | %.1f pantallas/s | barrido %.1f Hz | heap interno %u KB",
                  s_refrescos * 1000.0 / (ahora - t0),
+                 px_s / (double)(LCD_H_RES * LCD_V_RES),
                  s_vsyncs * 1000.0 / (ahora - t0),
                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+        s_px_refrescados = 0;
         s_refrescos = 0;
         s_vsyncs = 0;
         t0 = ahora;
