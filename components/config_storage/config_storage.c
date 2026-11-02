@@ -659,39 +659,6 @@ esp_err_t load_wifi_config(char *ssid_out, size_t *ssid_len,
     return err;
 }
 
-/* ── CANAL DEL AP DE LA P4, apuntado para entrar sin escanear (02-nov-2026) ──
- *
- * Medido en la 5": desde "radio lista" hasta "asociado" pasan 1,9 s, y el
- * escaneo inicial de los 13 canales es casi todo ese tiempo. El AP de la P4
- * esta siempre en el mismo canal, asi que se apunta el canal que uso la ultima
- * vez y se le pasa al driver: entonces NO escanea todos, va directo.
- *
- * Si el canal cambia (o la P4 no esta), el primer intento falla y udp_rx.c tira
- * de escaneo normal: el precio de equivocarse es un intento perdido, no
- * quedarse sin red. Se guarda en la misma NVS "wifi" que el SSID y la clave. */
-esp_err_t save_wifi_canal(uint8_t canal)
-{
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(WIFI_NAMESPACE, NVS_READWRITE, &h);
-    if (err != ESP_OK) return err;
-    err = nvs_set_u8(h, "canal", canal);
-    if (err == ESP_OK) err = nvs_commit(h);
-    nvs_close(h);
-    return err;
-}
-
-/* Devuelve ESP_ERR_NOT_FOUND si no hay canal apuntado (arranque de fabrica). */
-esp_err_t load_wifi_canal(uint8_t *canal_out)
-{
-    if (!canal_out) return ESP_ERR_INVALID_ARG;
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(WIFI_NAMESPACE, NVS_READONLY, &h);
-    if (err != ESP_OK) return err;
-    err = nvs_get_u8(h, "canal", canal_out);
-    nvs_close(h);
-    return err;
-}
-
 esp_err_t save_wifi_config(const char *ssid, const char *pass)
 {
     if (!ssid || !pass) return ESP_ERR_INVALID_ARG;

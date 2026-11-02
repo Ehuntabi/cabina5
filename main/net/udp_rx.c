@@ -146,21 +146,6 @@ static _Atomic bool s_ip_fija = false;
 static char s_ssid[33];
 static char s_pass[65];
 
-/* ── CANAL DEL AP DE LA P4 (02-nov-2026) ───────────────────────────────────
- *
- * Medido: desde "radio lista" hasta "asociado", la 5" tarda 1,9 s y la 3,5"
- * 0,18 s. Casi todo ese tiempo es el ESCANEO de los 13 canales que hace el
- * driver antes de asociarse. El AP de la P4 no cambia de canal, asi que se
- * apunta el que funciono y se le pasa al driver: va directo y no barre la
- * banda (wc.sta.channel, 0 = escanear).
- *
- * Si el canal ya no es ese (la P4 cambio de canal, o no esta), el intento da
- * NO_AP_FOUND y se tira el apunte en RAM: el siguiente escanea normal. El
- * precio de equivocarse es un intento perdido (~0,5 s), no quedarse sin red.
- * El apunte se refresca solo en la siguiente asociacion que funcione. */
-static uint8_t s_canal_ap = 0;      /* 0 = sin apunte: escanear como siempre */
-static volatile bool s_canal_guardar = false;
-
 /* ── CERROJO DE LAS CREDENCIALES (17-oct-2026) ──────────────────────────────
  *
  * s_ssid/s_pass los ESCRIBE la tarea de la UI al guardar en Ajustes y los LEE
@@ -256,11 +241,6 @@ static void load_or_init_credentials(void)
         s_pass[sizeof(s_pass) - 1] = '\0';
         save_wifi_config(s_ssid, s_pass);
     }
-
-    /* El canal que funciono la ultima vez (ver s_canal_ap). */
-    uint8_t canal = 0;
-    s_canal_ap = (load_wifi_canal(&canal) == ESP_OK && canal >= 1 && canal <= 14)
-                 ? canal : 0;
 }
 
 /* Ver WIFI_SSID_HOY: los dos nombres del AP de la P4. */
@@ -387,8 +367,6 @@ static esp_err_t wifi_configure_sta(void)
      * WEP, que es de lo que protege. Si alguna vez reaparece el AP abierto, el
      * problema esta en el C6, NO aqui: no bajar esto sin mirar antes el log del
      * 7" ("AP en la radio: ssid=... authmode=..."). */
-    /* Canal apuntado: asociarse sin escanear los 13 (ver s_canal_ap). */
-    wc.sta.channel = s_canal_ap;
     wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     wc.sta.pmf_cfg.required = false;
     /* EL RETORNO SE MIRA (16-oct-2026): es lo unico que dice si el driver ha
@@ -401,8 +379,7 @@ static esp_err_t wifi_configure_sta(void)
     if (e != ESP_OK)
         ESP_LOGW(TAG, "esp_wifi_set_config no acepta el cambio ahora mismo: %s",
                  esp_err_to_name(e));
-    ESP_LOGI(TAG, "AP SSID='%s'%s", ssid,
-             s_canal_ap ? " (sin escanear: canal apuntado)" : "");
+    ESP_LOGI(TAG, "AP SSID='%s'", ssid);
     return e;
 }
 
@@ -555,12 +532,6 @@ static void wifi_aplicar_task(void *arg)
                 esp_timer_start_once(s_reconnect_timer, RECONNECT_DELAY_US);
             }
             continue;
-        }
-        if (s_canal_guardar) {
-            s_canal_guardar = false;
-            if (save_wifi_canal(s_canal_ap) == ESP_OK)
-                ESP_LOGI(TAG, "canal del AP %u apuntado: el proximo arranque "
-                              "entra sin escanear", (unsigned)s_canal_ap);
         }
         if (s_ssid_guardar) {
             s_ssid_guardar = false;
@@ -826,19 +797,6 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
                 char ssid_ahora[sizeof(s_ssid)];
                 creds_copiar(ssid_ahora, sizeof(ssid_ahora), NULL, 0);
                 ESP_LOGI(TAG, "Asociado a %s", ssid_ahora);
-                /* Canal real de la P4 (ver s_canal_ap): se apunta para el
-                 * proximo arranque. Se guarda en NVS desde wifi_aplicar_task,
-                 * no aqui (esto corre en la tarea de eventos del sistema). */
-                {
-                    const wifi_event_sta_connected_t *cx =
-                        (const wifi_event_sta_connected_t *)data;
-                    if (cx && cx->channel >= 1 && cx->channel <= 14 &&
-                        cx->channel != s_canal_ap) {
-                        s_canal_ap = cx->channel;
-                        s_canal_guardar = true;
-                        if (s_aplicar_task) xTaskNotifyGive(s_aplicar_task);
-                    }
-                }
                 /* La senal se mide AQUI, en la tarea de eventos del Wi-Fi, y se
                  * guarda: la pantalla solo lee el numero guardado. Antes se
                  * media en la tarea de recepcion (que necesita un paquete) y por
@@ -894,19 +852,6 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
                  * EL ESCANEO NO SE HACE AQUI (ver el comentario del backoff):
                  * bloquea ~2 s y esto corre en la tarea de eventos del sistema.
                  * Se PIDE y lo hace wifi_aplicar_task. */
-                /* Si estabamos yendo a un canal apuntado y no hay AP ahi, el
-                 * apunte esta mal: se tira (en RAM) y el siguiente intento
-                 * escanea como siempre (ver s_canal_ap). */
-                if (d && d->reason == WIFI_REASON_NO_AP_FOUND && s_canal_ap) {
-                    ESP_LOGW(TAG, "no hay AP en el canal %u apuntado: vuelvo a "
-                                  "escanear todos", (unsigned)s_canal_ap);
-                    s_canal_ap = 0;
-                    /* El driver hay que reconfigurarlo, y eso NO se hace aqui:
-                     * esto corre en la tarea de eventos del sistema. Se pide a
-                     * wifi_aplicar_task, que es la que habla con el driver. */
-                    s_aplicar_pendiente = true;
-                    if (s_aplicar_task) xTaskNotifyGive(s_aplicar_task);
-                }
                 if (d && (d->reason == WIFI_REASON_NO_AP_FOUND ||
                           d->reason == WIFI_REASON_AUTH_FAIL ||
                           d->reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT)) {
