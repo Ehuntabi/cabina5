@@ -146,10 +146,32 @@ void nav_ir_a_sin_cerrar(void)
     view_registro_abrir_sin_cerrar();
 }
 
+/* ── LA PANTALLA NO SE PUEDE DESLIZAR (02-nov-2026) ────────────────────────
+ *
+ * El dueno, despues de la OTA de la v1.56: "la ultima actualizacion ha dejado la
+ * pantalla descuadrada", con una foto en la que el Overview salia cortado por
+ * los cuatro lados (MOTOR -> "OTOR", TEMPERATURAS cortada, la pestana BATERIA
+ * por debajo del borde).
+ *
+ * NO era ni la actualizacion ni el dibujado: era que un `lv_obj_create(NULL)`
+ * NACE CON LV_OBJ_FLAG_SCROLLABLE, asi que un roce (o el propio carrusel)
+ * desplazaba el lienzo entero -- horizontal Y verticalmente -- y ahi se quedaba
+ * hasta reiniciar. En 800x480 un desplazamiento de 30-60 px corta los bordes y
+ * todo se ve "descuadrado".
+ *
+ * Ya se hacia en el splash (main_app.c) y en el carrusel de capturas; faltaba en
+ * las cuatro pantallas de aqui, que son las que se ven siempre. Se quita el flag
+ * al crearlas. Las capturas y los marcos SI necesitan scroll: se les pone
+ * despues, en su propio objeto, no aqui.
+ *
+ * De paso arregla algo que ya estaba documentado en gesture_cb: con la pantalla
+ * desplazable, el deslizamiento podia consumirse como scroll y el gesto de
+ * cambio de cromo no llegaba. */
 void nav_init(void)
 {
     for (int i = 0; i < NAV_COUNT; i++) {
         s_screens[i] = lv_obj_create(NULL);
+        lv_obj_clear_flag(s_screens[i], LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_event_cb(s_screens[i], gesture_cb, LV_EVENT_GESTURE, NULL);
     }
 
@@ -158,6 +180,7 @@ void nav_init(void)
     view_registro_create(s_screens[NAV_REGISTRO]);
 
     s_ajustes_screen = lv_obj_create(NULL);
+    lv_obj_clear_flag(s_ajustes_screen, LV_OBJ_FLAG_SCROLLABLE);
     view_ajustes_create(s_ajustes_screen);
 
     lv_scr_load(s_screens[NAV_INFO]);
