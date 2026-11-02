@@ -422,6 +422,20 @@ static volatile bool s_escaneando = false;
 /* Espera del reintento de conexion, que se dobla en cada fallo seguido hasta 8 s
  * (ver reconnect_timer_cb). Se vuelve a 1 s en cuanto el driver acepta. */
 static int s_reintento_ms = 1000;
+/* NOMBRE DEL AP QUE HAY QUE GUARDAR (02-nov-2026). Cuando el cambio al otro
+ * nombre lo pide el escaneo, el cambio se hace en RAM a proposito (para no
+ * pisar lo que teclee el usuario). Pero entonces, en CADA arranque en frio, la
+ * cabina vuelve a buscar: probar el nombre viejo -> no esta -> escanear (y el
+ * escaneo se espacia hasta 5 min) -> cambiar. En la autocaravana eso son
+ * minutos sin telemetria cada vez que se da el contacto, porque la P4 tarda
+ * ~13 s en levantar su AP y las cabinas estan despiertas antes.
+ *
+ * Por eso, en cuanto el nombre nuevo CONSIGUE IP, se apunta en NVS: a partir de
+ * ahi entra a la primera. Solo se guarda lo que ha funcionado (si el otro
+ * nombre no llega a conectar, no se guarda nada) y se hace desde
+ * wifi_aplicar_task, no desde el manejador de eventos. */
+static volatile bool s_ssid_nuevo_pendiente = false;   /* el que se probo por el escaneo */
+static volatile bool s_ssid_guardar = false;           /* ha conectado: apuntalo */
 
 static void wifi_aplicar_ahora(void)
 {
@@ -518,6 +532,19 @@ static void wifi_aplicar_task(void *arg)
                 esp_timer_start_once(s_reconnect_timer, RECONNECT_DELAY_US);
             }
             continue;
+        }
+        if (s_ssid_guardar) {
+            s_ssid_guardar = false;
+            char ssid[sizeof(s_ssid)], pass[sizeof(s_pass)];
+            creds_copiar(ssid, sizeof(ssid), pass, sizeof(pass));
+            if (save_wifi_config(ssid, pass) == ESP_OK) {
+                s_ssid_nuevo_pendiente = false;
+                ESP_LOGW(TAG, "el nombre del AP '%s' queda guardado: en el proximo "
+                              "arranque entra a la primera", ssid);
+            } else {
+                ESP_LOGW(TAG, "no he podido guardar el nombre '%s' (NVS): se seguira "
+                              "descubriendo en cada arranque", ssid);
+            }
         }
         if (!s_aplicar_pendiente) continue;
         s_aplicar_pendiente = false;   /* la peticion se coge AHORA */
@@ -750,7 +777,8 @@ static void wifi_pedir_otro_nombre(const char *observado)
     CREDS_UNLOCK();
     if (ahora[0] == '\0') return;
     ESP_LOGW(TAG, "la P4 no aparece como '%s': pruebo con '%s' (los dos nombres "
-                  "del AP; el NVS no se toca)", antes, ahora);
+                  "del AP; si entra, se guarda)", antes, ahora);
+    s_ssid_nuevo_pendiente = true;
     s_aplicar_pendiente = true;
     xTaskNotifyGive(s_aplicar_task);
 }
@@ -855,6 +883,11 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
         s_ip_fija = false;                     /* IP del DHCP: lo normal */
         s_dhcp_espera_us = DHCP_TIMEOUT_US;    /* y la ventana, la de siempre */
         esp_timer_stop(s_dhcp_timer);          /* ya tenemos IP: no hay nada que vigilar */
+        /* Ha entrado con el nombre que se descubrio: ahora si, se apunta. */
+        if (s_ssid_nuevo_pendiente && s_aplicar_task) {
+            s_ssid_guardar = true;
+            xTaskNotifyGive(s_aplicar_task);
+        }
         xEventGroupSetBits(s_wifi_events, WIFI_BIT_GOT_IP);
     }
 }
