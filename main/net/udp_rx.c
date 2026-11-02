@@ -179,9 +179,14 @@ static SemaphoreHandle_t s_cred_mtx = NULL;
  * cabina fuera de cobertura no puede llenar la tarjeta de lineas ni ponerse a
  * buscar un nombre que no existe.
  *
- * El cambio es SOLO en RAM: el NVS no se toca, para no pisar el nombre que
- * tecleo el usuario en Ajustes (al reiniciar se empieza otra vez por el suyo).
- * Si el SSID guardado no es ninguno de los dos, no se toca nada.
+ * El cambio de nombre se hace en RAM y, cuando CONSIGUE IP, se apunta en NVS
+ * (s_ssid_guardar): asi el proximo arranque entra a la primera en vez de volver
+ * a descubrirlo. Solo se guarda lo que ha funcionado. Si el SSID guardado no es
+ * ninguno de los dos nombres, no se toca nada.
+ *
+ * Un guardado del usuario en Ajustes manda siempre: wifi_pedir_otro_nombre()
+ * comprueba bajo el cerrojo que s_ssid sigue siendo el que se vio en el escaneo,
+ * y udp_rx_set_credentials() limpia el "pendiente" para que no se le pise.
  *
  * Se quita cuando las tres placas y la app esten actualizadas y la P4 ya
  * anuncie el nombre nuevo desde hace tiempo. */
@@ -422,6 +427,10 @@ static volatile bool s_escaneando = false;
 /* Espera del reintento de conexion, que se dobla en cada fallo seguido hasta 8 s
  * (ver reconnect_timer_cb). Se vuelve a 1 s en cuanto el driver acepta. */
 static int s_reintento_ms = 1000;
+/* SSID con el que se asocio DE VERDAD: es el que se guarda (no el que haya en
+ * s_ssid cuando despierte la tarea, que podria haber cambiado entretanto). */
+static char s_ssid_asociado[33];
+
 /* NOMBRE DEL AP QUE HAY QUE GUARDAR (02-nov-2026). Cuando el cambio al otro
  * nombre lo pide el escaneo, el cambio se hace en RAM a proposito (para no
  * pisar lo que teclee el usuario). Pero entonces, en CADA arranque en frio, la
@@ -535,9 +544,14 @@ static void wifi_aplicar_task(void *arg)
         }
         if (s_ssid_guardar) {
             s_ssid_guardar = false;
-            char ssid[sizeof(s_ssid)], pass[sizeof(s_pass)];
-            creds_copiar(ssid, sizeof(ssid), pass, sizeof(pass));
-            if (save_wifi_config(ssid, pass) == ESP_OK) {
+            /* La clave que hay AHORA (la del usuario, si la cambio) y el SSID
+             * con el que se asocio de verdad. Bajo el cerrojo, los dos. */
+            char pass[sizeof(s_pass)];
+            creds_copiar(NULL, 0, pass, sizeof(pass));
+            char ssid[sizeof(s_ssid)];
+            strncpy(ssid, s_ssid_asociado, sizeof(ssid) - 1);
+            ssid[sizeof(ssid) - 1] = '\0';
+            if (ssid[0] && save_wifi_config(ssid, pass) == ESP_OK) {
                 s_ssid_nuevo_pendiente = false;
                 ESP_LOGW(TAG, "el nombre del AP '%s' queda guardado: en el proximo "
                               "arranque entra a la primera", ssid);
@@ -568,6 +582,10 @@ bool udp_rx_set_credentials(const char *ssid, const char *pass)
      * dejar en memoria: los argumentos de quien llama, no una relectura de los
      * globales que otra tarea podria estar cambiando. */
     creds_guardar(ssid, pass);
+    /* Lo que teclea el usuario manda: si habia un nombre de AP descubierto
+     * esperando para guardarse, ya no tiene sentido (ver s_ssid_guardar). */
+    s_ssid_nuevo_pendiente = false;
+    s_ssid_guardar = false;
 
     /* LOS ARGUMENTOS, no los globales (revision independiente del 01-nov-2026):
      * esto leia s_ssid/s_pass fuera del cerrojo, y desde que hay un segundo
@@ -736,6 +754,13 @@ static void dhcp_timer_cb(void *arg)
     s_dhcp_espera_us = DHCP_REINTENTO_US;   /* la proxima vez, ventana corta */
     /* La tarea de recepcion espera esta bandera para abrir el socket. */
     xEventGroupSetBits(s_wifi_events, WIFI_BIT_GOT_IP);
+    /* Y el nombre descubierto tambien se apunta por aqui (02-nov-2026): con IP
+     * fija NO llega IP_EVENT_STA_GOT_IP, y sin esto el proximo arranque volvia
+     * a escanear aunque hubiera funcionado. */
+    if (s_ssid_nuevo_pendiente && s_aplicar_task) {
+        s_ssid_guardar = true;
+        xTaskNotifyGive(s_aplicar_task);
+    }
 }
 
 /* El otro nombre del AP de la P4, o NULL si el SSID que hay no es ninguno de
@@ -797,6 +822,23 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
                 char ssid_ahora[sizeof(s_ssid)];
                 creds_copiar(ssid_ahora, sizeof(ssid_ahora), NULL, 0);
                 ESP_LOGI(TAG, "Asociado a %s", ssid_ahora);
+                /* Apuntar el SSID con el que se asocio DE VERDAD: es el que se
+                 * guardara cuando haya IP (ver s_ssid_asociado). */
+                {
+                    char ap_ssid[33] = {0};
+                    wifi_ap_record_t rec;
+                    if (esp_wifi_sta_get_ap_info(&rec) == ESP_OK) {
+                        snprintf(ap_ssid, sizeof(ap_ssid), "%s",
+                                 (const char *)rec.ssid);
+                    }
+                    if (ap_ssid[0]) {
+                        strncpy(s_ssid_asociado, ap_ssid, sizeof(s_ssid_asociado) - 1);
+                        s_ssid_asociado[sizeof(s_ssid_asociado) - 1] = '\0';
+                    } else {
+                        strncpy(s_ssid_asociado, ssid_ahora, sizeof(s_ssid_asociado) - 1);
+                        s_ssid_asociado[sizeof(s_ssid_asociado) - 1] = '\0';
+                    }
+                }
                 /* La senal se mide AQUI, en la tarea de eventos del Wi-Fi, y se
                  * guarda: la pantalla solo lee el numero guardado. Antes se
                  * media en la tarea de recepcion (que necesita un paquete) y por

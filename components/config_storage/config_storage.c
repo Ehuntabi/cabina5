@@ -4,6 +4,7 @@
 #include "esp_mac.h"   /* esp_read_mac: la MAC de esta pantalla va en el id */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>   /* malloc/free: leer un blob mas largo que la struct */
@@ -659,6 +660,36 @@ esp_err_t load_wifi_config(char *ssid_out, size_t *ssid_len,
     return err;
 }
 
+/* ── CERROJO DE ESCRITURA (02-nov-2026, revision independiente) ─────────────
+ *
+ * save_wifi_config escribe SSID, clave y commit en tres llamadas. Hasta ahora
+ * solo la llamaba la tarea de LVGL (al guardar en Ajustes), pero desde que la
+ * cabina apunta sola el nombre del AP que funciona (udp_rx.c) hay DOS tareas
+ * escribiendo: si se cruzan, en la NVS puede quedar la pareja mezclada (SSID de
+ * una y clave de otra) y la pantalla se queda sin P4 al arrancar. Un mutex
+ * alrededor de las tres llamadas lo cierra; es barato y solo se coge al guardar
+ * (no en cada lectura). */
+static SemaphoreHandle_t s_wifi_nvs_mtx = NULL;
+
+static void wifi_nvs_lock(void)
+{
+    if (!s_wifi_nvs_mtx) {
+        /* Se crea la primera vez. Si dos tareas llegan a la vez en el arranque,
+         * el propio xSemaphoreCreateMutex no es reentrante pero tampoco hay
+         * escrituras tan temprano; aun asi se crea con cuidado. */
+        SemaphoreHandle_t m = xSemaphoreCreateMutex();
+        if (!m) return;
+        if (!s_wifi_nvs_mtx) s_wifi_nvs_mtx = m;
+        else vSemaphoreDelete(m);
+    }
+    xSemaphoreTake(s_wifi_nvs_mtx, portMAX_DELAY);
+}
+
+static void wifi_nvs_unlock(void)
+{
+    if (s_wifi_nvs_mtx) xSemaphoreGive(s_wifi_nvs_mtx);
+}
+
 esp_err_t save_wifi_config(const char *ssid, const char *pass)
 {
     if (!ssid || !pass) return ESP_ERR_INVALID_ARG;
@@ -676,14 +707,18 @@ esp_err_t save_wifi_config(const char *ssid, const char *pass)
      * sitio y por la misma razon que el SSID vacio. */
     if (strlen(pass) < 8) return ESP_ERR_INVALID_ARG;
 
+    /* LAS TRES A LA VEZ, bajo el cerrojo (ver s_wifi_nvs_mtx): si dos tareas
+     * guardan a la vez, la NVS se queda con una pareja mezclada. */
+    wifi_nvs_lock();
     nvs_handle_t h;
     esp_err_t err = nvs_open(WIFI_NAMESPACE, NVS_READWRITE, &h);
-    if (err != ESP_OK) return err;
-
-    err = nvs_set_str(h, WIFI_SSID_KEY, ssid);
-    if (err == ESP_OK) err = nvs_set_str(h, WIFI_PASS_KEY, pass);
-    if (err == ESP_OK) err = nvs_commit(h);
-    nvs_close(h);
+    if (err == ESP_OK) {
+        err = nvs_set_str(h, WIFI_SSID_KEY, ssid);
+        if (err == ESP_OK) err = nvs_set_str(h, WIFI_PASS_KEY, pass);
+        if (err == ESP_OK) err = nvs_commit(h);
+        nvs_close(h);
+    }
+    wifi_nvs_unlock();
     return err;
 }
 
