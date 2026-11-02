@@ -671,18 +671,20 @@ esp_err_t load_wifi_config(char *ssid_out, size_t *ssid_len,
  * (no en cada lectura). */
 static SemaphoreHandle_t s_wifi_nvs_mtx = NULL;
 
+/* Se crea UNA vez, desde config_storage_init() (arranque, una sola tarea).
+ * Revision independiente del 02-nov-2026: antes se creaba al primer guardado con
+ * doble comprobacion, y dos tareas podian crear dos mutex y quedarse cada una con
+ * uno distinto justo en el primer guardado concurrente, que es el que hay que
+ * proteger. */
+void config_storage_nvs_lock_init(void)
+{
+    if (!s_wifi_nvs_mtx) s_wifi_nvs_mtx = xSemaphoreCreateMutex();
+}
+
 static void wifi_nvs_lock(void)
 {
-    if (!s_wifi_nvs_mtx) {
-        /* Se crea la primera vez. Si dos tareas llegan a la vez en el arranque,
-         * el propio xSemaphoreCreateMutex no es reentrante pero tampoco hay
-         * escrituras tan temprano; aun asi se crea con cuidado. */
-        SemaphoreHandle_t m = xSemaphoreCreateMutex();
-        if (!m) return;
-        if (!s_wifi_nvs_mtx) s_wifi_nvs_mtx = m;
-        else vSemaphoreDelete(m);
-    }
-    xSemaphoreTake(s_wifi_nvs_mtx, portMAX_DELAY);
+    if (!s_wifi_nvs_mtx) config_storage_nvs_lock_init();
+    if (s_wifi_nvs_mtx) xSemaphoreTake(s_wifi_nvs_mtx, portMAX_DELAY);
 }
 
 static void wifi_nvs_unlock(void)

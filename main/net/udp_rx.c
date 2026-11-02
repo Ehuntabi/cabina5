@@ -831,12 +831,15 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
                         snprintf(ap_ssid, sizeof(ap_ssid), "%s",
                                  (const char *)rec.ssid);
                     }
+                    /* Solo se apunta el SSID que el AP DICE que es. Si la
+                     * consulta falla no se guarda nada: mejor no apuntar un
+                     * nombre que no sabemos si es el que ha funcionado
+                     * (revision independiente del 02-nov-2026). */
                     if (ap_ssid[0]) {
                         strncpy(s_ssid_asociado, ap_ssid, sizeof(s_ssid_asociado) - 1);
                         s_ssid_asociado[sizeof(s_ssid_asociado) - 1] = '\0';
                     } else {
-                        strncpy(s_ssid_asociado, ssid_ahora, sizeof(s_ssid_asociado) - 1);
-                        s_ssid_asociado[sizeof(s_ssid_asociado) - 1] = '\0';
+                        s_ssid_asociado[0] = '\0';
                     }
                 }
                 /* La senal se mide AQUI, en la tarea de eventos del Wi-Fi, y se
@@ -1210,6 +1213,11 @@ static void rx_task(void *arg)
 
 void udp_rx_start(void)
 {
+    /* El cerrojo de escritura de la NVS del Wi-Fi se crea AQUI, en el arranque y
+     * antes de que haya tareas guardando (revision independiente del
+     * 02-nov-2026): crearlo al primer uso con doble comprobacion podia dejar dos
+     * mutex distintos justo en el primer guardado concurrente. */
+    config_storage_nvs_lock_init();
     load_or_init_credentials();
 
     ESP_ERROR_CHECK(esp_netif_init());

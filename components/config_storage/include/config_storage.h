@@ -27,6 +27,10 @@ esp_err_t save_brillo_min(uint8_t pct);
 // al volver, *ssid_len/*pass_len quedan con la longitud real (con \0).
 esp_err_t load_wifi_config(char *ssid_out, size_t *ssid_len,
                            char *pass_out, size_t *pass_len);
+/* Crea el cerrojo de escritura de la NVS del Wi-Fi (una vez, en el arranque).
+ * Ver config_storage.c. */
+void config_storage_nvs_lock_init(void);
+
 esp_err_t save_wifi_config(const char *ssid, const char *pass);
 
 // Viaje en curso (NVS namespace: "viaje").
