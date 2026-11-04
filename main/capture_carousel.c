@@ -74,7 +74,8 @@ static void inject_sim_data(void)
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>   /* va_list: la guardia de log del volcado */
-#include <unistd.h>   /* write(): el volcado va por el descriptor, sin traducir */
+#include <unistd.h>
+#include "esp_rom_uart.h"  /* el volcado va al UART a pelo, sin consola de por medio */
 #include "lvgl.h"
 #include "esp_bsp.h"   /* bsp_mirar_framebuffer: diagnostico */
 #include "lv_port_compat.h"
@@ -152,6 +153,16 @@ typedef enum {
  *      empaquetado, lv_color.h), asi que declarar w*h*sizeof(lv_color_t) pedia
  *      1.152.000 B para un buffer de 768.000 B: el fwrite se leia 384 KB de
  *      PSRAM que no eran suyos (y salian las rayas que se achacaban al formato). */
+/* Escribe bytes en el UART de la consola SALTANDOSE todo lo que hay por medio
+ * (drivers, VFS, traduccion de saltos de linea). esp_rom_uart_tx_one_char es la
+ * misma puerta que usa el cargador de arranque para imprimir: espera a que haya
+ * hueco en la FIFO y suelta el byte tal cual, sin interpretarlo. */
+static void uart_crudo(const void *datos, size_t n)
+{
+    const unsigned char *p = (const unsigned char *)datos;
+    for (size_t i = 0; i < n; i++) esp_rom_uart_tx_one_char(p[i]);
+}
+
 static void dump_screen_uart(const char *name)
 {
     /* LOS DATOS DE EJEMPLO CADUCAN A LOS 5 s y un volcado a 115200 tarda 66 s
@@ -208,8 +219,26 @@ static void dump_screen_uart(const char *name)
      * veia como imagen "partida por la mitad" y costaba verlo porque el
      * tamano cuadraba: los bytes que llegan son otros, no faltan.
      * Escribiendo con write() al descriptor 1, los bytes salen tal cual. */
-    dprintf(STDOUT_FILENO, "===BIN:%s:%ux%u:%u===\n", name, (unsigned)hres,
-            (unsigned)vres, (unsigned)raw_len);
+    /* POR QUE SE ESCRIBE AL UART Y NO AL DESCRIPTOR 1 (4-nov-2026).
+     *
+     * El volcado iba con write(STDOUT_FILENO, ...) porque la consola traduce
+     * los saltos de linea (0x0A -> 0x0D 0x0A) y eso corria los pixeles. Pues
+     * seguia corriendo: en el banco se veian RAYAS horizontales en las
+     * capturas, y midiendo el volcado aparecian dos bytes de mas entre trozo y
+     * trozo (la suma no cuadraba y todo lo de detras quedaba desalineado). Por
+     * el camino de stdout se cuelan cosas que no son nuestras -- la propia
+     * consola de IDF, el driver de la UART, el log de otra tarea-- y no hay
+     * forma de controlarlo desde aqui.
+     *
+     * uart_write_bytes() escribe en el hardware y punto: ni traducciones, ni
+     * colas de por medio, ni nadie mas metiendo bytes. El log ya esta bajado a
+     * ERROR y silenciado (s_volcando), asi que el puerto es nuestro. */
+    {
+        char cab[96];
+        int n = snprintf(cab, sizeof(cab), "===BIN:%s:%ux%u:%u===\n",
+                         name, (unsigned)hres, (unsigned)vres, (unsigned)raw_len);
+        if (n > 0) uart_crudo(cab, (size_t)n);
+    }
 
     /* TROCEADO CON INDICE Y SUMA (17-oct-2026). Antes iba todo del tiron y
      * CUALQUIER byte que se colara en medio -- y se colaba: el watchdog, un
@@ -228,19 +257,18 @@ static void dump_screen_uart(const char *name)
         size_t n = (raw_len - i < TROZO) ? (raw_len - i) : TROZO;
         uint16_t suma = 0;
         for (size_t k = 0; k < n; k++) suma = (uint16_t)(suma + fb[i + k]);
-        dprintf(STDOUT_FILENO, "#%u:%u:%04x\n", (unsigned)(i / TROZO),
-                (unsigned)n, suma);
+        {
+            char cab[48];
+            int nc = snprintf(cab, sizeof(cab), "#%u:%u:%04x\n",
+                              (unsigned)(i / TROZO), (unsigned)n, suma);
+            if (nc > 0) uart_crudo(cab, (size_t)nc);
+        }
         /* write() puede escribir MENOS de lo pedido (la UART es un
          * periferico: si el buffer de salida se llena, devuelve lo que pudo).
          * Antes se ignoraba el valor devuelto y se perdia el resto del trozo
          * sin avisar: la suma no cuadraba en el receptor y la imagen salia con
          * una banda. Hay que repetir hasta que salga todo. */
-        size_t puesto = 0;
-        while (puesto < n) {
-            ssize_t k = write(STDOUT_FILENO, fb + i + puesto, n - puesto);
-            if (k <= 0) break;
-            puesto += (size_t)k;
-        }
+        uart_crudo((const char *)fb + i, n);
         /* ~180 ms por trozo: se cede la CPU, que es lo que deja correr a las
          * tareas de sistema mientras dura el volcado.
          *
@@ -255,7 +283,7 @@ static void dump_screen_uart(const char *name)
         if (esp_task_wdt_status(NULL) == ESP_OK) esp_task_wdt_reset();
         vTaskDelay(1);
     }
-    write(STDOUT_FILENO, "\n===FIN===\n", 11);
+    uart_crudo("\n===FIN===\n", 11);
     s_volcando = false;
     esp_log_level_set("*", ESP_LOG_INFO);
 
@@ -278,13 +306,29 @@ static void dump_screen_uart(const char *name)
  * mitad del volcado y lo que se ve en el panel es el splash una y otra vez.
  * Pasado el 17-oct en la 5"; se diagnostico porque la placa se quedaba
  * "en el splash, temblando". */
+/* LOS DATOS SE REINYECTAN ANTES DE CADA FOTO (4-nov-2026).
+ *
+ * Antes se inyectaban una vez por vuelta del carrusel, y data_model_get() da
+ * los datos por caducados a los 5 s (mira last_update_ms). Resultado: la
+ * pantalla de Datos, que es la que mas falta hace en el manual, salia ENTERA
+ * EN "--" y no habia forma de saber por que mirando el codigo. Inyectar aqui
+ * cuesta nada y deja el sello al dia. */
+static void refresca_sim(void) { inject_sim_data(); }
+
+/* Cuanto se deja pintar antes de leer el framebuffer. Con 500 ms se colo mas
+ * de una vez la pantalla a medio entrar (las tarjetas dibujadas dos veces, con
+ * unos 50 px de desfase): la animacion dura mas que eso en esta placa. */
+#define SETTLE_MS 1500
+
 static void capture_registro_paso(void (*mostrar)(int), int idx, const char *prefijo)
 {
     if (lvgl_port_lock(1000)) {
         mostrar(idx);
         lvgl_port_unlock();
     }
-    vTaskDelay(pdMS_TO_TICKS(900));
+    /* Datos frescos justo antes de la foto: ver refresca_sim(). */
+    refresca_sim();
+    vTaskDelay(pdMS_TO_TICKS(SETTLE_MS));
     char nombre[48];
     const char *n = (mostrar == view_registro_mostrar_pantalla)
                    ? view_registro_nombre_pantalla(idx)
@@ -344,7 +388,8 @@ static void carousel_task(void *arg)
 
             /* Sin el lock tomado para que la tarea de LVGL pueda terminar
              * la animacion y el render antes de leer el framebuffer. */
-            vTaskDelay(pdMS_TO_TICKS(500));
+            refresca_sim();
+            vTaskDelay(pdMS_TO_TICKS(SETTLE_MS));
 
             /* El volcado NO con el cerrojo tomado: tarda ~66 s a 115200 y la
              * tarea de LVGL tiene que seguir pintando (si no, el Task WDT
