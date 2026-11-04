@@ -779,6 +779,18 @@ comparte fila con «Terminar salida». Tiene cuatro cosas:
 - Dos botones: **Wi-Fi**, que lleva a los ajustes de abajo, y **Actualizar
   pantalla**, que mira si la P4 tiene una versión nueva y, si la hay, **pregunta
   antes** de instalarla (la actualización automática no pregunta).
+
+  > **La versión nueva la sirve la P4.** El fichero (`.bin`) se sube **una sola
+  > vez a la P4** —desde la web, `192.168.4.1:8081/pantallas`, o desde la app— y
+  > a partir de ahí esta pantalla se entera **sola** en menos de un minuto, se lo
+  > descarga, se reinicia y arranca con él. No hay que descolgarla ni meterle un
+  > cable, y no hay que hacer nada en cada pantalla: si mañana hay dos pantallas
+  > de cabina, las dos se actualizan igual.
+  >
+  > Mientras se actualiza se reinicia un par de veces: es normal. Y si la nueva
+  > no arrancara bien, **vuelve sola a la de antes** (se escribe en el hueco
+  > libre, nunca encima de la que está funcionando).
+
 - **Brillo mínimo** — el nivel al que baja el doble toque en la pantalla de Datos
   (ver «Cambiar el brillo»). Con **−** y **+**, de 5 en 5 entre el **5 %** y el
   **80 %**; de fábrica el **80 %**. El número del medio es el que hay elegido.
@@ -793,11 +805,14 @@ la vez:
 
 - **SSID** y **Password** — la red de la P4 a la que se conecta esta pantalla.
   Sirve para **cambiar a otra P4 sin reflashear**.
-- **Usuario** y **Clave** — los del **portal** de la P4,
-  **no los del Wi-Fi**. Hacen falta para todo lo que esta pantalla le manda:
-  los apuntes del viaje y **callar las alarmas**. Se leen en la P4, en Ajustes →
-  Wi-Fi → tarjeta **"Acceso a Actualizar y Claves"** (o aquí mismo, que se quedan
-  escritos). Sin ellos, al iniciar un viaje sale "La P4 no acepta la clave".
+- **Usuario** y **Clave** — los del portal de la P4. Desde el 4-nov-2026 **la
+  clave es la misma que la del Wi-Fi** (la del punto de acceso), así que si la
+  pantalla ya está conectada a la red, ya tiene la clave buena. Hacen falta para
+  todo lo que esta pantalla le manda: los apuntes del viaje y **callar las
+  alarmas**. Se leen en la P4, en **Ajustes → Wi-Fi**, en la tarjeta del punto de
+  acceso. La **otra** clave, la del portal, **no** se pone aquí: esa es solo para
+  actualizar y descargar. Sin ellas, al iniciar un viaje sale "La P4 no acepta la
+  clave".
 
 **Para escribir en un campo, tócalo**: se abre un editor a pantalla completa con
 el nombre del campo arriba, el texto en grande y el teclado debajo; se acepta con
