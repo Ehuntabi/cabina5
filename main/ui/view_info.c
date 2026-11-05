@@ -1797,7 +1797,14 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_bat_volt, COL_TEXT, 0);
     lv_obj_set_style_text_font(s_bat_volt, &lv_font_montserrat_32, 0);
     lv_obj_set_width(s_bat_volt, 110);
-    lv_obj_set_style_text_align(s_bat_volt, LV_TEXT_ALIGN_LEFT, 0);
+    /* A LA DERECHA, que es lo que dice el comentario de arriba (05-nov-2026):
+     * estaba en LEFT, asi que "13.42" acababa pegado a la V o, si crecia, la V
+     * se quedaba colgando con un salto en medio. A la derecha, el numero termina
+     * siempre en el mismo sitio y la unidad queda a 6 px. */
+    lv_obj_set_style_text_align(s_bat_volt, LV_TEXT_ALIGN_RIGHT, 0);
+    /* Y QUE NO SE PARTAN EN DOS LINEAS: sin esto, un numero ancho se parte y la
+     * unidad aparece en otra linea (lo vio el dueño). */
+    lv_label_set_long_mode(s_bat_volt, LV_LABEL_LONG_CLIP);
     lv_obj_clear_flag(s_bat_volt, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(s_bat_volt, LV_ALIGN_LEFT_MID, 30, 0);   /* -- V, a la izquierda */
 
@@ -1806,7 +1813,7 @@ void view_info_create(lv_obj_t *parent)
     paleta_texto(u_v, 0xCCCCCC, 0xFFFFFF);
     lv_obj_set_style_text_font(u_v, &lv_font_montserrat_24, 0);
     lv_obj_clear_flag(u_v, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(u_v, LV_ALIGN_LEFT_MID, 146, 4);
+    lv_obj_align(u_v, LV_ALIGN_LEFT_MID, 140, 4);   /* 6 px tras el hueco del numero */
 
     s_bat_amp = lv_label_create(s_gps_card);
     lv_label_set_text(s_bat_amp, "");    lv_obj_set_style_text_color(s_bat_amp, COL_TEXT, 0);
@@ -1818,7 +1825,7 @@ void view_info_create(lv_obj_t *parent)
      * que LVGL la partia en dos lineas. Con CLIP se recorta en vez de partir, y
      * el refresco ademas baja la letra cuando el numero es largo (ver abajo). */
     lv_label_set_long_mode(s_bat_amp, LV_LABEL_LONG_CLIP);
-    lv_obj_set_style_text_align(s_bat_amp, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_set_style_text_align(s_bat_amp, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_clear_flag(s_bat_amp, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(s_bat_amp, LV_ALIGN_LEFT_MID, 200, 0);  /* -- A, detras */
 
@@ -1827,7 +1834,7 @@ void view_info_create(lv_obj_t *parent)
     paleta_texto(s_bat_amp_u, 0xCCCCCC, 0xFFFFFF);
     lv_obj_set_style_text_font(s_bat_amp_u, &lv_font_montserrat_24, 0);
     lv_obj_clear_flag(s_bat_amp_u, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, 316, 4);
+    lv_obj_align(s_bat_amp_u, LV_ALIGN_LEFT_MID, 310, 4);   /* 6 px tras el hueco */
 
     /* La del motor, a la derecha del todo y mas discreta: es bateria tambien,
      * pero solo se mira cuando el vehiculo no arranca. */
