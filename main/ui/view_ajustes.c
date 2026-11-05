@@ -712,10 +712,17 @@ static void do_guardar(void *ud)
     /* La clave del portal, con el mismo criterio que el cartel: si no esta
      * vacia tiene que llegar a 8 (es la del punto de acceso, WPA2). */
     const char *hp = lv_textarea_get_text(s_http_pass_ta);
+    const char *hu = lv_textarea_get_text(s_http_user_ta);
     bool ok_portal;
     if (hp[0] != '\0' && strlen(hp) < 8) {
         ok_portal = false;
         ESP_LOGW(TAG, "Guardado del portal cancelado: la clave tiene menos de 8");
+    } else if (strlen(hp) > 32) {
+        ok_portal = false;
+        ESP_LOGW(TAG, "Guardado del portal cancelado: la clave pasa de 32");
+    } else if (hu[0] != '\0' && strcmp(hu, "p4") != 0) {
+        ok_portal = false;
+        ESP_LOGW(TAG, "Guardado del portal cancelado: el usuario no es p4");
     } else {
         ok_portal = (save_portal_creds(lv_textarea_get_text(s_http_user_ta), hp) == ESP_OK);
     }
@@ -729,9 +736,15 @@ static void do_guardar(void *ud)
     /* Primero la fila (si algo quedo pendiente, la pone en naranja) y despues
      * el mensaje: al reves, el naranja tapaba el "No he podido guardarlo". */
     refresca_botones();
-    if (!ok_wifi || !ok_portal) {
+    if (!ok_wifi && !ok_portal) {
         wifi_estado("No he podido guardarlo", false);
         ESP_LOGW(TAG, "Guardado fallido: wifi=%d portal=%d", ok_wifi, ok_portal);
+    } else if (!ok_wifi) {
+        wifi_estado("Aqui no; el portal si se ha guardado", false);
+        ESP_LOGW(TAG, "Guardado a medias: wifi=0 portal=%d", ok_portal);
+    } else if (!ok_portal) {
+        wifi_estado("Red guardada; el portal no (mira usuario y clave)", false);
+        ESP_LOGW(TAG, "Guardado a medias: wifi=%d portal=0", ok_wifi);
     } else {
         wifi_estado("Guardado, reconectando...", true);
         ESP_LOGI(TAG, "Nuevas credenciales guardadas desde Ajustes");
@@ -756,6 +769,15 @@ static void guardar_solo_portal(void *ud)
     const char *hp = lv_textarea_get_text(s_http_pass_ta);
     if (hp[0] != '\0' && strlen(hp) < 8) {
         wifi_estado_color("Clave del portal no valida (minimo 8)", UI_COLOR_RED);
+        return;
+    }
+    if (strlen(hp) > 32) {
+        wifi_estado_color("Clave del portal: maximo 32 (la P4 no admite mas)", UI_COLOR_RED);
+        return;
+    }
+    const char *hu = lv_textarea_get_text(s_http_user_ta);
+    if (hu[0] != '\0' && strcmp(hu, "p4") != 0) {
+        wifi_estado_color("El usuario del portal de la P4 es p4", UI_COLOR_RED);
         return;
     }
     bool ok = (save_portal_creds(lv_textarea_get_text(s_http_user_ta),
@@ -1181,11 +1203,14 @@ void view_ajustes_create(lv_obj_t *parent)
      * completa hereda este tope solo (entry_screen_open copia el max_length del
      * campo de destino: ver el comentario de make_field). */
     s_ssid_ta = make_field_en(s_wifi, "SSID", 31, false, FILA_F1_Y);          /* s_ssid[33] en udp_rx.c */
-    s_pass_ta = make_field_en(s_wifi, "Password", 63, true, FILA_F2_Y);      /* s_pass[65] en udp_rx.c */
+    /* 32 y no 63 (05-nov-2026, auditoria): la clave del portal de la P4 es esta
+     * misma, y alli los buffers son de 33. Con 33-64 se guardaba aqui y la P4
+     * contestaba 401 (o no dejaba entrar al Wi-Fi). */
+    s_pass_ta = make_field_en(s_wifi, "Password", 32, true, FILA_F2_Y);      /* s_pass[65] en udp_rx.c */
 
     make_grupo_en(s_wifi, "PORTAL DE LA P4 (usuario y clave para entrar en la web)", FILA_G2_Y);
     s_http_user_ta = make_field_en(s_wifi, "Usuario", 32, false, FILA_F3_Y);   /* hu[33] en view_ajustes_refresh */
-    s_http_pass_ta = make_field_en(s_wifi, "Clave", 64, true, FILA_F4_Y);     /* hp[65] en view_ajustes_refresh */
+    s_http_pass_ta = make_field_en(s_wifi, "Clave", 32, true, FILA_F4_Y);     /* hp[65] en view_ajustes_refresh */
 
     /* Cualquier cambio en CUALQUIERA de las dos claves saca la fila de botones.
      * El editor a pantalla completa manda VALUE_CHANGED una sola vez al volcar
