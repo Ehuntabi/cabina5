@@ -800,8 +800,7 @@ comparte fila con «Terminar salida». Tiene cuatro cosas:
   dos grabados de la misma versión.
 
 ### Wi-Fi
-Cuatro campos, y **la pantalla se desliza hacia abajo** porque no caben todos a
-la vez:
+Cuatro campos, todos en la misma pantalla:
 
 - **SSID** y **Password** — la red de la P4 a la que se conecta esta pantalla.
   Sirve para **cambiar a otra P4 sin reflashear**.
@@ -810,9 +809,9 @@ la vez:
   pantalla ya está conectada a la red, ya tiene la clave buena. Hacen falta para
   todo lo que esta pantalla le manda: los apuntes del viaje y **callar las
   alarmas**. Se leen en la P4, en **Ajustes → Wi-Fi**, en la tarjeta del punto de
-  acceso. La **otra** clave, la del portal, **no** se pone aquí: esa es solo para
-  actualizar y descargar. Sin ellas, al iniciar un viaje sale "La P4 no acepta la
-  clave".
+  acceso. La **otra**, la de **administración**, **no** se pone aquí: esa solo hace
+  falta para actualizar y descargar. Sin ellas, al iniciar un viaje sale "La P4 no
+  acepta la clave".
 
 **Para escribir en un campo, tócalo**: se abre un editor a pantalla completa con
 el nombre del campo arriba, el texto en grande y el teclado debajo; se acepta con
@@ -973,7 +972,7 @@ llama por lo que es: **`historico.tar`**.
 | **"--"** en todos los datos | No llega nada de la P4. Comprueba que esté encendida y que el Wi-Fi de Ajustes apunte a su red |
 | **"Enciende la P4 primero"** | Anotaste algo sin que la P4 diera la hora. Enciéndela: el apunte va con su hora de inicio |
 | **"Sin la P4"** al finalizar parada | Lo mismo: sin fecha no se puede calcular la estancia |
-| **"La P4 no acepta la clave"** | Falta el usuario o la clave del PORTAL en Ajustes (no son los del Wi-Fi) |
+| **"La P4 no acepta la clave"** | Falta el usuario (`p4`) o la **clave del punto de acceso** en Ajustes → Wi-Fi: la misma con la que esta pantalla entra en la red |
 | **"Ya hay un viaje abierto"** | La P4 tiene uno sin cerrar. Termínalo antes de empezar otro |
 | **"Sensor ADXL345 no detectado"** | El sensor de inclinación no responde. Es un problema de conexión, no de uso |
 | El nivel marca torcido estando recta | Pulsa **Calibrar nivel** con la autocaravana bien nivelada |

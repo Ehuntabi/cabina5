@@ -1159,7 +1159,7 @@ void view_ajustes_create(lv_obj_t *parent)
     s_ssid_ta = make_field_en(s_wifi, "SSID", 31, false, FILA_F1_Y);          /* s_ssid[33] en udp_rx.c */
     s_pass_ta = make_field_en(s_wifi, "Password", 63, true, FILA_F2_Y);      /* s_pass[65] en udp_rx.c */
 
-    make_grupo_en(s_wifi, "PORTAL DE LA P4 (usuario y clave, no los del wifi)", FILA_G2_Y);
+    make_grupo_en(s_wifi, "PORTAL DE LA P4 (usuario y clave para entrar en la web)", FILA_G2_Y);
     s_http_user_ta = make_field_en(s_wifi, "Usuario", 32, false, FILA_F3_Y);   /* hu[33] en view_ajustes_refresh */
     s_http_pass_ta = make_field_en(s_wifi, "Clave", 64, true, FILA_F4_Y);     /* hp[65] en view_ajustes_refresh */
 
