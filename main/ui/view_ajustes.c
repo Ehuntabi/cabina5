@@ -85,6 +85,21 @@ static lv_obj_t *s_status_lbl;
 static lv_obj_t *s_http_user_ta;
 static lv_obj_t *s_http_pass_ta;
 
+/* LO QUE HABIA AL ABRIR LA PANTALLA, tambien de las del portal (05-nov-2026).
+ * Hasta hoy solo se guardaban las de la red, asi que el boton de guardar estaba
+ * SIEMPRE puesto -- aunque no hubieras tocado nada -- y las del portal se
+ * grababan sin que nadie te preguntara. Ahora la fila Guardar/Cancelar sale
+ * SOLO cuando alguna de las DOS claves ha cambiado (la de la red o la del
+ * portal) y Cancelar devuelve los campos a lo que habia. */
+static char s_http_user_orig[33];
+static char s_http_pass_orig[65];
+/* La fila con Guardar y Cancelar, oculta mientras no haya cambios. */
+static lv_obj_t *s_fila_botones;
+/* Cierto mientras se rellenan los campos desde la NVS: los VALUE_CHANGED que
+ * manda lv_textarea_set_text() no son cambios del usuario y no deben sacar la
+ * fila de botones. */
+static bool s_cargando;
+
 /* Lo que habia al abrir la pantalla, para saber si de verdad se ha cambiado
  * algo. Mismos tamanos que en udp_rx_get_credentials(). */
 static char s_ssid_orig[33];
@@ -157,7 +172,12 @@ static void ta_click_cb(lv_event_t *e)
 #define FILA_F3_Y       254
 #define FILA_F4_Y       316
 #define FILA_BTN_Y      378
-#define FILA_BTN_W      380
+/* 384 = 230 del Guardar + 10 de aire + 144 del Cancelar (05-nov-2026). El
+ * estado del guardado empieza en 400, asi que sobra sitio entre los dos. */
+#define FILA_BTN_W      384
+#define FILA_BTN_OK_W   230
+#define FILA_BTN_NO_W   144
+#define FILA_BTN_NO_X   (FILA_BTN_OK_W + 10)
 #define FILA_ESTADO_X   400
 /* 66 de alto y fuente de PIE (18) para el estado del guardado (D4): la caja
  * era de 26 px y la fuente de entonces (Inter 26, 33 px de linea) no cabia --
@@ -248,12 +268,78 @@ static void mostrar_menu(bool menu)
  * guardado fallaba o faltaba el SSID; el usuario leia "Falta el SSID" en verde
  * de exito. Aqui se cambia el texto y el color a la vez, para que no haya una
  * salida que se deje uno de los dos. Verde = se guardo; rojo = no. */
-static void wifi_estado(const char *txt, bool ok)
+static void wifi_estado_color(const char *txt, lv_color_t color)
 {
     if (!s_status_lbl) return;
     lv_label_set_text(s_status_lbl, txt);
-    lv_obj_set_style_text_color(s_status_lbl,
-                                ok ? UI_COLOR_GREEN : UI_COLOR_RED, 0);
+    lv_obj_set_style_text_color(s_status_lbl, color, 0);
+}
+
+static void wifi_estado(const char *txt, bool ok)
+{
+    wifi_estado_color(txt, ok ? UI_COLOR_GREEN : UI_COLOR_RED);
+}
+
+/* ── Guardar / Cancelar, solo cuando hay algo que guardar (05-nov-2026) ────
+ *
+ * El usuario lo pidio asi: "cuando haya algun cambio en las claves wifi
+ * (aunque solo sea en una de las dos) salga el boton guardar o cancelar".
+ * Antes el boton estaba siempre puesto y no habia forma de abandonar lo
+ * tecleado; ahora, mientras no toques nada, no hay fila (nada que hacer), y en
+ * cuanto cambia UNA de las dos claves -- la de la red o la del portal --
+ * aparecen Guardar y Cancelar.
+ *
+ * hay_cambios() compara con lo que habia al abrir la pantalla (s_ssid_orig,
+ * s_pass_orig, s_http_user_orig, s_http_pass_orig), no con la NVS: asi un
+ * valor que la NVS no ha llegado a aceptar sigue contando como pendiente. */
+static bool hay_cambios(void)
+{
+    if (s_cargando) return false;
+    if (!s_ssid_ta || !s_pass_ta) return false;
+    if (strcmp(lv_textarea_get_text(s_ssid_ta), s_ssid_orig) != 0) return true;
+    if (strcmp(lv_textarea_get_text(s_pass_ta), s_pass_orig) != 0) return true;
+    if (s_http_user_ta &&
+        strcmp(lv_textarea_get_text(s_http_user_ta), s_http_user_orig) != 0) return true;
+    if (s_http_pass_ta &&
+        strcmp(lv_textarea_get_text(s_http_pass_ta), s_http_pass_orig) != 0) return true;
+    return false;
+}
+
+/* Enseña la fila Guardar/Cancelar SOLO si hay algo cambiado, y lo dice en la
+ * linea de estado para que no haya que adivinarlo. */
+static void refresca_botones(void)
+{
+    if (!s_fila_botones) return;
+    if (hay_cambios()) {
+        lv_obj_clear_flag(s_fila_botones, LV_OBJ_FLAG_HIDDEN);
+        /* Naranja: ni verde (no se ha guardado) ni rojo (no hay error). */
+        wifi_estado_color("Cambios sin guardar", UI_COLOR_ORANGE);
+    } else {
+        lv_obj_add_flag(s_fila_botones, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+/* Lo manda el campo cuando cambia de verdad: el editor a pantalla completa
+ * (entry_screen.c) avisa UNA sola vez al volcar el texto. */
+static void campo_cambiado_cb(lv_event_t *e)
+{
+    (void)e;
+    refresca_botones();
+}
+
+/* Cancelar = dejar los cuatro campos como estaban. No toca la NVS. */
+static void wifi_cancel_cb(lv_event_t *e)
+{
+    (void)e;
+    s_cargando = true;
+    lv_textarea_set_text(s_ssid_ta, s_ssid_orig);
+    lv_textarea_set_text(s_pass_ta, s_pass_orig);
+    lv_textarea_set_text(s_http_user_ta, s_http_user_orig);
+    lv_textarea_set_text(s_http_pass_ta, s_http_pass_orig);
+    s_cargando = false;
+    refresca_botones();
+    wifi_estado_color("Cambios descartados", UI_COLOR_TEXT_DIM);
+    ESP_LOGI(TAG, "Cambios del Wi-Fi/portal descartados desde Ajustes");
 }
 
 /* El Volver del formulario de Wi-Fi no sale de Configuracion: vuelve al menu,
@@ -606,21 +692,34 @@ static void do_guardar(void *ud)
 
     bool ok_wifi = udp_rx_set_credentials(ssid, pass);
 
-    /* La referencia pasa a ser lo recien guardado: un segundo toque seguido ya
-     * no es un cambio y no volvera a preguntar. */
-    snprintf(s_ssid_orig, sizeof(s_ssid_orig), "%s", ssid);
-    snprintf(s_pass_orig, sizeof(s_pass_orig), "%s", pass);
+    /* La referencia pasa a ser lo recien guardado SOLO si la NVS lo acepto
+     * (05-nov-2026). Antes se movia siempre: si el guardado fallaba, la fila
+     * Guardar/Cancelar se escondia igual y la pantalla daba por hecho un
+     * cambio que no estaba grabado. */
+    if (ok_wifi) {
+        snprintf(s_ssid_orig, sizeof(s_ssid_orig), "%s", ssid);
+        snprintf(s_pass_orig, sizeof(s_pass_orig), "%s", pass);
+    }
 
     bool ok_portal = (save_portal_creds(lv_textarea_get_text(s_http_user_ta),
                                          lv_textarea_get_text(s_http_pass_ta))
                       == ESP_OK);
+    if (ok_portal) {
+        snprintf(s_http_user_orig, sizeof(s_http_user_orig), "%s",
+                 lv_textarea_get_text(s_http_user_ta));
+        snprintf(s_http_pass_orig, sizeof(s_http_pass_orig), "%s",
+                 lv_textarea_get_text(s_http_pass_ta));
+    }
 
-    if (ok_wifi && ok_portal) {
-        wifi_estado("Guardado, reconectando...", true);
-        ESP_LOGI(TAG, "Nuevas credenciales guardadas desde Ajustes");
-    } else {
+    /* Primero la fila (si algo quedo pendiente, la pone en naranja) y despues
+     * el mensaje: al reves, el naranja tapaba el "No he podido guardarlo". */
+    refresca_botones();
+    if (!ok_wifi || !ok_portal) {
         wifi_estado("No he podido guardarlo", false);
         ESP_LOGW(TAG, "Guardado fallido: wifi=%d portal=%d", ok_wifi, ok_portal);
+    } else {
+        wifi_estado("Guardado, reconectando...", true);
+        ESP_LOGI(TAG, "Nuevas credenciales guardadas desde Ajustes");
     }
 }
 
@@ -635,12 +734,22 @@ static void do_guardar(void *ud)
 static void guardar_solo_portal(void *ud)
 {
     (void)ud;
-    if (save_portal_creds(lv_textarea_get_text(s_http_user_ta),
-                          lv_textarea_get_text(s_http_pass_ta)) == ESP_OK) {
-        wifi_estado("Guardado.", true);
-    } else {
-        wifi_estado("No he podido guardarlo", false);
+    bool ok = (save_portal_creds(lv_textarea_get_text(s_http_user_ta),
+                                 lv_textarea_get_text(s_http_pass_ta)) == ESP_OK);
+    if (ok) {
+        snprintf(s_http_user_orig, sizeof(s_http_user_orig), "%s",
+                 lv_textarea_get_text(s_http_user_ta));
+        snprintf(s_http_pass_orig, sizeof(s_http_pass_orig), "%s",
+                 lv_textarea_get_text(s_http_pass_ta));
     }
+    refresca_botones();
+    if (!ok) {
+        wifi_estado("No he podido guardarlo", false);
+    } else if (!hay_cambios()) {
+        wifi_estado("Guardado.", true);
+    }
+    /* Si la red sigue pendiente, el naranja de refresca_botones ya lo dice:
+     * un verde aqui daria por guardado tambien lo que falta. */
 }
 
 /* Cambiar la red no es un ajuste cualquiera: si te equivocas de SSID o de
@@ -697,6 +806,7 @@ static void guardar_cb(lv_event_t *e)
  * campo de texto (ver UI_ANCHO_COLUMNA en estilos.h), porque ahi si molesta. */
 void view_ajustes_refresh(void)
 {
+    s_cargando = true;   /* los VALUE_CHANGED de set_text no son del usuario */
     udp_rx_get_credentials(s_ssid_orig, sizeof(s_ssid_orig),
                            s_pass_orig, sizeof(s_pass_orig));
     lv_textarea_set_text(s_ssid_ta, s_ssid_orig);
@@ -705,11 +815,17 @@ void view_ajustes_refresh(void)
     char hu[33] = {0}, hp[65] = {0};
     size_t hul = sizeof(hu), hpl = sizeof(hp);
     load_portal_creds(hu, &hul, hp, &hpl);   /* si no hay nada, quedan vacios */
+    /* La referencia del portal es lo que habia: si no, recien abierta la
+     * pantalla el usuario/la clave vacios ya contarian como un cambio. */
+    snprintf(s_http_user_orig, sizeof(s_http_user_orig), "%s", hu);
+    snprintf(s_http_pass_orig, sizeof(s_http_pass_orig), "%s", hp);
     lv_textarea_set_text(s_http_user_ta, hu);
     lv_textarea_set_text(s_http_pass_ta, hp);
+    s_cargando = false;
     mostrar_menu(true);
 
     wifi_estado("", true);
+    refresca_botones();
 }
 
 void view_ajustes_create(lv_obj_t *parent)
@@ -1047,19 +1163,56 @@ void view_ajustes_create(lv_obj_t *parent)
     s_http_user_ta = make_field_en(s_wifi, "Usuario", 32, false, FILA_F3_Y);   /* hu[33] en view_ajustes_refresh */
     s_http_pass_ta = make_field_en(s_wifi, "Clave", 64, true, FILA_F4_Y);     /* hp[65] en view_ajustes_refresh */
 
+    /* Cualquier cambio en CUALQUIERA de las dos claves saca la fila de botones.
+     * El editor a pantalla completa manda VALUE_CHANGED una sola vez al volcar
+     * el texto (ver entry_guardar en entry_screen.c). */
+    lv_obj_add_event_cb(s_ssid_ta, campo_cambiado_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(s_pass_ta, campo_cambiado_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(s_http_user_ta, campo_cambiado_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(s_http_pass_ta, campo_cambiado_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
     /* BOTON CON ALTO PROPIO, y esto era un fallo de verdad (16-oct-2026): el
      * boton se creaba SIN alto -- su rotulo va centrado, y un objeto con el
      * tamaño "lo que mida mi contenido" no mide nada si su unico hijo esta
      * alineado en vez de en el flujo -- asi que salia de 0x0 y el formulario
      * quedaba descuadrado (el usuario lo vio como que el boton no estaba). */
-    lv_obj_t *btn = lv_btn_create(s_wifi);
-    lv_obj_set_size(btn, FILA_BTN_W, FILA_TITULO_H);
-    lv_obj_set_pos(btn, 0, FILA_BTN_Y);
+    /* LA FILA GUARDAR / CANCELAR, OCULTA MIENTRAS NO HAYA CAMBIOS
+     * (05-nov-2026). Antes el boton estaba siempre puesto -- tambien sin nada
+     * que guardar -- y no habia Cancelar: lo tecleado solo se podia deshacer a
+     * mano, borrando y volviendo a escribir. Ahora la fila sale en cuanto cambia
+     * UNA de las dos claves (la de la red o la del portal) y se esconde al
+     * guardar o al cancelar. Ver hay_cambios() / refresca_botones(). */
+    s_fila_botones = lv_obj_create(s_wifi);
+    lv_obj_set_size(s_fila_botones, FILA_BTN_W, FILA_TITULO_H);
+    lv_obj_set_pos(s_fila_botones, 0, FILA_BTN_Y);
+    lv_obj_set_style_bg_opa(s_fila_botones, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_fila_botones, 0, 0);
+    lv_obj_set_style_pad_all(s_fila_botones, 0, 0);
+    lv_obj_clear_flag(s_fila_botones, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_fila_botones, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t *btn = lv_btn_create(s_fila_botones);
+    lv_obj_set_size(btn, FILA_BTN_OK_W, FILA_TITULO_H);
+    lv_obj_set_pos(btn, 0, 0);
     lv_obj_set_style_bg_color(btn, UI_COLOR_GREEN, 0);
     lv_obj_add_event_cb(btn, guardar_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *btn_lbl = lv_label_create(btn);
-    lv_label_set_text(btn_lbl, "Guardar y reconectar");
+    lv_label_set_text(btn_lbl, "Guardar");
+    lv_obj_set_style_text_font(btn_lbl, &lv_font_montserrat_26, 0);
     lv_obj_center(btn_lbl);
+
+    /* GRIS y no rojo: Cancelar aqui es "dejalo como estaba", no una accion que
+     * rompa nada. El rojo esta reservado para el Cancelar del editor de texto
+     * (que abandona lo tecleado) y para los errores. */
+    lv_obj_t *btn_no = lv_btn_create(s_fila_botones);
+    lv_obj_set_size(btn_no, FILA_BTN_NO_W, FILA_TITULO_H);
+    lv_obj_set_pos(btn_no, FILA_BTN_NO_X, 0);
+    lv_obj_set_style_bg_color(btn_no, UI_COLOR_BOTON, 0);
+    lv_obj_add_event_cb(btn_no, wifi_cancel_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *btn_no_lbl = lv_label_create(btn_no);
+    lv_label_set_text(btn_no_lbl, "Cancelar");
+    lv_obj_set_style_text_font(btn_no_lbl, &lv_font_montserrat_26, 0);
+    lv_obj_center(btn_no_lbl);
 
     /* El estado, a la derecha del boton: cabe en la misma fila y asi no se le
      * quita alto a nada. */
