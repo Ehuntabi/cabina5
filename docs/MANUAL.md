@@ -821,7 +821,12 @@ el **✓** del teclado y se descarta con la **✗**. En la pantalla de ajustes e
 con puntos; al abrir el editor sí se ven en claro, así que de ahí puedes leer la
 clave del punto de acceso si la has perdido.
 
-Al tocar **"Guardar y reconectar"**:
+**Guardar y Cancelar salen solo cuando has cambiado algo** (cualquiera de los
+cuatro campos), con el aviso *"Cambios sin guardar"* al lado. Mientras no toques
+nada no hay botones: no hay nada que guardar. **Cancelar** devuelve los campos a
+como estaban.
+
+Al tocar **Guardar**:
 
 - Si has **cambiado la red** (SSID o Password), **pide confirmación** antes de
   reconectar — es fácil dejarse la pantalla incomunicada por un dedazo en la
