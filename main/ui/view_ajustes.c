@@ -720,9 +720,9 @@ static void do_guardar(void *ud)
     } else if (strlen(hp) > 32) {
         ok_portal = false;
         ESP_LOGW(TAG, "Guardado del portal cancelado: la clave pasa de 32");
-    } else if (hu[0] != '\0' && strcmp(hu, "p4") != 0) {
+    } else if (strcmp(hu, "p4") != 0 && !(hu[0] == '\0' && hp[0] == '\0')) {
         ok_portal = false;
-        ESP_LOGW(TAG, "Guardado del portal cancelado: el usuario no es p4");
+        ESP_LOGW(TAG, "Guardado del portal cancelado: el usuario no es p4 (o falta)");
     } else {
         ok_portal = (save_portal_creds(lv_textarea_get_text(s_http_user_ta), hp) == ESP_OK);
     }
@@ -776,7 +776,10 @@ static void guardar_solo_portal(void *ud)
         return;
     }
     const char *hu = lv_textarea_get_text(s_http_user_ta);
-    if (hu[0] != '\0' && strcmp(hu, "p4") != 0) {
+    if (strcmp(hu, "p4") != 0 && !(hu[0] == '\0' && hp[0] == '\0')) {
+        /* O los dos vacios ("aqui no hay portal") o el usuario es p4: con otro
+         * usuario, o con usuario vacio y clave puesta, la P4 contesta 401 y el
+         * mensaje "Guardado" seria mentira (auditoria 05-nov-2026). */
         wifi_estado_color("El usuario del portal de la P4 es p4", UI_COLOR_RED);
         return;
     }
