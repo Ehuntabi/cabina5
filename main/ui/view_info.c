@@ -559,8 +559,8 @@ static void led_set(lv_obj_t *led, uint8_t mode)
  * Los de limpia son SEGMENTOS anchos y bajos, no cuadraditos: apilados leen
  * como un deposito. El de grises es un bloque del alto de dos segmentos y algo
  * mas, para que pese lo mismo que la columna sin ser un puntito. */
-#define TANQUE_W    108   /* ancho del deposito (como el de la 7", a escala) */
-#define TANQUE_H    106   /* alto del deposito de agua limpia */
+#define TANQUE_W    132   /* ancho del deposito (como el de la 7", a escala) */
+#define TANQUE_H    110   /* alto del deposito de agua limpia */
 #define LED_SEG_W    84
 /* ── LAS FRACCIONES MANDA EL ALTO DE LA FILA, Y ESO FUE UN FALLO (9-oct-2026) ─
  *
@@ -678,7 +678,7 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
     lv_obj_set_style_bg_opa(fila, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(fila, 0, 0);
     lv_obj_set_style_pad_all(fila, 0, 0);
-    lv_obj_set_style_pad_hor(fila, 10, 0);
+    lv_obj_set_style_pad_hor(fila, 6, 0);
     lv_obj_set_style_pad_top(fila, 8, 0);      /* la boca asoma por arriba */
     lv_obj_set_style_pad_bottom(fila, 10, 0);  /* el desague cuelga por abajo */
     lv_obj_set_style_pad_column(fila, 10, 0);
@@ -730,9 +730,13 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
         s_led_clean[i] = make_led(fila_seg, false);
     }
 
-    /* Boca de llenado: pastilla cian sobre el borde de arriba. */
+    /* Boca de llenado: pastilla cian A CABALLO del borde de arriba (media
+     * dentro, media fuera), como en la 7". Antes iba flotando por encima del
+     * deposito y se metia dentro del rotulo "AGUAS". Es hija del deposito y
+     * asoma porque el deposito deja ver lo que sobresale. */
+    lv_obj_add_flag(tanque, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     {
-        lv_obj_t *tapon = lv_obj_create(fila);
+        lv_obj_t *tapon = lv_obj_create(tanque);
         lv_obj_remove_style_all(tapon);
         lv_obj_set_size(tapon, 26, 7);
         lv_obj_set_style_radius(tapon, 4, 0);
@@ -740,7 +744,7 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
         lv_obj_set_style_bg_opa(tapon, LV_OPA_COVER, 0);
         lv_obj_add_flag(tapon, LV_OBJ_FLAG_IGNORE_LAYOUT);
         lv_obj_clear_flag(tapon, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_align_to(tapon, tanque, LV_ALIGN_OUT_TOP_RIGHT, -18, -1);
+        lv_obj_align(tapon, LV_ALIGN_TOP_RIGHT, -20, -4);
     }
 
     /* ── Deposito de aguas grises ── */
