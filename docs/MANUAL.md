@@ -563,7 +563,7 @@ abajo sale la pastilla **«LA P4 PIDE CLAVE ADMIN»** y un aviso que lo explica
 cerrar un viaje que está grabando **otra** pantalla. El aviso ofrece
 **«Descartarlo»**, que tira ese cierre de la cola para que los apuntes siguientes
 sigan su camino (el viaje ajeno se queda como estaba, abierto), y **«Esperar»**,
-que no toca nada. Antes ese caso se confundía con «la clave del portal está mal» y
+que no toca nada. Antes ese caso se confundía con «la clave está mal» y
 mandaba a Ajustes a reescribir una clave que estaba bien, sin dejar salir de ahí.
 
 El viaje **no se da por empezado hasta que la P4 lo confirma**. Si algo falla te
@@ -819,7 +819,7 @@ el nombre del campo arriba, el texto en grande y el teclado debajo; se acepta co
 el **✓** del teclado y se descarta con la **✗**. En la pantalla de ajustes el
 **SSID** se ve tal cual, pero las dos claves (Password y Clave) van **tapadas**
 con puntos; al abrir el editor sí se ven en claro, así que de ahí puedes leer la
-clave del portal si la has perdido.
+clave del punto de acceso si la has perdido.
 
 Al tocar **"Guardar y reconectar"**:
 

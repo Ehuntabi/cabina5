@@ -535,16 +535,15 @@ static void led_set(lv_obj_t *led, uint8_t mode)
         lv_anim_set_playback_time(&a, 400);
         lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
         lv_anim_start(&a);
-    } else {
+    } else if (mode == 1) {
+        /* Tramo con agua: lleno del color del agua. */
+        lv_obj_set_style_bg_color(led, UI_COLOR_CYAN, 0);
         lv_obj_set_style_bg_opa(led, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_opa(led, LV_OPA_COVER, 0);
-        if (mode == 1) {
-            lv_obj_set_style_bg_color(led, UI_COLOR_CYAN, 0);
-            lv_obj_set_style_border_color(led, UI_COLOR_CYAN, 0);
-        } else {
-            lv_obj_set_style_bg_color(led, UI_COLOR_CARD, 0);
-            lv_obj_set_style_border_color(led, UI_COLOR_BOTON, 0);
-        }
+    } else {
+        /* Vacio: el tramo se queda azul OSCURO (como en la 7"), no invisible:
+         * asi se ve el deposito entero y las ondas se leen. */
+        lv_obj_set_style_bg_color(led, lv_color_hex(0x24384A), 0);
+        lv_obj_set_style_bg_opa(led, LV_OPA_COVER, 0);
     }
 }
 
@@ -560,6 +559,8 @@ static void led_set(lv_obj_t *led, uint8_t mode)
  * Los de limpia son SEGMENTOS anchos y bajos, no cuadraditos: apilados leen
  * como un deposito. El de grises es un bloque del alto de dos segmentos y algo
  * mas, para que pese lo mismo que la columna sin ser un puntito. */
+#define TANQUE_W    108   /* ancho del deposito (como el de la 7", a escala) */
+#define TANQUE_H    106   /* alto del deposito de agua limpia */
 #define LED_SEG_W    84
 /* ── LAS FRACCIONES MANDA EL ALTO DE LA FILA, Y ESO FUE UN FALLO (9-oct-2026) ─
  *
@@ -589,18 +590,39 @@ static void led_set(lv_obj_t *led, uint8_t mode)
  * conjunto quede cuadrado. */
 #define LED_GRIS_H   (LED_SEG_H * 4 + LED_SEG_GAP * 3 - 10)
 
+/* Segmento de agua del deposito, con la estetica de la P4: rectangulo lleno
+ * del color del agua (sin borde), con DOS ONDAS del color del fondo dentro.
+ * Como las ondas son del color del fondo del deposito, con el segmento apagado
+ * no se ven: solo "hay agua" cuando el segmento esta encendido.
+ * El de grises es un deposito pequeno con tres ondas y su pitorro (ver
+ * make_tanque_grises), no un segmento. */
 static lv_obj_t *make_led(lv_obj_t *parent, bool round)
 {
+    (void)round;   /* las grises ya no usan esto */
     lv_obj_t *led = lv_obj_create(parent);
-    lv_obj_set_size(led, LED_SEG_W, round ? LED_GRIS_H : LED_SEG_H);
-    lv_obj_set_style_radius(led, 3, 0);
-    lv_obj_set_style_border_width(led, 2, 0);
+    lv_obj_set_size(led, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_radius(led, 6, 0);
+    lv_obj_set_style_border_width(led, 0, 0);
     lv_obj_set_style_pad_all(led, 0, 0);
     lv_obj_clear_flag(led, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     /* Sentinela que no es ningun modo real (0/1/2): fuerza a que la primera
-     * llamada a led_set() de verdad aplique el estilo en vez de creerse que
-     * "ya esta en modo 0" solo porque el user_data por defecto tambien es 0. */
+     * llamada a led_set() de verdad aplique el estilo. */
     lv_obj_set_user_data(led, (void *)(uintptr_t)0xFF);
+
+    /* Las dos ondas del agua (mismo patron que ui_card.c de la P4). */
+    static const lv_point_precise_t onda_nivel[] = { {0, 3}, {8, 0}, {16, 3},
+                                                     {24, 0}, {32, 3}, {40, 0}, {48, 3} };
+    for (int k = 0; k < 2; k++) {
+        lv_obj_t *w = lv_line_create(led);
+        lv_line_set_points(w, onda_nivel, 7);
+        lv_obj_set_style_line_width(w, 2, 0);
+        lv_obj_set_style_line_color(w, UI_COLOR_BG, 0);
+        lv_obj_set_style_line_rounded(w, true, 0);
+        lv_obj_add_flag(w, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_clear_flag(w, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_align(w, LV_ALIGN_TOP_MID, 0, 3 + k * 7);
+    }
+
     led_set(led, 0);
     return led;
 }
@@ -635,122 +657,161 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
     lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 0);
 
-    /* Los cuatro de agua limpia van en COLUMNA y se encienden de ABAJO ARRIBA,
-     * como se llena un deposito de verdad. En fila no significaban nada: cuatro
-     * lucecitas en horizontal no dicen "nivel".
+    /* ── MISMA ESTETICA QUE LA P4 (5-nov-2026, peticion del usuario) ───────
      *
-     * COLUMN_REVERSE es lo que pone el indice 0 abajo, que es el primero que se
-     * enciende (ver refresh_aguas). Con COLUMN normal el deposito se llenaria
-     * por el techo. */
+     * Copiado del dibujo de la pantalla de 7" (ver la captura del manual):
+     *
+     *   Agua limpia: un DEPOSITO alto con marco gris, y DENTRO, a la
+     *   izquierda, la escala 4/4...1/4 alineada con cada tramo; a la derecha
+     *   los cuatro tramos, redondeados, azul oscuro los vacios y cian los
+     *   llenos, cada uno con dos ondas. Arriba, en el borde, una pastilla cian
+     *   que es la boca de llenado.
+     *
+     *   Aguas grises: otro deposito igual de marco, con el agua ROJA dentro
+     *   (es un aviso de lleno, no un nivel) y tres ondas; el desague es otra
+     *   pastilla cian, centrada y colgando por DEBAJO.
+     *
+     * La tarjeta ocupa todo el ancho: los dos depositos se reparten a los
+     * lados, no apelotonados en el centro. */
     lv_obj_t *fila = lv_obj_create(card);
-    lv_obj_set_size(fila, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_size(fila, lv_pct(100), LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(fila, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(fila, 0, 0);
     lv_obj_set_style_pad_all(fila, 0, 0);
-    lv_obj_set_style_pad_column(fila, 18, 0);
+    lv_obj_set_style_pad_hor(fila, 10, 0);
+    lv_obj_set_style_pad_top(fila, 8, 0);      /* la boca asoma por arriba */
+    lv_obj_set_style_pad_bottom(fila, 10, 0);  /* el desague cuelga por abajo */
+    lv_obj_set_style_pad_column(fila, 10, 0);
     lv_obj_set_flex_flow(fila, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(fila, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(fila, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(fila, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    /* Desplazada 10 px a la izquierda del centro: centrada del todo, la columna
-     * de agua limpia con sus fracciones quedaba metida hacia dentro de la
-     * tarjeta. Peticion del usuario, 23-ago-2026. */
-    lv_obj_align(fila, LV_ALIGN_CENTER, -10, 8);
+    lv_obj_align(fila, LV_ALIGN_CENTER, 0, 8);
 
-    /* Columna de segmentos de agua limpia, cada uno con su fraccion al lado */
-    lv_obj_t *col_limpia = lv_obj_create(fila);
-    lv_obj_set_size(col_limpia, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(col_limpia, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(col_limpia, 0, 0);
-    lv_obj_set_style_pad_all(col_limpia, 0, 0);
-    lv_obj_set_style_pad_row(col_limpia, 3, 0);
-    lv_obj_set_flex_flow(col_limpia, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(col_limpia, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_clear_flag(col_limpia, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    /* ── Deposito de agua limpia ── */
+    lv_obj_t *tanque = lv_obj_create(fila);
+    lv_obj_remove_style_all(tanque);
+    lv_obj_set_size(tanque, TANQUE_W, TANQUE_H);
+    lv_obj_set_style_radius(tanque, 10, 0);
+    lv_obj_set_style_border_width(tanque, 3, 0);
+    lv_obj_set_style_border_color(tanque, UI_COLOR_CARD_BORDER, 0);
+    lv_obj_set_style_bg_color(tanque, UI_COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(tanque, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(tanque, 5, 0);
+    lv_obj_set_style_pad_row(tanque, 4, 0);
+    lv_obj_clear_flag(tanque, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_layout(tanque, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(tanque, LV_FLEX_FLOW_COLUMN_REVERSE);   /* 1/4 abajo */
+    lv_obj_set_flex_align(tanque, LV_FLEX_ALIGN_SPACE_BETWEEN,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    lv_obj_t *leds = lv_obj_create(col_limpia);
-    lv_obj_set_size(leds, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(leds, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(leds, 0, 0);
-    lv_obj_set_style_pad_all(leds, 0, 0);
-    lv_obj_set_style_pad_row(leds, LED_SEG_GAP, 0);
-    lv_obj_set_flex_flow(leds, LV_FLEX_FLOW_COLUMN_REVERSE);
-    lv_obj_set_flex_align(leds, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_clear_flag(leds, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    /* Cada segmento va en su propia fila junto a su fraccion, para que numero y
-     * barra queden a la misma altura. El indice 0 es 1/4 y queda ABAJO
-     * (COLUMN_REVERSE): el deposito se llena de abajo arriba. */
-    static const char *const FRACCION[4] = { "1/4", "2/4", "3/4", "4/4" };
-    /* La fuente de las fracciones y SUS medidas de verdad, preguntadas a la
-     * fuente (ver el comentario de LED_SEG_H: darlas por supuestas es lo que
-     * recortaba el texto). */
-    /* lv_font_montserrat_18 y NO la 14: la 14 es macro en estilos.h y el
-     * preprocesador la encadena hasta la 26 (linea de 33 px), que con la fila
-     * de aguas ya recortada por el reparto de tres filas no cabe. La 18 no es
-     * macro: se queda en 18, con linea de 22. */
-    const lv_font_t *fuente_frac = &lv_font_montserrat_18;
-    const lv_coord_t frac_alto  = lv_font_get_line_height(fuente_frac);
-    const lv_coord_t frac_ancho = texto_ancho(fuente_frac, FRACCION[3]) + 4;
+    /* La escala va DENTRO, una fraccion por tramo (como en la 7"). */
+    static const char *const TICKS[4] = { "1/4", "2/4", "3/4", "4/4" };
     for (int i = 0; i < 4; i++) {
-        lv_obj_t *fila_seg = lv_obj_create(leds);
-        lv_obj_set_size(fila_seg, frac_ancho + 12 + LED_SEG_W, frac_alto);
-        lv_obj_set_style_bg_opa(fila_seg, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(fila_seg, 0, 0);
-        lv_obj_set_style_pad_all(fila_seg, 0, 0);
-        lv_obj_set_style_pad_column(fila_seg, 12, 0);
+        lv_obj_t *fila_seg = lv_obj_create(tanque);
+        lv_obj_remove_style_all(fila_seg);
+        lv_obj_set_size(fila_seg, lv_pct(100), lv_pct(22));
+        lv_obj_set_layout(fila_seg, LV_LAYOUT_FLEX);
         lv_obj_set_flex_flow(fila_seg, LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(fila_seg, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER,
+        lv_obj_set_flex_align(fila_seg, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                               LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(fila_seg, 5, 0);
         lv_obj_clear_flag(fila_seg, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
 
         lv_obj_t *frac = lv_label_create(fila_seg);
-        lv_label_set_text(frac, FRACCION[i]);
-        paleta_texto(frac, 0xCCCCCC, 0xFFFFFF);
-        lv_obj_set_style_text_font(frac, fuente_frac, 0);
-        lv_obj_set_width(frac, frac_ancho);
+        lv_label_set_text(frac, TICKS[i]);
+        lv_obj_set_style_text_font(frac, &lv_font_montserrat_18, 0);
+        lv_obj_set_style_text_color(frac, UI_COLOR_TEXT, 0);
+        lv_obj_set_width(frac, 34);
+        lv_label_set_long_mode(frac, LV_LABEL_LONG_CLIP);   /* "4/4" de una pieza */
         lv_obj_set_style_text_align(frac, LV_TEXT_ALIGN_RIGHT, 0);
         lv_obj_clear_flag(frac, LV_OBJ_FLAG_CLICKABLE);
 
         s_led_clean[i] = make_led(fila_seg, false);
     }
 
+    /* Boca de llenado: pastilla cian sobre el borde de arriba. */
+    {
+        lv_obj_t *tapon = lv_obj_create(fila);
+        lv_obj_remove_style_all(tapon);
+        lv_obj_set_size(tapon, 26, 7);
+        lv_obj_set_style_radius(tapon, 4, 0);
+        lv_obj_set_style_bg_color(tapon, UI_COLOR_CYAN, 0);
+        lv_obj_set_style_bg_opa(tapon, LV_OPA_COVER, 0);
+        lv_obj_add_flag(tapon, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_clear_flag(tapon, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align_to(tapon, tanque, LV_ALIGN_OUT_TOP_RIGHT, -18, -1);
+    }
 
-    /* Grises: uno solo, es alarma de lleno, no nivel */
+    /* ── Deposito de aguas grises ── */
     lv_obj_t *col_gris = lv_obj_create(fila);
-    lv_obj_set_size(col_gris, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(col_gris, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(col_gris, 0, 0);
-    lv_obj_set_style_pad_all(col_gris, 0, 0);
-    lv_obj_set_style_pad_row(col_gris, 3, 0);
+    lv_obj_remove_style_all(col_gris);
+    lv_obj_set_size(col_gris, TANQUE_W, LV_SIZE_CONTENT);
+    lv_obj_set_layout(col_gris, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(col_gris, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(col_gris, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER,
+    lv_obj_set_flex_align(col_gris, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(col_gris, 4, 0);
     lv_obj_clear_flag(col_gris, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
 
-    /* Mas grande que los de nivel: esto no es un nivel, es una ALARMA. Con el
-     * deposito de grises lleno hay que vaciar antes de seguir usando el
-     * fregadero, y en la P4 se ve como un tanque entero pintado de rojo --
-     * aqui era un puntito de 16 px que pasaba desapercibido. */
-    s_led_gray = make_led(col_gris, true);
+    lv_obj_t *tanque_gris = lv_obj_create(col_gris);
+    lv_obj_remove_style_all(tanque_gris);
+    lv_obj_set_size(tanque_gris, TANQUE_W, 54);
+    lv_obj_set_style_radius(tanque_gris, 10, 0);
+    lv_obj_set_style_border_width(tanque_gris, 3, 0);
+    lv_obj_set_style_border_color(tanque_gris, UI_COLOR_CARD_BORDER, 0);
+    lv_obj_set_style_bg_color(tanque_gris, UI_COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(tanque_gris, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(tanque_gris, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
 
-    /* El rotulo va DENTRO del bloque para no robarle alto (ver LED_GRIS_H). */
-    s_lbl_gray = lv_label_create(s_led_gray);
+    /* El agua de dentro (roja cuando esta lleno) y las tres ondas encima. */
+    s_led_gray = lv_obj_create(tanque_gris);
+    lv_obj_remove_style_all(s_led_gray);
+    lv_obj_set_size(s_led_gray, TANQUE_W - 14, 40);
+    lv_obj_set_style_radius(s_led_gray, 6, 0);
+    lv_obj_set_style_bg_color(s_led_gray, UI_COLOR_TEXT_DIM, 0);
+    lv_obj_set_style_bg_opa(s_led_gray, LV_OPA_20, 0);
+    lv_obj_align(s_led_gray, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_clear_flag(s_led_gray, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_user_data(s_led_gray, (void *)(uintptr_t)0xFF);
+
+    static const lv_point_precise_t onda_gris[] = {
+        {0, 0}, {7, 4}, {14, 0}, {21, 4}, {28, 0}, {35, 4}, {42, 0}, {49, 4},
+        {56, 0}, {63, 4}, {70, 0}
+    };
+    for (int i = 0; i < 3; i++) {
+        lv_obj_t *w = lv_line_create(tanque_gris);
+        lv_line_set_points(w, onda_gris, 11);
+        lv_obj_set_style_line_width(w, 2, 0);
+        lv_obj_set_style_line_color(w, UI_COLOR_TEXT_SOFT, 0);
+        lv_obj_set_style_line_opa(w, LV_OPA_60, 0);
+        lv_obj_set_style_line_rounded(w, true, 0);
+        lv_obj_add_flag(w, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_clear_flag(w, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_align(w, LV_ALIGN_TOP_MID, 0, 10 + i * 13);
+    }
+
+    /* Desague: pastilla cian centrada, colgando por debajo. */
+    lv_obj_add_flag(tanque_gris, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    {
+        lv_obj_t *pitorro = lv_obj_create(tanque_gris);
+        lv_obj_remove_style_all(pitorro);
+        lv_obj_set_size(pitorro, 22, 7);
+        lv_obj_set_style_radius(pitorro, 4, 0);
+        lv_obj_set_style_bg_color(pitorro, UI_COLOR_CYAN, 0);
+        lv_obj_set_style_bg_opa(pitorro, LV_OPA_COVER, 0);
+        lv_obj_add_flag(pitorro, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_clear_flag(pitorro, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        /* Centrado y asomando por el borde de abajo, como en la 7". */
+        lv_obj_align(pitorro, LV_ALIGN_BOTTOM_MID, 0, 5);
+    }
+
+    s_lbl_gray = lv_label_create(col_gris);
     lv_label_set_text(s_lbl_gray, "grises");
     lv_obj_set_style_text_color(s_lbl_gray, COL_TEXT_DIM, 0);
-    lv_obj_set_style_text_font(s_lbl_gray, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_lbl_gray, &lv_font_montserrat_18, 0);
     lv_obj_clear_flag(s_lbl_gray, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_center(s_lbl_gray);
-
-    /* Iconos del altavoz de las dos alarmas de aguas (limpia en reserva y
-     * grises llenas): arriba a la DERECHA, corridos un poco a la izquierda
-     * porque la tarjeta tiene 2 px de borde + 4 de relleno. Esta tarjeta no
-     * lleva punto de enlace (el unico esta en la de bateria), asi que no hay
-     * nada con lo que chocar. Separados 32 px: juntos (y=2 e y=26) sus zonas
-     * tactiles extendidas (AL_ICONO_EXTRA) se solapaban, y con las dos alarmas
-     * a la vez un toque entre medias callaba la que no era. */
-    al_icono_crear(card, AL_INFO_AGUA,   LV_ALIGN_TOP_RIGHT, -6, 2);
-    al_icono_crear(card, AL_INFO_GRISES, LV_ALIGN_TOP_RIGHT, -6, 34);
+    lv_obj_move_to_index(s_lbl_gray, 0);   /* el rotulo, arriba */
 
     /* Toda la tarjeta silencia: la alarma de limpia si esta activa, y si no la
      * de grises (pueden estar las dos a la vez, pero el toque calla una; el
@@ -986,9 +1047,10 @@ static void refresh_aguas(const mini_data_t *d)
         bool lleno = d->water_gray > 0;
         led_set(s_led_gray, lleno ? 2 : 0);
         lv_label_set_text(s_lbl_gray, lleno ? "LLENO" : "grises");
-        /* Sobre el bloque rojo el texto va en negro; apagado, en gris. */
+        /* Lleno se dice en ROJO (mismo aviso que el agua); el fondo es oscuro,
+         * asi que en negro no se leia. */
         lv_obj_set_style_text_color(s_lbl_gray,
-                                    lleno ? UI_COLOR_BG : COL_TEXT_DIM, 0);
+                                    lleno ? UI_COLOR_RED : COL_TEXT_DIM, 0);
     } else {
         led_set(s_led_gray, 0);
         lv_label_set_text(s_lbl_gray, "grises");
