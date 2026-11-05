@@ -220,6 +220,13 @@ static lv_obj_t   *s_water_card;
 static lv_obj_t   *s_led_clean[4];
 static lv_obj_t   *s_led_gray;
 static lv_obj_t   *s_lbl_gray;     /* el rotulo, que tambien avisa */
+/* Depositos y sus "grifos" (boca de llenado y desague). Se guardan para
+ * colocarlos en cada refresco: al crearlos, el deposito aun no tiene su tamano
+ * definitivo y align_to se iba a cualquier sitio. */
+static lv_obj_t   *s_tanque;
+static lv_obj_t   *s_tanque_gris;
+static lv_obj_t   *s_tapon;
+static lv_obj_t   *s_pitorro;
 static lv_obj_t   *s_frigo_val;
 static lv_obj_t   *s_frigo_trend;  /* flecha de tendencia */
 static lv_obj_t   *s_ext_trend;
@@ -564,7 +571,7 @@ static void led_set(lv_obj_t *led, uint8_t mode)
  * los 3 px de borde, el relleno y la columna de la fraccion. Se calcula, no se
  * pone a ojo: con pct(100) la barra llegaba al marco y se cortaba. */
 #define SEG_W  (TANQUE_W - 2 * 3 - 2 * 7 - 34 - 5)   /* ancho del deposito (como el de la 7", a escala) */
-#define TANQUE_H    110   /* alto del deposito de agua limpia */
+#define TANQUE_H     96   /* alto del deposito de agua limpia */
 #define LED_SEG_W    84
 /* ── LAS FRACCIONES MANDA EL ALTO DE LA FILA, Y ESO FUE UN FALLO (9-oct-2026) ─
  *
@@ -683,8 +690,8 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
     lv_obj_set_style_border_width(fila, 0, 0);
     lv_obj_set_style_pad_all(fila, 0, 0);
     lv_obj_set_style_pad_hor(fila, 6, 0);
-    lv_obj_set_style_pad_top(fila, 8, 0);      /* la boca asoma por arriba */
-    lv_obj_set_style_pad_bottom(fila, 10, 0);  /* el desague cuelga por abajo */
+    lv_obj_set_style_pad_top(fila, 14, 0);     /* la boca, entera por arriba */
+    lv_obj_set_style_pad_bottom(fila, 16, 0);  /* el desague, entero por abajo */
     lv_obj_set_style_pad_column(fila, 10, 0);
     lv_obj_set_flex_flow(fila, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(fila, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER,
@@ -694,6 +701,7 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
 
     /* ── Deposito de agua limpia ── */
     lv_obj_t *tanque = lv_obj_create(fila);
+    s_tanque = tanque;
     lv_obj_remove_style_all(tanque);
     lv_obj_set_size(tanque, TANQUE_W, TANQUE_H);
     lv_obj_set_style_radius(tanque, 10, 0);
@@ -740,7 +748,8 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
      * asoma porque el deposito deja ver lo que sobresale. */
     lv_obj_add_flag(tanque, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     {
-        lv_obj_t *tapon = lv_obj_create(tanque);
+        lv_obj_t *tapon = lv_obj_create(fila);
+        s_tapon = tapon;
         lv_obj_remove_style_all(tapon);
         lv_obj_set_size(tapon, 26, 7);
         lv_obj_set_style_radius(tapon, 4, 0);
@@ -748,7 +757,7 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
         lv_obj_set_style_bg_opa(tapon, LV_OPA_COVER, 0);
         lv_obj_add_flag(tapon, LV_OBJ_FLAG_IGNORE_LAYOUT);
         lv_obj_clear_flag(tapon, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_align(tapon, LV_ALIGN_TOP_RIGHT, -20, -4);
+        lv_obj_align_to(tapon, tanque, LV_ALIGN_OUT_TOP_RIGHT, -20, -1);
     }
 
     /* ── Deposito de aguas grises ── */
@@ -763,6 +772,7 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
     lv_obj_clear_flag(col_gris, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *tanque_gris = lv_obj_create(col_gris);
+    s_tanque_gris = tanque_gris;
     lv_obj_remove_style_all(tanque_gris);
     lv_obj_set_size(tanque_gris, TANQUE_W, 54);
     lv_obj_set_style_radius(tanque_gris, 10, 0);
@@ -802,7 +812,8 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
     /* Desague: pastilla cian centrada, colgando por debajo. */
     lv_obj_add_flag(tanque_gris, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     {
-        lv_obj_t *pitorro = lv_obj_create(tanque_gris);
+        lv_obj_t *pitorro = lv_obj_create(fila);
+        s_pitorro = pitorro;
         lv_obj_remove_style_all(pitorro);
         lv_obj_set_size(pitorro, 22, 7);
         lv_obj_set_style_radius(pitorro, 4, 0);
@@ -811,7 +822,7 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
         lv_obj_add_flag(pitorro, LV_OBJ_FLAG_IGNORE_LAYOUT);
         lv_obj_clear_flag(pitorro, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
         /* Centrado y asomando por el borde de abajo, como en la 7". */
-        lv_obj_align(pitorro, LV_ALIGN_BOTTOM_MID, 0, 5);
+        lv_obj_align_to(pitorro, tanque_gris, LV_ALIGN_OUT_BOTTOM_MID, 0, 1);
     }
 
     s_lbl_gray = lv_label_create(col_gris);
@@ -1039,6 +1050,15 @@ static void refresh_temp(lv_obj_t *val, bool has, int16_t centi, bool is_frigo)
  * aunque su lectura fuera buena. Detectado auditando el 07-sep-2026. */
 static void refresh_aguas(const mini_data_t *d)
 {
+    /* La boca de llenado y el desague, FUERA del marco y pegados a el. Se
+     * colocan aqui y no al crearlos: entonces el deposito mide 1 px y LVGL lo
+     * coloca despues, asi que align_to calculaba con medidas de mentira. */
+    if (s_tapon && s_tanque)
+        lv_obj_align_to(s_tapon, s_tanque, LV_ALIGN_OUT_TOP_RIGHT, -20, -1);
+    if (s_pitorro && s_tanque_gris)
+        lv_obj_align_to(s_pitorro, s_tanque_gris, LV_ALIGN_OUT_BOTTOM_MID, 0, 1);
+
+
     if (d->water_clean_has_data) {
         uint8_t cl = d->water_clean > 4 ? 4 : d->water_clean;
         for (int i = 0; i < 4; i++) {
