@@ -75,13 +75,14 @@ pantalla le manda la orden a la P4.
 
 Cuando la P4 tiene una alarma activa (agua en reserva, aguas grises llenas,
 batería baja o congelador), en la esquina de **la tarjeta que toca** sale un
-**altavoz**: con **ondas y en blanco** si esa alarma está sonando en la P4, y
-**tachado y en gris** si ya se ha callado.
+**altavoz en ROJO**: **rojo vivo con ondas** si esa alarma está sonando en la P4,
+y **rojo oscuro y tachado** si ya se ha callado (desde el 5-nov-2026 va en rojo
+siempre, para que cante de un vistazo).
 
 | Lo que ves | Qué significa |
 |---|---|
-| **Altavoz con ondas, en blanco** | Esa alarma está activa y **está sonando** en la P4 |
-| **Altavoz tachado, en gris** | Está activa pero **callada** |
+| **Altavoz rojo con ondas** | Esa alarma está activa y **está sonando** en la P4 |
+| **Altavoz rojo oscuro y tachado** | Está activa pero **callada** |
 | **No hay altavoz** | Esa tarjeta no tiene ninguna alarma |
 
 - **Un toque en el altavoz**: se calla. **Otro toque**: vuelve a sonar.
@@ -126,7 +127,7 @@ noche, no para dejar la pantalla ilegible.
 - La única parte que no vale es la **pastilla de "sin enviar"** de abajo: ahí un
   toque abre la lista, que es lo suyo.
 
-Está puesto aquí y no en Ajustes a propósito: lo que surge conduciendo se
+Está puesto aquí y no en Configuración a propósito: lo que surge conduciendo se
 resuelve en esta pantalla, sin menús y sin tener que apuntar con el dedo.
 
 Si ves **"--"** en vez de números, es que **no está llegando nada de la P4**
@@ -564,7 +565,7 @@ cerrar un viaje que está grabando **otra** pantalla. El aviso ofrece
 **«Descartarlo»**, que tira ese cierre de la cola para que los apuntes siguientes
 sigan su camino (el viaje ajeno se queda como estaba, abierto), y **«Esperar»**,
 que no toca nada. Antes ese caso se confundía con «la clave está mal» y
-mandaba a Ajustes a reescribir una clave que estaba bien, sin dejar salir de ahí.
+mandaba a Configuración a reescribir una clave que estaba bien, sin dejar salir de ahí.
 
 El viaje **no se da por empezado hasta que la P4 lo confirma**. Si algo falla te
 lo dice y todo se queda como estaba, en vez de poner «viaje en curso» mientras en
