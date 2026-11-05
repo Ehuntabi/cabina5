@@ -581,25 +581,31 @@ bool udp_rx_set_credentials(const char *ssid, const char *pass)
     /* Bajo el cerrojo (ver arriba) y guardando en NVS LO MISMO que se acaba de
      * dejar en memoria: los argumentos de quien llama, no una relectura de los
      * globales que otra tarea podria estar cambiando. */
-    creds_guardar(ssid, pass);
-    /* Lo que teclea el usuario manda: si habia un nombre de AP descubierto
-     * esperando para guardarse, ya no tiene sentido (ver s_ssid_guardar). */
-    s_ssid_nuevo_pendiente = false;
-    s_ssid_guardar = false;
-
+    /* LA NVS PRIMERO Y LA RAM DESPUES (5-nov-2026, auditoria). Estaba al reves:
+     * se copiaba a memoria y luego se intentaba guardar. Si la NVS fallaba, la
+     * pantalla seguia trabajando con lo tecleado (bien) pero udp_rx_get_credentials
+     * -- que lee la RAM -- devolvia el valor NO guardado, asi que al salir y
+     * volver a Ajustes la referencia de "lo que hay" se recolocaba sobre el y la
+     * fila Guardar/Cancelar se escondia: parecia guardado y al apagar volvia el
+     * valor viejo. Ahora, si la NVS no lo acepta, la RAM tampoco cambia y la
+     * pantalla lo dice. */
     /* LOS ARGUMENTOS, no los globales (revision independiente del 01-nov-2026):
      * esto leia s_ssid/s_pass fuera del cerrojo, y desde que hay un segundo
      * escritor (el cambio de nombre del AP) se podia guardar en NVS una pareja
      * mezclada, o el nombre alternativo que solo debe vivir en RAM. */
     esp_err_t err = save_wifi_config(ssid, pass);
     if (err != ESP_OK) {
-        /* Se reconecta igual (con lo tecleado, que vale para esta sesion),
-         * pero se avisa: sin NVS, al apagar el contacto vuelven las de antes
-         * y el usuario debe saberlo. */
+        /* Sin NVS no se toca la RAM: lo que se va a aplicar es lo que hay, y el
+         * guardado se da por fallido para que la fila siga pidiendo guardar. */
         ESP_LOGW(TAG, "No se pudo guardar la configuracion Wi-Fi en NVS (%s): "
-                      "el cambio solo durara hasta el proximo apagado",
-                 esp_err_to_name(err));
+                      "no aplico el cambio", esp_err_to_name(err));
+        return false;
     }
+    creds_guardar(ssid, pass);
+    /* Lo que teclea el usuario manda: si habia un nombre de AP descubierto
+     * esperando para guardarse, ya no tiene sentido (ver s_ssid_guardar). */
+    s_ssid_nuevo_pendiente = false;
+    s_ssid_guardar = false;
     /* EL TRABAJO DEL DRIVER VA EN SU PROPIA TAREA (16-oct-2026). Aqui se hacia
      * entero, en la tarea que llama -- que al guardar desde Ajustes es LA DE
      * LVGL, la que dibuja --, y el banco enseño el precio: justo despues de

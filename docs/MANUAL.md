@@ -810,8 +810,8 @@ Cuatro campos, todos en la misma pantalla:
   todo lo que esta pantalla le manda: los apuntes del viaje y **callar las
   alarmas**. Se leen en la P4, en **Ajustes → Wi-Fi**, en la tarjeta del punto de
   acceso. La **otra**, la de **administración**, **no** se pone aquí: esa solo hace
-  falta para actualizar y descargar. Sin ellas, al iniciar un viaje sale "La P4 no
-  acepta la clave".
+  falta para actualizar, descargar, las claves de los Victron y borrar un viaje. Sin
+  ellas, al iniciar un viaje sale "La P4 no acepta la clave".
 
 **Para escribir en un campo, tócalo**: se abre un editor a pantalla completa con
 el nombre del campo arriba, el texto en grande y el teclado debajo; se acepta con

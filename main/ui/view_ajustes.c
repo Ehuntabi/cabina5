@@ -316,6 +316,14 @@ static void refresca_botones(void)
         wifi_estado_color("Cambios sin guardar", UI_COLOR_ORANGE);
     } else {
         lv_obj_add_flag(s_fila_botones, LV_OBJ_FLAG_HIDDEN);
+        /* Y el aviso se retira: si tecleas una letra y la borras, o si vuelves
+         * a poner el valor que habia, el naranja se quedaba puesto sin botones
+         * (lo canto la auditoria del 05-nov-2026). Solo se limpia ESE texto:
+         * los "Guardado." y los errores se respetan. */
+        if (s_status_lbl &&
+            strcmp(lv_label_get_text(s_status_lbl), "Cambios sin guardar") == 0) {
+            wifi_estado_color("", UI_COLOR_TEXT_DIM);
+        }
     }
 }
 
@@ -701,9 +709,16 @@ static void do_guardar(void *ud)
         snprintf(s_pass_orig, sizeof(s_pass_orig), "%s", pass);
     }
 
-    bool ok_portal = (save_portal_creds(lv_textarea_get_text(s_http_user_ta),
-                                         lv_textarea_get_text(s_http_pass_ta))
-                      == ESP_OK);
+    /* La clave del portal, con el mismo criterio que el cartel: si no esta
+     * vacia tiene que llegar a 8 (es la del punto de acceso, WPA2). */
+    const char *hp = lv_textarea_get_text(s_http_pass_ta);
+    bool ok_portal;
+    if (hp[0] != '\0' && strlen(hp) < 8) {
+        ok_portal = false;
+        ESP_LOGW(TAG, "Guardado del portal cancelado: la clave tiene menos de 8");
+    } else {
+        ok_portal = (save_portal_creds(lv_textarea_get_text(s_http_user_ta), hp) == ESP_OK);
+    }
     if (ok_portal) {
         snprintf(s_http_user_orig, sizeof(s_http_user_orig), "%s",
                  lv_textarea_get_text(s_http_user_ta));
@@ -734,8 +749,17 @@ static void do_guardar(void *ud)
 static void guardar_solo_portal(void *ud)
 {
     (void)ud;
+    /* UNA CLAVE CORTA NO SE GUARDA (5-nov-2026, auditoria): la P4 compara esta
+     * clave con la del punto de acceso, que es WPA2 (8 minimo). Antes se grababa
+     * cualquier cosa y la pantalla decia "Guardado." aunque la P4 fuera a
+     * rechazarla en cada apunte. Vacia si se admite: es "aqui no hay portal". */
+    const char *hp = lv_textarea_get_text(s_http_pass_ta);
+    if (hp[0] != '\0' && strlen(hp) < 8) {
+        wifi_estado_color("Clave del portal no valida (minimo 8)", UI_COLOR_RED);
+        return;
+    }
     bool ok = (save_portal_creds(lv_textarea_get_text(s_http_user_ta),
-                                 lv_textarea_get_text(s_http_pass_ta)) == ESP_OK);
+                                 hp) == ESP_OK);
     if (ok) {
         snprintf(s_http_user_orig, sizeof(s_http_user_orig), "%s",
                  lv_textarea_get_text(s_http_user_ta));
