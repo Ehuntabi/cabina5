@@ -757,7 +757,10 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
         lv_obj_set_style_bg_opa(tapon, LV_OPA_COVER, 0);
         lv_obj_add_flag(tapon, LV_OBJ_FLAG_IGNORE_LAYOUT);
         lv_obj_clear_flag(tapon, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_align_to(tapon, tanque, LV_ALIGN_OUT_TOP_RIGHT, -20, -1);
+        /* A LA IZQUIERDA (05-nov-2026, peticion del dueño): estaba arriba a la
+         * derecha del deposito, justo debajo del rotulo "AGUAS" y se
+         * confundian. Al otro extremo queda sola, sobre la esquina izquierda. */
+        lv_obj_align_to(tapon, tanque, LV_ALIGN_OUT_TOP_LEFT, 20, -1);
     }
 
     /* ── Deposito de aguas grises ── */
@@ -1054,7 +1057,7 @@ static void refresh_aguas(const mini_data_t *d)
      * colocan aqui y no al crearlos: entonces el deposito mide 1 px y LVGL lo
      * coloca despues, asi que align_to calculaba con medidas de mentira. */
     if (s_tapon && s_tanque)
-        lv_obj_align_to(s_tapon, s_tanque, LV_ALIGN_OUT_TOP_RIGHT, -20, -1);
+        lv_obj_align_to(s_tapon, s_tanque, LV_ALIGN_OUT_TOP_LEFT, 20, -1);
     if (s_pitorro && s_tanque_gris)
         lv_obj_align_to(s_pitorro, s_tanque_gris, LV_ALIGN_OUT_BOTTOM_MID, 0, 1);
 
