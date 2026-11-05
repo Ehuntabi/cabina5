@@ -1378,9 +1378,10 @@ static void al_refresh_iconos(void)
         }
         bool callada = s_al[i].silenciada;
         lv_label_set_text(ic, callada ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
-        /* Con el sonido puesto, el altavoz CON ondas en blanco invita a
-         * tocarlo; callado, tachado y en gris se lee de un vistazo. */
-        lv_obj_set_style_text_color(ic, callada ? UI_COLOR_TEXT_DIM : COL_TEXT, 0);
+        /* EN ROJO SIEMPRE (5-nov-2026, peticion del usuario): el altavoz es el
+         * mute de las alarmas y tiene que cantar. Callado va en rojo oscuro y
+         * con el altavoz tachado; sonando, en rojo vivo y con las ondas. */
+        lv_obj_set_style_text_color(ic, callada ? UI_COLOR_RED_DARK : UI_COLOR_RED, 0);
         lv_obj_clear_flag(ic, LV_OBJ_FLAG_HIDDEN);
     }
 }
@@ -1861,7 +1862,11 @@ void view_info_create(lv_obj_t *parent)
      * izquierda porque ahi ya esta el punto de enlace de la tarjeta (12 px de
      * punto + su margen). A la izquierda no cabe: ese hueco lo ocupa el icono
      * del GPS de la P4, que va en la pantalla, no en la tarjeta. */
-    al_icono_crear(s_gps_card, AL_INFO_BATERIA, LV_ALIGN_TOP_RIGHT, -6, 2);
+    /* El altavoz de la alarma de bateria va corrido a la izquierda: la tarjeta
+     * de BATERIA es la unica que lleva el PILOTO de enlace (el punto verde) en
+     * la esquina, y con -6 se pintaban uno encima del otro (5-nov-2026). El
+     * punto ocupa 12 px desde el borde: con -26 quedan separados. */
+    al_icono_crear(s_gps_card, AL_INFO_BATERIA, LV_ALIGN_TOP_RIGHT, -26, 2);
     /* La tarjeta entera silencia. Va con EVENT_BUBBLE para que el toque suba
      * desde el dibujo y los numeros, que son objetos hijos (mismo patron que
      * usan los botones de la card camper). */
