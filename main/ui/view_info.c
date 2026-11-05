@@ -559,7 +559,11 @@ static void led_set(lv_obj_t *led, uint8_t mode)
  * Los de limpia son SEGMENTOS anchos y bajos, no cuadraditos: apilados leen
  * como un deposito. El de grises es un bloque del alto de dos segmentos y algo
  * mas, para que pese lo mismo que la columna sin ser un puntito. */
-#define TANQUE_W    132   /* ancho del deposito (como el de la 7", a escala) */
+#define TANQUE_W    132
+/* Ancho de la barra de agua: el hueco que queda DENTRO del marco, descontando
+ * los 3 px de borde, el relleno y la columna de la fraccion. Se calcula, no se
+ * pone a ojo: con pct(100) la barra llegaba al marco y se cortaba. */
+#define SEG_W  (TANQUE_W - 2 * 3 - 2 * 7 - 34 - 5)   /* ancho del deposito (como el de la 7", a escala) */
 #define TANQUE_H    110   /* alto del deposito de agua limpia */
 #define LED_SEG_W    84
 /* ── LAS FRACCIONES MANDA EL ALTO DE LA FILA, Y ESO FUE UN FALLO (9-oct-2026) ─
@@ -600,7 +604,7 @@ static lv_obj_t *make_led(lv_obj_t *parent, bool round)
 {
     (void)round;   /* las grises ya no usan esto */
     lv_obj_t *led = lv_obj_create(parent);
-    lv_obj_set_size(led, lv_pct(100), lv_pct(100));
+    lv_obj_set_size(led, SEG_W, lv_pct(100));
     lv_obj_set_style_radius(led, 6, 0);
     lv_obj_set_style_border_width(led, 0, 0);
     lv_obj_set_style_pad_all(led, 0, 0);
@@ -620,7 +624,7 @@ static lv_obj_t *make_led(lv_obj_t *parent, bool round)
         lv_obj_set_style_line_rounded(w, true, 0);
         lv_obj_add_flag(w, LV_OBJ_FLAG_IGNORE_LAYOUT);
         lv_obj_clear_flag(w, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_align(w, LV_ALIGN_TOP_MID, 0, 3 + k * 7);
+        lv_obj_align(w, LV_ALIGN_CENTER, 0, -3 + k * 8);
     }
 
     led_set(led, 0);
@@ -697,7 +701,7 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
     lv_obj_set_style_border_color(tanque, UI_COLOR_CARD_BORDER, 0);
     lv_obj_set_style_bg_color(tanque, UI_COLOR_BG, 0);
     lv_obj_set_style_bg_opa(tanque, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_all(tanque, 5, 0);
+    lv_obj_set_style_pad_all(tanque, 7, 0);
     lv_obj_set_style_pad_row(tanque, 4, 0);
     lv_obj_clear_flag(tanque, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_layout(tanque, LV_LAYOUT_FLEX);
