@@ -26,6 +26,7 @@ static const char *TAG = "capture_carousel";
  * nada conectado, asi que la P4 manda todo como "sin dato" y solo se ven --.
  * Lo usan los dos modos: el carrusel de capturas y el "solo datos". */
 #if CAPTURE_CAROUSEL_ENABLE || CAPTURE_CAROUSEL_SOLO_DATOS
+static void sim_tick_cb(lv_timer_t *t);
 static void inject_sim_data(void)
 {
     mini_data_t d = {0};
@@ -68,6 +69,12 @@ static void inject_sim_data(void)
     data_model_set_simulated(&d);
 }
 #endif
+
+static void sim_tick_cb(lv_timer_t *t)
+{
+    (void)t;
+    inject_sim_data();
+}
 
 #if CAPTURE_CAROUSEL_ENABLE
 
@@ -643,7 +650,12 @@ void capture_carousel_start(void)
 #elif CAPTURE_CAROUSEL_SOLO_DATOS
     inject_sim_data();
     view_info_captura_alarma_silenciada();
-    ESP_LOGW(TAG, "datos de ejemplo inyectados (modo banco, sin carrusel)");
+    /* Se REPITE cada segundo (06-nov-2026): inyectado una sola vez, a los 5 s
+     * el modelo da los datos por caducados y la pantalla vuelve a "--" (y el
+     * punto de enlace se pone rojo). Repitiéndolo, el banco se ve como una
+     * instalación de verdad: cifras y punto verde. */
+    lv_timer_create((lv_timer_cb_t)sim_tick_cb, 1000, NULL);
+    ESP_LOGW(TAG, "datos de ejemplo inyectados cada segundo (modo banco)");
 #endif
 }
 

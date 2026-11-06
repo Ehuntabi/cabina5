@@ -42,8 +42,12 @@
 #include "esp_log.h"
 #include <stdio.h>
 
-#define COL_CARD_BG_TOP  UI_COLOR_CARD
-#define COL_CARD_BG_BOT  UI_COLOR_CARD
+/* Superficie de tarjeta un punto más oscura y filo neutro (06-nov-2026):
+ * así queda la pantalla en la referencia aprobada (estilo 2). El color de cada
+ * tarjeta sigue en sus cifras y en sus dibujos, no en el marco. */
+#define COL_CARD_BG_TOP  lv_color_hex(0x0E141E)
+#define COL_CARD_BG_BOT  lv_color_hex(0x0E141E)
+#define COL_CARD_FILO    lv_color_hex(0x26303E)
 #define COL_TEXT         UI_COLOR_TEXT
 /* ── Paleta con dos modos ──────────────────────────────────────────────────
  * El 30% de brillo se queda con los colores de siempre. Con el 100% (que es lo
@@ -646,9 +650,9 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
     lv_obj_set_style_bg_grad_color(card, COL_CARD_BG_BOT, 0);
     lv_obj_set_style_bg_grad_dir(card, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-    paleta_borde(card, 0x29B6F6, 0xFFFFFF);
-    lv_obj_set_style_border_width(card, 2, 0);
-    lv_obj_set_style_radius(card, 10, 0);
+    paleta_borde(card, 0x26303E, 0x8A93A6);
+    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_set_style_radius(card, 12, 0);
     lv_obj_set_style_pad_all(card, 4, 0);
     lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
     /* Mismo burbujeo que make_card(): asi el toque en la tarjeta sube hasta la
@@ -663,8 +667,9 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
      * el de la tarjeta de bateria, que es la principal. */
     lv_obj_t *t = lv_label_create(card);
     lv_label_set_text(t, "AGUAS");
-    paleta_texto(t, 0x29B6F6, 0xFFFFFF);
+    paleta_texto(t, 0x788496, 0xFFFFFF);
     lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_letter_space(t, 2, 0);
     lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 0);
 
@@ -709,6 +714,11 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
     lv_obj_set_style_border_color(tanque, UI_COLOR_CARD_BORDER, 0);
     lv_obj_set_style_bg_color(tanque, UI_COLOR_BG, 0);
     lv_obj_set_style_bg_opa(tanque, LV_OPA_COVER, 0);
+    /* 20 px MÁS ABAJO (06-nov-2026, pedido del dueño). El tapón se recoloca
+     * solo con el depósito porque va anclado a él en cada refresco
+     * (lv_obj_align_to), así que basta con mover este objeto: no se recorta
+     * nada ni se toca el dibujo. */
+    lv_obj_set_style_translate_y(tanque, 20, 0);
     lv_obj_set_style_pad_all(tanque, 7, 0);
     lv_obj_set_style_pad_row(tanque, 4, 0);
     lv_obj_clear_flag(tanque, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
@@ -1564,9 +1574,9 @@ static lv_obj_t *make_card(lv_obj_t *grid, lv_color_t border, const char *titulo
     lv_obj_set_style_bg_grad_color(card, COL_CARD_BG_BOT, 0);
     lv_obj_set_style_bg_grad_dir(card, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-    paleta_borde_auto(card, border);
-    lv_obj_set_style_border_width(card, 2, 0);
-    lv_obj_set_style_radius(card, 10, 0);
+    paleta_borde(card, 0x26303E, 0x8A93A6);
+    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_set_style_radius(card, 12, 0);
     lv_obj_set_style_pad_all(card, 8, 0);
     lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
     /* Las tarjetas no hacen nada al tocarlas, pero SI se tragan el toque (un
@@ -1591,8 +1601,9 @@ static lv_obj_t *make_card(lv_obj_t *grid, lv_color_t border, const char *titulo
 
     lv_obj_t *t = lv_label_create(card);
     lv_label_set_text(t, titulo);
-    lv_obj_set_style_text_color(t, border, 0);
+    paleta_texto(t, 0x788496, 0xFFFFFF);
     lv_obj_set_style_text_font(t, fuente_titulo, 0);
+    lv_obj_set_style_text_letter_space(t, 2, 0);
     /* No clickable: si no, el titulo se tragaria el toque y ni la tarjeta ni
      * el doble toque del brillo lo verian (ver el bloque de abajo). */
     lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
