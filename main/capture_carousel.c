@@ -27,6 +27,7 @@ static const char *TAG = "capture_carousel";
  * Lo usan los dos modos: el carrusel de capturas y el "solo datos". */
 #if CAPTURE_CAROUSEL_ENABLE || CAPTURE_CAROUSEL_SOLO_DATOS
 static void sim_tick_cb(lv_timer_t *t);
+static void sim_tick_cb(lv_timer_t *t);
 static void inject_sim_data(void)
 {
     mini_data_t d = {0};
@@ -68,13 +69,14 @@ static void inject_sim_data(void)
     d.last_update_ms       = (uint32_t)(esp_timer_get_time() / 1000);
     data_model_set_simulated(&d);
 }
-#endif
 
+/* Repite la inyección cada segundo (ver el comentario en el arranque). */
 static void sim_tick_cb(lv_timer_t *t)
 {
     (void)t;
     inject_sim_data();
 }
+#endif
 
 #if CAPTURE_CAROUSEL_ENABLE
 
