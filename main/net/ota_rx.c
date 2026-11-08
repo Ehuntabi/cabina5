@@ -649,8 +649,14 @@ static bool http_get_corto(const char *url, char *cuerpo, size_t n, int *estado)
 static bool pedir_info(char *ver, size_t nver, uint32_t *bytes, char *sha, size_t nsha,
                        char *motivo, size_t nmotivo)
 {
-    char url[96];
-    snprintf(url, sizeof url, "%s/api/pantalla/info", p4_api_host());
+    /* DECIRLE A LA P4 QUE VERSION LLEVAMOS (08-nov-2026): con ?ver= la P4 sabe
+     * si el .bin que guarda es mas viejo que el instalado, y en ese caso lo
+     * borra y contesta null en vez de anunciar un retroceso (ver
+     * ota_pantalla.c, la invariante). Una P4 anterior ignora el parametro. */
+    const esp_app_desc_t *app = esp_app_get_description();
+    char url[128];
+    snprintf(url, sizeof url, "%s/api/pantalla/info?ver=%s", p4_api_host(),
+             app ? app->version : "");
 
     char json[OTA_INFO_MAX];
     int estado = 0;

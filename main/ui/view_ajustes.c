@@ -16,6 +16,7 @@
 #include "view_info.h"
 #include "nav.h"       /* nav_close_ajustes(): salir de esta pantalla */
 #include "../net/udp_rx.h"
+#include "../net/p4_creds.h"   /* lo que se manda de verdad a la P4 (una sola clave) */
 #include "../net/ota_rx.h"   /* actualizacion por Wi-Fi: la lanza y se pinta aqui */
 #include "../net/mini_proto.h"   /* MINI_PROTO_VERSION: el diagnostico del enlace */
 #include "confirm_screen.h"
@@ -49,7 +50,7 @@ static lv_obj_t *s_brillo_min_lbl;
  *
  * Hasta hoy los dos niveles eran fijos (100 y 85) y para cambiar el bajo habia
  * que recompilar y grabar. El doble toque (y el toque largo) en Datos alterna
- * 100 con ESTE valor, asi que aqui es donde se elige cual es, de 5 en 5.
+ * 100 con ESTE valor, asi que aqui es donde se elige cual es, de 1 en 1.
  *
  * Se llama a brillo_min_set(), que lo acota, lo guarda y -- si la pantalla esta
  * ahora en el nivel bajo -- lo aplica en el acto. Asi se ve lo que se esta
@@ -238,6 +239,21 @@ static lv_obj_t *make_field_en(lv_obj_t *parent, const char *label_text, uint32_
     return ta;
 }
 
+/* Un campo que solo se LEE: mismo sitio y mismo tamaño, pero sin editor a
+ * pantalla completa al tocarlo. Se usa para las credenciales del PORTAL de la
+ * P4, que desde el 08-nov-2026 no se teclean: se derivan de la clave del Wi-Fi
+ * (ver net/p4_creds.c). Enseñarlas y dejar que se cambien aparte era justo el
+ * agujero por el que la cabina se quedo mandando una clave vieja y comiendo un
+ * 401 detras de otro, con el Wi-Fi perfectamente asociado y la pantalla sin
+ * decir por que no arrancaba un viaje. */
+static void campo_solo_lectura(lv_obj_t *ta)
+{
+    if (!ta) return;
+    lv_obj_remove_event_cb(ta, ta_click_cb);
+    lv_obj_clear_flag(ta, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_text_color(ta, UI_COLOR_TEXT_DIM, 0);
+}
+
 /* Cabecera de grupo: dice QUE es cada bloque de campos. El texto que antes iba
  * en parrafos de ayuda sueltos (que se comian 58 px de alto) cabe aqui. */
 static void make_grupo_en(lv_obj_t *parent, const char *texto, int y)
@@ -328,7 +344,21 @@ static void refresca_botones(void)
 }
 
 /* Lo manda el campo cuando cambia de verdad: el editor a pantalla completa
- * (entry_screen.c) avisa UNA sola vez al volcar el texto. */
+ * (entry_screen.c) avisa UNA sola vez al volcar el texto.
+ *
+ * AQUI NO SE COPIA NADA AL CAMPO DEL PORTAL (08-nov-2026). La primera version
+ * lo copiaba en caliente y REBOTABA: lv_textarea_set_text() manda
+ * VALUE_CHANGED, se volvia a entrar, el texto del campo aun no estaba
+ * actualizado, se volvia a llamar a set_text... hasta desbordar la pila.
+ * "assert heap_caps_free: free() target pointer is outside heap areas" al
+ * abrir Configuracion, con la traza repitiendo campo_cambiado_cb ->
+ * lv_textarea_set_text -> lv_textarea_add_char.
+ *
+ * El campo del portal es de SOLO LECTURA y no hace falta sincronizarlo en cada
+ * tecla: se rellena al abrir la pantalla (view_ajustes_refresh, desde
+ * p4_creds_cargar) y al guardar (do_guardar). Con el texto que se ve: lo que se
+ * manda es la clave del Wi-Fi, y el aviso naranja de "Cambios sin guardar" dice
+ * que aun no se ha aplicado. */
 static void campo_cambiado_cb(lv_event_t *e)
 {
     (void)e;
@@ -709,28 +739,31 @@ static void do_guardar(void *ud)
         snprintf(s_pass_orig, sizeof(s_pass_orig), "%s", pass);
     }
 
-    /* La clave del portal, con el mismo criterio que el cartel: si no esta
-     * vacia tiene que llegar a 8 (es la del punto de acceso, WPA2). */
-    const char *hp = lv_textarea_get_text(s_http_pass_ta);
+    /* LA CLAVE DEL PORTAL ES LA DEL WI-FI (08-nov-2026). No se guarda lo que
+     * hubiera en el campo del portal -- es de solo lectura -- sino la misma que
+     * se acaba de guardar como clave de la red: asi no pueden discrepar nunca.
+     * Si la red esta bien, el portal esta bien; y si la red esta mal, no hay
+     * asociacion y se ve en el acto ("P4: sin red"). */
     const char *hu = lv_textarea_get_text(s_http_user_ta);
-    bool ok_portal;
-    if (hp[0] != '\0' && strlen(hp) < 8) {
-        ok_portal = false;
-        ESP_LOGW(TAG, "Guardado del portal cancelado: la clave tiene menos de 8");
-    } else if (strlen(hp) > 32) {
-        ok_portal = false;
-        ESP_LOGW(TAG, "Guardado del portal cancelado: la clave pasa de 32");
-    } else if (strcmp(hu, "p4") != 0 && !(hu[0] == '\0' && hp[0] == '\0')) {
-        ok_portal = false;
-        ESP_LOGW(TAG, "Guardado del portal cancelado: el usuario no es p4 (o falta)");
-    } else {
-        ok_portal = (save_portal_creds(lv_textarea_get_text(s_http_user_ta), hp) == ESP_OK);
+    const char *hu_ok = hu[0] ? hu : "p4";
+    bool ok_portal = false;
+    if (ok_wifi) {
+        ok_portal = (save_portal_creds(hu_ok, pass) == ESP_OK);
+        if (!ok_portal) ESP_LOGW(TAG, "no pude guardar la clave del portal en NVS");
     }
-    if (ok_portal) {
-        snprintf(s_http_user_orig, sizeof(s_http_user_orig), "%s",
-                 lv_textarea_get_text(s_http_user_ta));
-        snprintf(s_http_pass_orig, sizeof(s_http_pass_orig), "%s",
-                 lv_textarea_get_text(s_http_pass_ta));
+    /* LA REFERENCIA SE ACTUALIZA AUNQUE FALLE LA NVS (08-nov-2026, arbitro): la
+     * clave EFECTIVA es la del Wi-Fi -- p4_creds.c la deriva de ahi y la copia
+     * de la NVS se autocorrige sola en la siguiente lectura --. Antes, si fallaba
+     * `save_portal_creds`, la referencia se quedaba vieja, el boton Guardar no se
+     * iba nunca (sin cambios que guardar ya no habia rama que lo resolviera) y el
+     * campo seguia enseñando la clave anterior: la pantalla mentia. */
+    if (ok_wifi) {
+        snprintf(s_http_user_orig, sizeof(s_http_user_orig), "%s", hu_ok);
+        snprintf(s_http_pass_orig, sizeof(s_http_pass_orig), "%s", pass);
+        /* El campo de solo lectura pasa a enseñar la clave nueva. */
+        s_cargando = true;
+        lv_textarea_set_text(s_http_pass_ta, pass);
+        s_cargando = false;
     }
 
     /* Primero la fila (si algo quedo pendiente, la pone en naranja) y despues
@@ -743,7 +776,7 @@ static void do_guardar(void *ud)
         wifi_estado("Aqui no; el portal si se ha guardado", false);
         ESP_LOGW(TAG, "Guardado a medias: wifi=0 portal=%d", ok_portal);
     } else if (!ok_portal) {
-        wifi_estado("Red guardada; el portal no (mira usuario y clave)", false);
+        wifi_estado("Red guardada; la del portal no", false);
         ESP_LOGW(TAG, "Guardado a medias: wifi=%d portal=0", ok_wifi);
     } else {
         wifi_estado("Guardado, reconectando...", true);
@@ -751,54 +784,19 @@ static void do_guardar(void *ud)
     }
 }
 
-/* Guarda SOLO las credenciales del PORTAL. Es la accion del boton rojo
- * ("Cancelar") del cartel "Cambiar de red?" (D7).
+/* El boton rojo ("Cancelar") del cartel "Cambiar de red?".
  *
- * POR QUE HACE FALTA: si has cambiado la red, el cartel pregunta antes de
- * tocar la Wi-Fi. Si decides cancelar, hasta ahora se salia sin guardar NADA,
- * asi que lo que habias tecleado en Usuario/Clave del portal se perdia sin
- * avisar (la red no se toca, pero el portal si se puede guardar sin riesgo).
- * Este callback guarda esa parte y lo dice en la linea de estado. */
+ * ANTES guardaba la clave del portal que se hubiera tecleado aparte (D7). Desde
+ * el 08-nov-2026 el portal no tiene clave propia -- es la del Wi-Fi (ver
+ * net/p4_creds.c) --, asi que aqui NO hay nada que guardar: la NVS se queda
+ * como estaba. Y guardar la clave NUEVA (la del campo, todavia sin aplicar a la
+ * red) seria volver a separar las dos claves, que es exactamente el fallo que
+ * esto arregla: la pantalla mandaria al portal una clave que la P4 no conoce y
+ * el Wi-Fi seguiria con la vieja. */
 static void guardar_solo_portal(void *ud)
 {
     (void)ud;
-    /* UNA CLAVE CORTA NO SE GUARDA (5-nov-2026, auditoria): la P4 compara esta
-     * clave con la del punto de acceso, que es WPA2 (8 minimo). Antes se grababa
-     * cualquier cosa y la pantalla decia "Guardado." aunque la P4 fuera a
-     * rechazarla en cada apunte. Vacia si se admite: es "aqui no hay portal". */
-    const char *hp = lv_textarea_get_text(s_http_pass_ta);
-    if (hp[0] != '\0' && strlen(hp) < 8) {
-        wifi_estado_color("Clave del portal no valida (minimo 8)", UI_COLOR_RED);
-        return;
-    }
-    if (strlen(hp) > 32) {
-        wifi_estado_color("Clave del portal: maximo 32 (la P4 no admite mas)", UI_COLOR_RED);
-        return;
-    }
-    const char *hu = lv_textarea_get_text(s_http_user_ta);
-    if (strcmp(hu, "p4") != 0 && !(hu[0] == '\0' && hp[0] == '\0')) {
-        /* O los dos vacios ("aqui no hay portal") o el usuario es p4: con otro
-         * usuario, o con usuario vacio y clave puesta, la P4 contesta 401 y el
-         * mensaje "Guardado" seria mentira (auditoria 05-nov-2026). */
-        wifi_estado_color("El usuario del portal de la P4 es p4", UI_COLOR_RED);
-        return;
-    }
-    bool ok = (save_portal_creds(lv_textarea_get_text(s_http_user_ta),
-                                 hp) == ESP_OK);
-    if (ok) {
-        snprintf(s_http_user_orig, sizeof(s_http_user_orig), "%s",
-                 lv_textarea_get_text(s_http_user_ta));
-        snprintf(s_http_pass_orig, sizeof(s_http_pass_orig), "%s",
-                 lv_textarea_get_text(s_http_pass_ta));
-    }
-    refresca_botones();
-    if (!ok) {
-        wifi_estado("No he podido guardarlo", false);
-    } else if (!hay_cambios()) {
-        wifi_estado("Guardado.", true);
-    }
-    /* Si la red sigue pendiente, el naranja de refresca_botones ya lo dice:
-     * un verde aqui daria por guardado tambien lo que falta. */
+    wifi_estado_color("Cambio de red cancelado", UI_COLOR_TEXT_DIM);
 }
 
 /* Cambiar la red no es un ajuste cualquiera: si te equivocas de SSID o de
@@ -814,12 +812,12 @@ static void guardar_cb(lv_event_t *e)
 
     bool cambio_red = strcmp(ssid, s_ssid_orig) != 0 || strcmp(pass, s_pass_orig) != 0;
 
-    /* Las del portal se guardan SIN preguntar: equivocarse ahi no deja la
-     * pantalla incomunicada, solo hace que la P4 rechace los apuntes con un
-     * mensaje claro. La confirmacion se reserva para lo que si puede dejarte
-     * sin datos, que es cambiar de red. */
+    /* Las del portal NO se guardan aparte: son las de la red (ver
+     * net/p4_creds.c). Antes se guardaban "sin preguntar" porque equivocarse
+     * ahi solo dejaba la P4 rechazando apuntes; desde que no hay clave aparte,
+     * sin cambio de red no hay nada que guardar. */
     if (!cambio_red) {
-        guardar_solo_portal(NULL);
+        refresca_botones();
         return;
     }
 
@@ -862,8 +860,11 @@ void view_ajustes_refresh(void)
     lv_textarea_set_text(s_pass_ta, s_pass_orig);
 
     char hu[33] = {0}, hp[65] = {0};
-    size_t hul = sizeof(hu), hpl = sizeof(hp);
-    load_portal_creds(hu, &hul, hp, &hpl);   /* si no hay nada, quedan vacios */
+    /* LO EFECTIVO, no lo guardado (08-nov-2026): la clave del portal es la del
+     * Wi-Fi y quien lo decide es p4_creds_cargar() -- que ademas corrige en NVS
+     * la copia que se hubiera quedado desfasada. Asi lo que se enseña aqui es
+     * exactamente lo que se manda a la P4. */
+    if (!p4_creds_cargar(hu, sizeof hu, hp, sizeof hp)) { hu[0] = '\0'; hp[0] = '\0'; }
     /* La referencia del portal es lo que habia: si no, recien abierta la
      * pantalla el usuario/la clave vacios ya contarian como un cambio. */
     snprintf(s_http_user_orig, sizeof(s_http_user_orig), "%s", hu);
@@ -969,8 +970,8 @@ void view_ajustes_create(lv_obj_t *parent)
 
     /* EL MINIMO DE BRILLO (21-oct-2026). El nivel alto es siempre 100 y se
      * alterna con el doble toque en la pantalla de datos; lo que se elige AQUI
-     * es el nivel bajo, de 5 en 5 entre 5 y 80 (por encima de 80 este panel no
-     * se nota y por debajo de 5 se queda sin luz, ver brillo.h). */
+     * es el nivel bajo, de 1 en 1 entre 5 y 100 (por debajo de 80 este panel
+     * da muy poca luz; ver el aviso de brillo.h). */
     lv_obj_t *brow = lv_obj_create(s_menu);
     lv_obj_set_size(brow, lv_pct(100), 88);
     lv_obj_set_style_bg_opa(brow, LV_OPA_TRANSP, 0);
@@ -1211,9 +1212,19 @@ void view_ajustes_create(lv_obj_t *parent)
      * contestaba 401 (o no dejaba entrar al Wi-Fi). */
     s_pass_ta = make_field_en(s_wifi, "Password", 32, true, FILA_F2_Y);      /* s_pass[65] en udp_rx.c */
 
-    make_grupo_en(s_wifi, "PORTAL DE LA P4 (usuario y clave para entrar en la web)", FILA_G2_Y);
+    /* DE SOLO LECTURA (08-nov-2026). La P4 usa UNA sola clave: la del punto de
+     * acceso es tambien la del portal (Ajustes de la P4 -> Wi-Fi lo dice). Aqui
+     * se enseñan -- usuario "p4" y la misma clave que el campo "Password" de
+     * arriba, rellenada al abrir la pantalla y al guardar -- y no se pueden
+     * teclear.
+     * Antes eran dos campos independientes: la copia vieja se quedaba ahi sin
+     * que nadie la comprobara, el Wi-Fi seguia asociando y la P4 contestaba 401
+     * a todo (viajes y "Actualizar pantalla") sin que se supiera por que. */
+    make_grupo_en(s_wifi, "PORTAL DE LA P4 (usuario p4 y la MISMA clave del Wi-Fi)", FILA_G2_Y);
     s_http_user_ta = make_field_en(s_wifi, "Usuario", 32, false, FILA_F3_Y);   /* hu[33] en view_ajustes_refresh */
     s_http_pass_ta = make_field_en(s_wifi, "Clave", 32, true, FILA_F4_Y);     /* hp[65] en view_ajustes_refresh */
+    campo_solo_lectura(s_http_user_ta);
+    campo_solo_lectura(s_http_pass_ta);
 
     /* Cualquier cambio en CUALQUIERA de las dos claves saca la fila de botones.
      * El editor a pantalla completa manda VALUE_CHANGED una sola vez al volcar
