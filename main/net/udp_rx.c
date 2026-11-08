@@ -1110,6 +1110,7 @@ static void rx_task(void *arg)
             s_drop_tam = n;
             portEXIT_CRITICAL(&s_mux_drop);
             s_msgs_bad++;
+            manda_latido(sock);   /* tambien al DESCARTAR (08-nov-2026) */
             continue;
         }
         if (n != (int)sizeof(mini_msg_t)) {
@@ -1132,6 +1133,7 @@ static void rx_task(void *arg)
             s_drop_tam = n;
             portEXIT_CRITICAL(&s_mux_drop);
             s_msgs_bad++;
+            manda_latido(sock);
             continue;
         }
         const mini_msg_t *msg = (const mini_msg_t *)buf;
@@ -1144,6 +1146,7 @@ static void rx_task(void *arg)
             s_drop_tam = n;
             portEXIT_CRITICAL(&s_mux_drop);
             s_msgs_bad++;
+            manda_latido(sock);
             continue;
         }
         uint32_t expected = esp_crc32_le(0, buf, sizeof(mini_msg_t) - sizeof(uint32_t));
@@ -1156,6 +1159,7 @@ static void rx_task(void *arg)
             s_drop_tam = n;
             portEXIT_CRITICAL(&s_mux_drop);
             s_msgs_bad++;
+            manda_latido(sock);
             continue;
         }
         data_model_update_from_msg(msg);
@@ -1163,6 +1167,15 @@ static void rx_task(void *arg)
         ultimo_rx_marcar();   /* enlace vivo: ver udp_rx_enlace() */
         s_sin_datos_intentos = 0;                /* llego un paquete: escalera a cero */
         s_aviso_mudez_dado = false;
+        /* El ultimo motivo de descarte se OLVIDA al aceptar una trama buena
+         * (auditoria del 08-nov-2026): si no, Ajustes seguia enseñando
+         * "(habla otro aparato)" de un paquete de hace dias pegado a un
+         * "sin datos 30s" de ahora, mezclando dos diagnosticos distintos. */
+        portENTER_CRITICAL(&s_mux_drop);
+        s_drop_motivo = UDP_RX_DROP_NO;
+        s_drop_version = -1;
+        s_drop_tam = -1;
+        portEXIT_CRITICAL(&s_mux_drop);
         manda_latido(sock);                      /* y se lo contamos a la P4 */
         if (s_asociado && esp_timer_get_time() - s_rssi_us > 2000000) {
             wifi_ap_record_t ap;
