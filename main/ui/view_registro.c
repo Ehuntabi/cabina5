@@ -2444,8 +2444,116 @@ static struct {
  * muestra aqui dentro en los dos casos de fallo; quien llama solo tiene que
  * decidir si puede seguir adelante (por ejemplo, si puede dar por cerrado el
  * evento que se estaba editando) o no. */
+/* ¿Es un numero limpio tal y como lo entiende la P4?
+ *
+ * Las mismas reglas que texto_a_numero() del otro lado (p4:
+ * main/portal/config_server_viaje.c): digitos, como mucho UN separador decimal
+ * (punto o coma) y al menos un digito. Espacios de sobra delante y detras se
+ * admiten. VACIO tambien vale: no es un cero, es "no apuntado" (la P4 lo acepta
+ * igual).
+ *
+ * POR QUE HACE FALTA (auditoria del 08-nov-2026): los campos de dinero se
+ * teclean con "0123456789.", asi que "1.2.3" o "." SE PUEDEN escribir. La P4
+ * los rechaza con un 400 ("el campo 'litros' no es un numero") y la cola NO
+ * descarta un 400 a proposito (para no perder un apunte si la P4 es vieja): el
+ * apunte se queda de cabeza y detras se atasca TODO -- los demas apuntes y el
+ * cierre del viaje -- hasta descartarlo a mano desde Info. Mejor no mandarlo. */
+static bool numero_limpio(const char *s)
+{
+    if (!s) return true;
+    while (*s == ' ' || *s == '\t') s++;
+    if (!*s) return true;                    /* vacio = no apuntado */
+    bool sep = false, dig = false;
+    int total = 0;                           /* cifras + separador */
+    for (; *s; s++) {
+        const char c = *s;
+        if (c == ' ' || c == '\t') {
+            /* Solo pueden ir al final (" 12.50 " se teclea asi). En medio
+             * ("12 50") es una cifra partida y adivinar cual era seria
+             * inventarse el importe. */
+            while (*s == ' ' || *s == '\t') s++;
+            return (*s == 0) && dig;
+        }
+        /* 15 CARACTERES ES EL TOPE (08-nov-2026, arbitro): la P4 copia el texto
+         * a un char[16] y rechaza lo que no cabe con un 400 -- que la cola no
+         * suelta. Se cuenta el separador TAMBIEN (la P4 cuenta lo que copia).
+         * Con el tope del campo en 10 no se llega, pero se dice igual. */
+        if (++total > 15) return false;
+        if (c >= '0' && c <= '9') dig = true;
+        else if (c == '.' || c == ',') { if (sep) return false; sep = true; }
+        else return false;                   /* letras, '-', '+', 'e'... */
+    }
+    return dig;
+}
+
+/* Los campos NUMEROS del formulario de ESTA categoria, con las mismas listas
+ * que valida la P4 (numeros_de_tipo). Los que no aplican (un servicio sin
+ * marcar, un precio vacio) valen siempre. */
+static bool numeros_del_formulario_ok(categoria_t cat, char *motivo, size_t n)
+{
+    const char *malo = NULL;
+    const char *texto = NULL;
+
+    #define REVISA(ta, nombre) do {                                     \
+        const char *t_ = (ta) ? lv_textarea_get_text(ta) : "";          \
+        if (!numero_limpio(t_)) { malo = (nombre); texto = t_; goto fin; } \
+    } while (0)
+
+    switch (cat) {
+        case CAT_REPOSTAJE:
+            REVISA(s_repo_importe_ta, "Importe");
+            REVISA(s_repo_litros_ta,  "Litros");
+            break;
+        case CAT_PEAJE:
+            REVISA(s_peaje_importe_ta, "Importe");
+            break;
+        case CAT_BOMBONA:
+            REVISA(s_bombona_precio_ta, "Precio");
+            break;
+        case CAT_MANTENIMIENTO:
+            REVISA(s_mant_coste_ta, "Coste");
+            break;
+        case CAT_ITV:
+            REVISA(s_itv_precio_ta, "Precio");
+            break;
+        case CAT_AGUAS:
+            for (uint8_t i = 0; i < AGUA_COUNT; i++)
+                if (lv_obj_has_state(s_agua_chk[i], LV_STATE_CHECKED))
+                    REVISA(s_agua_precio_ta[i], "Precio del agua");
+            break;
+        case CAT_PERNOCTA:
+            REVISA(s_pern_precio_ta, "Precio");
+            for (uint8_t i = 0; i < SERV_COUNT; i++)
+                if (lv_obj_has_state(s_serv_chk[i], LV_STATE_CHECKED))
+                    REVISA(s_serv_precio_ta[i], "Precio de un servicio");
+            break;
+        default:
+            break;
+    }
+    #undef REVISA
+    return true;
+
+fin:
+    #undef REVISA
+    snprintf(motivo, n,
+             "El campo \"%s\" no es un\nnumero: \"%.18s\"\n\nUn solo punto o coma, y\nninguna letra.",
+             malo ? malo : "?", texto ? texto : "");
+    return false;
+}
+
 static bool apunte_encolar(categoria_t cat)
 {
+    /* NADA DE NUMEROS A MEDIAS (08-nov-2026): ver numero_limpio(). Se mira ANTES
+     * de nada y no se encola: un 400 de la P4 por esto no lo suelta la cola. */
+    {
+        char motivo[128] = {0};
+        if (!numeros_del_formulario_ok(cat, motivo, sizeof motivo)) {
+            ESP_LOGW(TAG, "'%s' NO se manda: %s", CAT_NOMBRE[cat], motivo);
+            confirm_screen_aviso("Numero raro", motivo, COL_ACCION_STOP, "Entendido");
+            return false;
+        }
+    }
+
     /* CUERPO_MAX (viaje_cola.h): la PERNOCTA es el apunte mas largo -- lo de
      * una parada (motivo, horas, minutos, noches) mas precio, SEIS servicios
      * con su importe cada uno, valoracion, dos pegas y la inclinacion. Peor
