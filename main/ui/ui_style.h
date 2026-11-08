@@ -25,7 +25,7 @@
 #include "lvgl.h"
 
 /* ── Superficies ─────────────────────────────────────────────────────────── */
-#define UI_COLOR_BG_HEX          0x0A0D13   /* fondo de pagina */
+#define UI_COLOR_BG_HEX          0x0C1421   /* fondo de pagina (un punto mas azul y menos negro, 08-nov-2026) */
 #define UI_COLOR_CARD_HEX        0x1B2230   /* superficie de tarjeta */
 #define UI_COLOR_CARD_BORDER_HEX 0x39424F   /* borde de tarjeta */
 #define UI_COLOR_BOTON_HEX       0x333333   /* pastilla de boton (ver arriba) */

@@ -45,8 +45,8 @@
 /* Superficie de tarjeta un punto más oscura y filo neutro (06-nov-2026):
  * así queda la pantalla en la referencia aprobada (estilo 2). El color de cada
  * tarjeta sigue en sus cifras y en sus dibujos, no en el marco. */
-#define COL_CARD_BG_TOP  lv_color_hex(0x0E141E)
-#define COL_CARD_BG_BOT  lv_color_hex(0x0E141E)
+#define COL_CARD_BG_TOP  lv_color_hex(0x18232F)
+#define COL_CARD_BG_BOT  lv_color_hex(0x18232F)
 #define COL_CARD_FILO    lv_color_hex(0x26303E)
 #define COL_TEXT         UI_COLOR_TEXT
 /* ── Paleta con dos modos ──────────────────────────────────────────────────
@@ -109,6 +109,30 @@ static void paleta_borde(lv_obj_t *o, uint32_t normal, uint32_t contraste)
 static uint32_t color_rgb888(lv_color_t c)
 {
     return ((uint32_t)c.red << 16) | ((uint32_t)c.green << 8) | (uint32_t)c.blue;
+}
+
+/* FONDO DIFUMINADO DEL COLOR DE LA TARJETA (08-nov-2026).
+ *
+ * El usuario: "sin marcos esta bien, pero las cards pueden tener algo de color
+ * difuminado de fondo", y luego "muy suaves y diferentes segun la card". Se
+ * mezcla el acento de la seccion con la superficie base al 10%: suficiente
+ * para que cada tarjeta tenga SU tono (naranja la bateria, verde el viaje,
+ * azul las aguas, azul claro las temperaturas...) pero sin que el texto pierda
+ * contraste ni parezca un semaforo. El marco desaparece: la tarjeta se
+ * distingue solo por el tinte. */
+#define CARD_BASE_RGB  0x18232F
+/* Cuanto acento se mezcla en el fondo de la tarjeta. "Muy suave" pedido dos
+ * veces: 20 -> 10 -> 5. Si algun dia hay que retocarlo, es SOLO este numero. */
+#define CARD_TINTE_PCT  5
+static lv_color_t tinte_card(lv_color_t acento, uint8_t pct)
+{
+    const uint32_t a = color_rgb888(acento);
+    const uint32_t b = CARD_BASE_RGB;
+    if (pct > 60) pct = 60;                 /* mas de eso ya no es "difuminado" */
+    const uint32_t r = (((b >> 16) & 0xFF) * (100 - pct) + ((a >> 16) & 0xFF) * pct) / 100;
+    const uint32_t g = (((b >>  8) & 0xFF) * (100 - pct) + ((a >>  8) & 0xFF) * pct) / 100;
+    const uint32_t bl= (( b        & 0xFF) * (100 - pct) + ( a        & 0xFF) * pct) / 100;
+    return lv_color_make((uint8_t)r, (uint8_t)g, (uint8_t)bl);
 }
 
 /* Registra un borde del que solo tenemos el color normal: en modo contraste,
@@ -646,12 +670,9 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
 {
     lv_obj_t *card = lv_obj_create(grid);
     lv_obj_set_grid_cell(card, LV_GRID_ALIGN_STRETCH, col, span, LV_GRID_ALIGN_STRETCH, row, 1);
-    lv_obj_set_style_bg_color(card, COL_CARD_BG_TOP, 0);
-    lv_obj_set_style_bg_grad_color(card, COL_CARD_BG_BOT, 0);
-    lv_obj_set_style_bg_grad_dir(card, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_color(card, tinte_card(lv_color_hex(0x29B6F6), s_contraste ? 0 : CARD_TINTE_PCT), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-    paleta_borde(card, 0x26303E, 0x8A93A6);
-    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_set_style_border_width(card, 0, 0);
     lv_obj_set_style_radius(card, 12, 0);
     lv_obj_set_style_pad_all(card, 4, 0);
     lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
@@ -667,7 +688,7 @@ static void make_water_cell(lv_obj_t *grid, uint8_t col, uint8_t span, uint8_t r
      * el de la tarjeta de bateria, que es la principal. */
     lv_obj_t *t = lv_label_create(card);
     lv_label_set_text(t, "AGUAS");
-    paleta_texto(t, 0x788496, 0xFFFFFF);
+    paleta_texto(t, 0x29B6F6, 0xFFFFFF);
     lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_letter_space(t, 2, 0);
     lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
@@ -1570,12 +1591,13 @@ static lv_obj_t *make_card(lv_obj_t *grid, lv_color_t border, const char *titulo
 {
     lv_obj_t *card = lv_obj_create(grid);
     lv_obj_set_grid_cell(card, LV_GRID_ALIGN_STRETCH, col, span, LV_GRID_ALIGN_STRETCH, row, 1);
-    lv_obj_set_style_bg_color(card, COL_CARD_BG_TOP, 0);
-    lv_obj_set_style_bg_grad_color(card, COL_CARD_BG_BOT, 0);
-    lv_obj_set_style_bg_grad_dir(card, LV_GRAD_DIR_VER, 0);
+    /* SIN MARCO Y CON EL FONDO TEÑIDO (08-nov-2026): el color va en el relleno,
+     * difuminado, no en el filo. En modo contraste (sol) el tinte se apaga y el
+     * titulo pasa a blanco: a pleno sol el color no se distingue y lo que
+     * importa es el contraste. */
+    lv_obj_set_style_bg_color(card, tinte_card(border, s_contraste ? 0 : CARD_TINTE_PCT), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-    paleta_borde(card, 0x26303E, 0x8A93A6);
-    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_set_style_border_width(card, 0, 0);
     lv_obj_set_style_radius(card, 12, 0);
     lv_obj_set_style_pad_all(card, 8, 0);
     lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
@@ -1601,7 +1623,9 @@ static lv_obj_t *make_card(lv_obj_t *grid, lv_color_t border, const char *titulo
 
     lv_obj_t *t = lv_label_create(card);
     lv_label_set_text(t, titulo);
-    paleta_texto(t, 0x788496, 0xFFFFFF);
+    /* El titulo, en el color de la tarjeta (antes gris 0x788496 y la pantalla
+     * no tenia casi color). */
+    paleta_texto(t, color_rgb888(border), 0xFFFFFF);
     lv_obj_set_style_text_font(t, fuente_titulo, 0);
     lv_obj_set_style_text_letter_space(t, 2, 0);
     /* No clickable: si no, el titulo se tragaria el toque y ni la tarjeta ni
@@ -1928,6 +1952,12 @@ void view_info_create(lv_obj_t *parent)
     /* --- Abajo derecha: las dos temperaturas juntas ----------------------- */
     lv_obj_t *temp_card = make_card(grid, COL_BORDER_COLD, "TEMPERATURAS", 1, 1, 2, NULL, true,
                                        &lv_font_montserrat_20);
+    /* TINTE PROPIO, DISTINTO DEL DE AGUAS (08-nov-2026). El acento del titulo
+     * (azul hielo) y el de aguas (azul) son parientes: a poco porcentaje los
+     * dos fondos salian casi iguales. El de temperaturas va en violeta suave,
+     * que se distingue de los otros tres (naranja, verde y azul) sin gritar. */
+    lv_obj_set_style_bg_color(temp_card,
+        tinte_card(lv_color_hex(0xB388FF), s_contraste ? 0 : CARD_TINTE_PCT), 0);
     /* El valor del frigo va en un hueco fijo y la flecha al borde: asi la
      * flecha no se mueve cuando el numero cambia de ancho ("-5.0" contra
      * "-18.0"), igual que con la V y la A de la bateria.
