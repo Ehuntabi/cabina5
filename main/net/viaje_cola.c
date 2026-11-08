@@ -389,11 +389,27 @@ static bool es_advisory(const char *cuerpo)
     return cuerpo && strstr(cuerpo, "\"op\":\"destino\"") != NULL;
 }
 
-static bool leer_cabeza(char *out, size_t n, uint32_t *idx_out)
+/* 'fatal' sale true SOLO cuando la entrada no esta o esta corrupta: eso si hay
+ * que saltarlo (si no, la cola se atasca detras para siempre). Un fallo
+ * TRANSITORIO (nvs_open sin memoria, NVS ocupada) deja 'fatal' en false: no es
+ * motivo para borrar un apunte bueno, se reintenta (lo canto el arbitro del
+ * 08-nov-2026: un nvs_open fallido se trataba como "corrupta" y borraba la
+ * cabeza). */
+static bool leer_cabeza(char *out, size_t n, uint32_t *idx_out, bool *fatal)
 {
+    if (fatal) *fatal = false;
     uint32_t cabeza, cola;
     indices_leer(&cabeza, &cola);
     if (cabeza >= cola) return false;
+
+    /* SE APUNTA EL INDICE ANTES DE LEER, aunque la lectura falle (auditoria del
+     * 08-nov-2026). Antes solo se escribia al acertar, asi que quien llamaba,
+     * al ver el fallo, descartaba "la que hubiera" (UINT32_MAX) -- y si el
+     * usuario pulsaba "Descartarlo" justo en ese instante, la cabeza ya era
+     * OTRA y se borraba un apunte bueno sin enviarlo. Con el indice apuntado,
+     * descartar_cabeza() borra EXACTAMENTE la entrada que no se pudo leer (y
+     * si la cabeza cambio, no borra nada). */
+    if (idx_out) *idx_out = cabeza;
 
     char clave[16];
     clave_de(cabeza, clave, sizeof(clave));
@@ -402,7 +418,12 @@ static bool leer_cabeza(char *out, size_t n, uint32_t *idx_out)
     size_t len = n;
     esp_err_t e = nvs_get_str(h, clave, out, &len);
     nvs_close(h);
-    if (e == ESP_OK && idx_out) *idx_out = cabeza;
+    /* SOLO "NO ESTA" O "NO SE PUEDE LEER" (08-nov-2026): el resto de errores
+     * (sin pagina libre, NVS inconsistente, sin memoria) son transitorios y NO
+     * justifican borrar un apunte: se reintenta. */
+    if (e != ESP_OK && fatal &&
+        (e == ESP_ERR_NVS_NOT_FOUND || e == ESP_ERR_NVS_INVALID_LENGTH))
+        *fatal = true;
     return e == ESP_OK;
 }
 
@@ -704,16 +725,20 @@ static void reparto_task(void *arg)
          * ventana de milisegundos (la NVS del descarte a mano) en la que se
          * podia borrar una entrada que nadie habia entregado. */
         uint32_t idx_enviado = UINT32_MAX;   /* la entrada que hay en la mano */
-        if (!leer_cabeza(cuerpo, sizeof(cuerpo), &idx_enviado)) {
+        bool cabeza_rota = false;
+        if (!leer_cabeza(cuerpo, sizeof(cuerpo), &idx_enviado, &cabeza_rota)) {
             /* OJO: leer_cabeza dice que no por dos motivos distintos, y hay que
              * separarlos. Si la cola esta vacia, a dormir. Pero si hay
              * pendientes y aun asi no se puede leer, esa entrada esta rota o no
              * esta: sin saltarla, la cola se queda atascada PARA SIEMPRE detras
              * de ella, con el aviso de "N sin enviar" puesto y sin avanzar. */
-            if (viaje_cola_pendientes() > 0) {
+            if (cabeza_rota && idx_enviado != UINT32_MAX) {
                 ESP_LOGE(TAG, "la cabeza de la cola no se puede leer: la salto "
                               "para no atascar lo que viene detras");
-                descartar_cabeza(UINT32_MAX);   /* ilegible: la que haya */
+                /* EL INDICE QUE SE LEYO, no UINT32_MAX (auditoria del
+                 * 08-nov-2026): ver leer_cabeza(). Descartar "la que haya" podia
+                 * borrar un apunte BUENO que acababa de entrar. */
+                descartar_cabeza(idx_enviado);
                 /* CON ESPERA A PROPOSITO (auditoria del 16-oct-2026): si
                  * indices_escribir() falla de forma persistente, la entrada se
                  * borra pero la cabeza NO avanza, asi que esta rama se repite en
@@ -723,6 +748,14 @@ static void reparto_task(void *arg)
                 vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
                 continue;
             }
+            /* Y SI EL FALLO ES TRANSITORIO (NVS ocupada, sin memoria, o la
+             * cabeza cambio mientras la leia), NO se borra NADA: se duerme y se
+             * reintenta. Antes se pasaba UINT32_MAX y descartar_cabeza() se
+             * llevaba la cabeza nueva -- un apunte bueno que acababa de entrar
+             * (lo canto el arbitro del 08-nov-2026). */
+            if (viaje_cola_pendientes() > 0)
+                ESP_LOGW(TAG, "la cabeza no se pudo leer (fallo transitorio): "
+                              "reintento sin descartar nada");
             /* Cola vacia: dormir hasta REINTENTO_MS, pero SIN esperar a que
              * se cumpla si mientras tanto se encola algo nuevo -- viaje_
              * cola_push() suelta este semaforo, y aqui se despierta al
