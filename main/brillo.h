@@ -63,14 +63,18 @@ extern "C" {
  * que esta retroiluminacion casi no tiene terminos medios.
  *
  * EL MINIMO ES AJUSTABLE DESDE EL 21-OCT-2026: antes eran 85 fijos y para
- * cambiarlo habia que recompilar. Ahora se elige en Configuracion, de 5 en 5,
- * entre 5 y 80. Los avisos de arriba siguen siendo ciertos -- por debajo de 80
- * esta placa da muy poca luz --, y por eso el defecto es 80: el minimo se baja
- * a proposito, sabiendo lo que hay. */
+ * cambiarlo habia que recompilar. Ahora se elige en Configuracion.
+ *
+ * RANGO AMPLIADO EL 08-NOV-2026 (peticion del usuario): de 5 a 100, de 1 en 1.
+ * Antes era de 5 en 5 entre 5 y 80 (el rango "util" segun los barridos de
+ * arriba) y el control se quedaba corto por arriba. Ahora llega al maximo y
+ * con pasos finos. OJO: por debajo de 80 esta placa da muy poca luz -- el
+ * suelo de 5 se deja porque el usuario pidio el rango entero, pero el defecto
+ * sigue siendo 80 (y el aviso de los barridos sigue siendo cierto). */
 #define BRILLO_ALTO         100   /* el maximo (lo usa view_info para el contraste) */
 #define BRILLO_MIN_SUELO      5   /* el minimo absoluto que se puede elegir */
-#define BRILLO_MIN_TOPE      80   /* el maximo del minimo (el rango util empieza ahi) */
-#define BRILLO_MIN_PASO       5   /* cuanto sube/baja cada toque en Configuracion */
+#define BRILLO_MIN_TOPE     100   /* el maximo del minimo (no puede pasar del alto) */
+#define BRILLO_MIN_PASO       1   /* cuanto sube/baja cada toque en Configuracion */
 #define BRILLO_MIN_DEFECTO   80
 
 /* Enciende la retroiluminacion AL MAXIMO, siempre, mire lo que mire la NVS.

@@ -98,7 +98,21 @@
 #define LCD_PIN_BACKLIGHT       GPIO_NUM_2 
 #define LCD_BL_LEDC_TIMER       LEDC_TIMER_0
 #define LCD_BL_LEDC_CHANNEL     LEDC_CHANNEL_0
-#define LCD_BL_LEDC_FREQ_HZ     4000
+ 
+/* 1 kHz Y NO 4 kHz (08-nov-2026). El usuario se queja de que 70/80/90 % casi no
+ * varia, y eso encaja con lo medido el 9-oct-2026: a 4 kHz esta placa solo tiene
+ * rango util 80-100 (por debajo se apaga). La sospecha documentada en brillo.h
+ * es que el driver boost no arranca dentro de un ciclo de 250 us, asi que solo
+ * se queda encendido con el duty casi al 100 %. Con 1 kHz cada ciclo dura 1 ms y
+ * el driver deberia poder arrancar; si aun asi no se nota el termino medio, el
+ * siguiente paso es 200 Hz (5 ms por ciclo) -- ver la prueba PRUEBA_BRILLO de
+ * capture_carousel.c, que barre 4k/1k/200 Hz.
+ *
+ * CONFIRMADO EN PLACA EL 08-NOV-2026: con 1 kHz el usuario ve "mas rango" -- el
+ * termino medio que a 4 kHz no existia ahora si aparece. No hizo falta bajar a
+ * 200 Hz ni tocar el duty, que sigue siendo lineal. Si algun dia vuelve el
+ * "o encendido o apagado", lo primero que hay que mirar es esto. */
+#define LCD_BL_LEDC_FREQ_HZ     1000
 #define LCD_BL_LEDC_RES         LEDC_TIMER_8_BIT
 
 /* ── Tactil GT911 por I2C ─────────────────────────────────────────────────── */

@@ -3,8 +3,8 @@
 # toque (21-oct-2026).
 #
 # Hasta hoy los dos niveles estaban fijos en brillo.h (100 y 85) y para cambiar
-# el bajo habia que recompilar. Ahora se elige en Configuracion, de 5 en 5, entre
-# 5 y 80, y las dos decisiones que pueden salir mal son PUREAS: brillo_min_acota()
+# el bajo habia que recompilar. Ahora se elige en Configuracion, de 1 en 1, entre
+# 5 y 100, y las dos decisiones que pueden salir mal son PUREAS: brillo_min_acota()
 # y brillo_alterna_desde(). Se sacan del fuente (ni una copia) y se prueban aqui.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -94,27 +94,28 @@ comprueba() {   # $1 actual  $2 minimo  $3 acotado esperado  $4 nivel que toca
     fi
 }
 
-# El acotado: de 5 a 80, da igual lo que llegue.
+# El acotado (de la PRIMERA cifra: lo que llega como nivel) y el doble toque.
 comprueba -5   80   5 100
 comprueba  0   80   5 100
+comprueba  4   80   5 100
 comprueba  5   80   5 100
-comprueba 40   80  40 100
-comprueba 80   80  80 100
-comprueba 81   80  80 100
-comprueba 100  80  80  80
-# El minimo tambien se acota al guardarlo.
-comprueba 100   0  80   5
-comprueba 100 200  80  80
-# Y el doble toque: del alto baja al minimo; de cualquier otro, sube al alto.
-comprueba 100  80  80  80
-comprueba 100   5  80   5
+comprueba  40  80  40 100
+comprueba  79  80  79 100
 comprueba  80  80  80 100
-comprueba   5   5   5 100
-comprueba  50  80  50 100
+comprueba  99  80  99 100
+comprueba 100  80 100  80   # el alto baja al minimo
+comprueba 100   0 100   5   # el minimo se acota al suelo (5)
+comprueba 100 200 100 100   # ... y al tope (100)
+comprueba 100 101 100 100
+comprueba  90  90  90 100   # 90 no es el alto: sube
+comprueba 100  90 100  90
+comprueba 100   5 100   5
+comprueba 100 100 100 100
+comprueba  80   5  80 100
 
 echo
 if [ "$fallos" -eq 0 ]; then
-    echo "MINIMO DE BRILLO OK: 5..80, y el doble toque alterna con el 100 %"
+    echo "MINIMO DE BRILLO OK: 5..100, y el doble toque alterna con el 100 %"
 else
     echo "MINIMO DE BRILLO: $fallos fallo(s)"
 fi
