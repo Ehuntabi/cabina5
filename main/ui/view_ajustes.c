@@ -894,8 +894,10 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_size(s_menu, lv_pct(100), lv_pct(100));
     lv_obj_set_style_bg_opa(s_menu, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_menu, 0, 0);
-    lv_obj_set_style_pad_all(s_menu, 16, 0);
-    lv_obj_set_style_pad_row(s_menu, 14, 0);
+    lv_obj_set_style_pad_all(s_menu, 12, 0);
+    /* 10 y no 14 (08-nov-2026): con filas mas bajas hay que rascar aire para
+     * que la tarjeta de la version quepa ENTERA sin scroll. */
+    lv_obj_set_style_pad_row(s_menu, 10, 0);
     lv_obj_clear_flag(s_menu, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(s_menu, LV_FLEX_FLOW_COLUMN);
 
@@ -933,14 +935,14 @@ void view_ajustes_create(lv_obj_t *parent)
      * px) para no quitarle sitio a la tarjeta de la version: dos botones de 377
      * px con 14 de aire suman los 768 utiles. */
     lv_obj_t *acciones = lv_obj_create(s_menu);
-    lv_obj_set_size(acciones, lv_pct(100), 110);
+    lv_obj_set_size(acciones, lv_pct(100), 92);
     lv_obj_set_style_bg_opa(acciones, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(acciones, 0, 0);
     lv_obj_set_style_pad_all(acciones, 0, 0);
     lv_obj_clear_flag(acciones, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *wbtn = lv_btn_create(acciones);
-    lv_obj_set_size(wbtn, 377, 110);
+    lv_obj_set_size(wbtn, 377, 92);
     /* SIN flex_grow (16-oct-2026): pedia altura extra y se la quitaba a la
      * tarjeta de la version, que es la que tiene texto que enseñar. El boton se
      * queda en sus 110 px, que ya es un boton grande. */
@@ -956,7 +958,7 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_center(wlbl);
 
     lv_obj_t *ubtn = lv_btn_create(acciones);
-    lv_obj_set_size(ubtn, 377, 110);
+    lv_obj_set_size(ubtn, 377, 92);
     lv_obj_set_flex_grow(ubtn, 0);
     lv_obj_set_style_bg_color(ubtn, UI_COLOR_CYAN, 0);
     lv_obj_align(ubtn, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -973,7 +975,7 @@ void view_ajustes_create(lv_obj_t *parent)
      * es el nivel bajo, de 1 en 1 entre 5 y 100 (por debajo de 80 este panel
      * da muy poca luz; ver el aviso de brillo.h). */
     lv_obj_t *brow = lv_obj_create(s_menu);
-    lv_obj_set_size(brow, lv_pct(100), 88);
+    lv_obj_set_size(brow, lv_pct(100), 74);
     lv_obj_set_style_bg_opa(brow, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(brow, 0, 0);
     lv_obj_set_style_pad_all(brow, 0, 0);
@@ -981,6 +983,15 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_flex_flow(brow, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(brow, LV_FLEX_ALIGN_SPACE_BETWEEN,
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(brow, 12, 0);
+
+    /* EL ENLACE CON LA P4 VA EN ESTA MISMA FILA (08-nov-2026, peticion del
+     * usuario): "-44 dBm, brillo minimo y sus botones en la misma linea". Antes
+     * ocupaba una fila propia de 26 px que era justo lo que hacia que la
+     * tarjeta de la version no cupiera sin deslizar. Ancho fijo y puntos
+     * suspensivos: el texto normal ("P4: -44 dBm") entra de sobra; los
+     * diagnosticos largos ("... sin datos 30s (otro firmware...)") se cortan
+     * aqui, pero siguen enteros en el log. */
 
     lv_obj_t *blbl = lv_label_create(brow);
     lv_label_set_text(blbl, "Brillo mínimo");
@@ -988,8 +999,8 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(blbl, UI_COLOR_TEXT, 0);
 
     lv_obj_t *bmenos = lv_btn_create(brow);
-    lv_obj_set_size(bmenos, 76, 76);
-    lv_obj_set_style_radius(bmenos, 38, 0);
+    lv_obj_set_size(bmenos, 64, 64);
+    lv_obj_set_style_radius(bmenos, 32, 0);
     lv_obj_set_style_bg_color(bmenos, UI_COLOR_BOTON, 0);
     lv_obj_add_event_cb(bmenos, brillo_min_cb, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
     lv_obj_t *ml = lv_label_create(bmenos);
@@ -998,21 +1009,37 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_center(ml);
 
     s_brillo_min_lbl = lv_label_create(brow);
-    lv_obj_set_width(s_brillo_min_lbl, 120);
+    lv_obj_set_width(s_brillo_min_lbl, 108);
     lv_obj_set_style_text_align(s_brillo_min_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(s_brillo_min_lbl, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(s_brillo_min_lbl, UI_COLOR_TEXT, 0);
     brillo_min_pinta();
 
     lv_obj_t *bmas = lv_btn_create(brow);
-    lv_obj_set_size(bmas, 76, 76);
-    lv_obj_set_style_radius(bmas, 38, 0);
+    lv_obj_set_size(bmas, 64, 64);
+    lv_obj_set_style_radius(bmas, 32, 0);
     lv_obj_set_style_bg_color(bmas, UI_COLOR_BOTON, 0);
     lv_obj_add_event_cb(bmas, brillo_min_cb, LV_EVENT_CLICKED, (void *)(intptr_t)1);
     lv_obj_t *pl = lv_label_create(bmas);
     lv_label_set_text(pl, LV_SYMBOL_PLUS);
     lv_obj_set_style_text_font(pl, &lv_font_montserrat_28, 0);
     lv_obj_center(pl);
+
+    /* El rotulo del brillo crece para empujar los botones y el enlace a la
+     * derecha (la fila va con SPACE_BETWEEN; sin esto se repartirian todos los
+     * huecos por igual). */
+    lv_obj_set_flex_grow(blbl, 1);
+
+    s_enlace = lv_label_create(brow);
+    lv_obj_set_width(s_enlace, 300);
+    lv_obj_set_style_text_align(s_enlace, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_long_mode(s_enlace, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(s_enlace, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(s_enlace, UI_COLOR_TEXT_DIM, 0);
+    lv_label_set_text(s_enlace, "");
+    if (!s_enlace_timer) {
+        s_enlace_timer = lv_timer_create(enlace_timer_cb, 1000, NULL);
+    }
 
     /* AQUI ESTABA EL BOTON "Ver todas las pantallas" (modo paseo). El usuario lo
      * mando quitar el 16-oct-2026: es una herramienta de taller y en el menu de
@@ -1021,18 +1048,6 @@ void view_ajustes_create(lv_obj_t *parent)
      * volver a colgar de un boton si algun dia hace falta; para revisar las
      * pantallas sin tactil esta ademas el carrusel del modo captura
      * (capture_carousel.c). */
-
-    /* Estado del enlace con la P4. Vive AQUI y no en la pantalla de datos
-     * (mudado el 30-sep-2026): es lo que se mira cuando algo no va, y en
-     * Configuracion no le quita sitio a ningun numero. Lo pinta un temporizador
-     * de un segundo que solo trabaja si esta visible. */
-    s_enlace = lv_label_create(s_menu);
-    lv_obj_set_style_text_font(s_enlace, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(s_enlace, UI_COLOR_TEXT_DIM, 0);
-    lv_label_set_text(s_enlace, "");
-    if (!s_enlace_timer) {
-        s_enlace_timer = lv_timer_create(enlace_timer_cb, 1000, NULL);
-    }
 
     /* EL ESTADO DE LA ACTUALIZACION. Comparte sitio con el del enlace (ver
      * ota_timer_cb): nace escondido y se enseña solo cuando hay algo que contar,
@@ -1064,8 +1079,8 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(vcard, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(vcard, 0, 0);
     lv_obj_set_style_radius(vcard, 10, 0);
-    lv_obj_set_style_pad_all(vcard, 8, 0);
-    lv_obj_set_style_pad_row(vcard, 4, 0);
+    lv_obj_set_style_pad_all(vcard, 6, 0);
+    lv_obj_set_style_pad_row(vcard, 2, 0);
     /* CON SCROLL, aunque quepa (16-oct-2026). El usuario vio "informacion que se
      * pierde por encima y por debajo del numero de version": esta tarjeta crece
      * con flex_grow, no tenia scroll y lo que no cabia se RECORTABA en silencio
@@ -1291,3 +1306,5 @@ void view_ajustes_create(lv_obj_t *parent)
     /* Se entra siempre por el menu. */
     mostrar_menu(true);
 }
+
+
