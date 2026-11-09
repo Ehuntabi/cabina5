@@ -221,6 +221,53 @@ esp_err_t load_tilt_calibration(int16_t *pitch_offset_centi, int16_t *roll_offse
     return ESP_OK;
 }
 
+esp_err_t load_tilt_bno_calib(uint8_t *calib, size_t len)
+{
+    if (!calib || len == 0) return ESP_ERR_INVALID_ARG;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TILT_NAMESPACE, NVS_READONLY, &h);
+    if (err != ESP_OK) return err;
+    size_t n = len;
+    err = nvs_get_blob(h, "bno_cal", calib, &n);
+    nvs_close(h);
+    return (err == ESP_OK && n == len) ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t save_tilt_bno_calib(const uint8_t *calib, size_t len)
+{
+    if (!calib || len == 0) return ESP_ERR_INVALID_ARG;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TILT_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_blob(h, "bno_cal", calib, len);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+esp_err_t load_tilt_sensor(uint8_t *tipo)
+{
+    if (!tipo) return ESP_ERR_INVALID_ARG;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TILT_NAMESPACE, NVS_READONLY, &h);
+    if (err != ESP_OK) { *tipo = 0; return err; }
+    *tipo = 0;
+    err = nvs_get_u8(h, "sensor", tipo);
+    nvs_close(h);
+    return (err == ESP_OK) ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t save_tilt_sensor(uint8_t tipo)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TILT_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(h, "sensor", tipo);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
 esp_err_t save_tilt_calibration(int16_t pitch_offset_centi, int16_t roll_offset_centi)
 {
     nvs_handle_t h;

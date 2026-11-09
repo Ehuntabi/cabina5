@@ -32,6 +32,12 @@ bool tilt_is_present(void);
  * Devuelve false si el sensor no esta presente o la lectura I2C fallo. */
 bool tilt_get(float *pitch_deg, float *roll_deg);
 
+/* Rumbo de la brujula en grados (0 = norte, sentido horario). Solo hay si el
+ * sensor es un BNO055 (el ADXL345 no tiene magnetometro): devuelve false en
+ * ese caso y la UI lo oculta. 'cal' es la calidad del magnetometro (0-3; 3 =
+ * calibrado) y sirve para avisar de que hay que girar el sensor. */
+bool tilt_get_heading(float *heading_deg, uint8_t *cal);
+
 /* Promedia ~20 lecturas del angulo ACTUAL y las guarda como nuevo "cero"
  * en NVS (config_storage.c, namespace "tilt"). Llamar con la autocaravana
  * parada sobre una referencia de nivel real (nivel de burbuja fisico o

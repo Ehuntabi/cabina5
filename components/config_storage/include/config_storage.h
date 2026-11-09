@@ -181,3 +181,17 @@ esp_err_t load_tilt_calibration(int16_t *pitch_offset_centi,
                                  int16_t *roll_offset_centi);
 esp_err_t save_tilt_calibration(int16_t pitch_offset_centi,
                                  int16_t roll_offset_centi);
+
+/* Perfil de calibracion del BNO055 (22 bytes: offsets/radios de acelerometro,
+ * magnetometro y giroscopio, registros 0x55..0x6A). El chip lo pierde al
+ * apagarse y sin esto habria que calibrar la brujula en cada arranque; se
+ * guarda cuando la calidad del magnetometro llega a 3 y se reescribe al
+ * arrancar. 0 = no hay perfil guardado. */
+esp_err_t load_tilt_bno_calib(uint8_t *calib, size_t len);
+esp_err_t save_tilt_bno_calib(const uint8_t *calib, size_t len);
+
+/* Que sensor hay montado (0 = ninguno, 1 = ADXL345, 2 = BNO055). Sirve para
+ * descartar el "cero" de nivel guardado cuando se cambia de sensor: los ejes y
+ * los signos no son los mismos y reusarlo daria un nivel mal calibrado. */
+esp_err_t load_tilt_sensor(uint8_t *tipo);
+esp_err_t save_tilt_sensor(uint8_t tipo);

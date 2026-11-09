@@ -39,7 +39,8 @@
  * + los 10 de margen a cada lado suman 796 de los 800. De alto, 320 + 20 de
  * margen = 340 de 480: sobran 140, que es el aire que hace que el dial no se
  * pegue a los bordes. */
-#define LEVEL_RADIUS    160  /* px, circulo exterior */
+#define LEVEL_RADIUS    140  /* px, circulo exterior (era 160: se le quito
+                              * sitio a la brujula, que ahora va debajo) */
 /* 18 y no 14: con el dial un 33% mas grande, la bola de 14 px se perdia dentro
  * (y el recorrido hasta el borde es mas largo). */
 #define BUBBLE_RADIUS   18   /* px, burbuja */
@@ -93,6 +94,19 @@ static lv_obj_t *s_val_pitch;
 static lv_obj_t *s_val_roll;
 static lv_obj_t *s_sin_sensor;    /* el aviso, en su sitio */
 static lv_obj_t *s_calib_btn;
+
+/* Puntos cardinales de la brujula (N, NE, E...). */
+static const char *cardinal_de(float deg)
+{
+    static const char *n[8] = {"N", "NE", "E", "SE", "S", "SO", "O", "NO"};
+    int i = (int)((deg + 22.5f) / 45.0f) % 8;
+    if (i < 0) i += 8;
+    return n[i];
+}
+
+/* Brujula (solo si el sensor es un BNO055: el ADXL345 no tiene magnetometro) */
+static lv_obj_t *s_brujula, *s_aguja, *s_rumbo, *s_rumbo_cal;
+static int       s_rumbo_pintado = -1;
 
 /* El color mira cada eje con SU vara, igual que el ovalo que se dibuja. */
 static lv_color_t color_for_level(float pitch, float roll)
@@ -201,6 +215,7 @@ static void refresh_cb(lv_timer_t *t)
         lv_obj_add_flag(s_row_roll, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_sin_sensor, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(s_label_status, "");
+        if (s_brujula) lv_obj_add_flag(s_brujula, LV_OBJ_FLAG_HIDDEN);
         return;
     }
     lv_obj_clear_flag(s_row_pitch, LV_OBJ_FLAG_HIDDEN);
@@ -244,6 +259,36 @@ static void refresh_cb(lv_timer_t *t)
         s_bola_y = off_y;
         s_bola_pintada = true;
         lv_obj_align(s_bubble, LV_ALIGN_CENTER, off_x, off_y);
+    }
+
+    /* ── Brujula ────────────────────────────────────────────────────────
+     * Solo si el sensor la tiene (BNO055). El rumbo es un entero de grados:
+     * con la aguja no hace falta decimales y asi no hay temblor de texto. */
+    {
+        float rumbo = 0.0f;
+        uint8_t cal = 0;
+        if (tilt_get_heading(&rumbo, &cal)) {
+            lv_obj_clear_flag(s_brujula, LV_OBJ_FLAG_HIDDEN);
+            int r = (int)(rumbo + 0.5f) % 360;
+            if (r != s_rumbo_pintado) {
+                s_rumbo_pintado = r;
+                /* LVGL gira en decimas de grado: 3600 = vuelta completa. */
+                lv_obj_set_style_transform_rotation(s_aguja, r * 10, 0);
+                char txt[16];
+                snprintf(txt, sizeof txt, "%d\xC2\xB0 %s", r, cardinal_de(rumbo));
+                lv_label_set_text(s_rumbo, txt);
+            }
+            /* La calidad del magnetometro: 3 = calibrado. Menos, en ambar. */
+            bool ok = (cal >= 3);
+            lv_obj_set_style_text_color(s_rumbo, ok ? UI_COLOR_TEXT : UI_COLOR_YELLOW, 0);
+            char c[32];
+            snprintf(c, sizeof c, ok ? "brujula calibrada" : "gira el sensor (cal %u/3)",
+                     (unsigned)cal);
+            lv_label_set_text(s_rumbo_cal, c);
+            lv_obj_set_style_text_color(s_rumbo_cal, ok ? UI_COLOR_TEXT_DIM : UI_COLOR_YELLOW, 0);
+        } else {
+            lv_obj_add_flag(s_brujula, LV_OBJ_FLAG_HIDDEN);
+        }
     }
 
     lv_color_t col = color_for_level(pitch, roll);
@@ -298,8 +343,8 @@ static void screen_evento_cb(lv_event_t *e)
  * make_fila_dato): es la pantalla que se mira desde fuera del vehiculo, y las
  * dos cifras tienen que leerse de un vistazo. */
 #define FILA_ALTO     56
-#define FILA_ETIQ_W  180
-#define FILA_VAL_W   190
+#define FILA_ETIQ_W  140
+#define FILA_VAL_W   180
 
 static lv_obj_t *make_readout(lv_obj_t *padre, const char *etiqueta, uint32_t color,
                               lv_obj_t **valor_out)
@@ -346,6 +391,68 @@ void view_inclinacion_diag_arbol(void)
     }
 }
 
+/* Brujula: circulo con N/E/S/O y una aguja que gira al rumbo. Debajo, el
+ * rumbo en grados y la calidad del magnetometro (0-3): sin calibrar, el
+ * rumbo no vale y se avisa en ambar. */
+static void make_brujula(lv_obj_t *col)
+{
+    s_brujula = lv_obj_create(col);
+    lv_obj_set_size(s_brujula, 420, 242);
+    lv_obj_set_style_bg_opa(s_brujula, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_brujula, 0, 0);
+    lv_obj_set_style_pad_all(s_brujula, 0, 0);
+    lv_obj_clear_flag(s_brujula, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(s_brujula, LV_ALIGN_TOP_MID, 0, 42);
+
+    lv_obj_t *cj = lv_obj_create(s_brujula);
+    lv_obj_set_size(cj, 150, 150);
+    lv_obj_set_style_radius(cj, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(cj, UI_COLOR_CARD, 0);
+    lv_obj_set_style_bg_opa(cj, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(cj, 3, 0);
+    lv_obj_set_style_border_color(cj, lv_color_hex(0x39424F), 0);
+    lv_obj_set_style_pad_all(cj, 0, 0);
+    lv_obj_clear_flag(cj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(cj, LV_ALIGN_TOP_MID, 0, 0);
+
+    /* Puntos cardinales: N en rojo arriba, el resto en gris */
+    static const struct { const char *t; int x, y; } pts[4] = {
+        {"N",  0, -58}, {"S",  0,  58}, {"E", 58, 0}, {"O", -58, 0},
+    };
+    for (int i = 0; i < 4; i++) {
+        lv_obj_t *l = lv_label_create(cj);
+        lv_label_set_text(l, pts[i].t);
+        lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_color(l, (i == 0) ? UI_COLOR_RED : UI_COLOR_TEXT_DIM, 0);
+        lv_obj_align(l, LV_ALIGN_CENTER, pts[i].x, pts[i].y);
+    }
+
+    /* Aguja: barra estrecha centrada; gira sobre su centro */
+    s_aguja = lv_obj_create(cj);
+    lv_obj_set_size(s_aguja, 8, 124);
+    lv_obj_set_style_radius(s_aguja, 4, 0);
+    lv_obj_set_style_bg_color(s_aguja, UI_COLOR_RED, 0);
+    lv_obj_set_style_bg_opa(s_aguja, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_aguja, 0, 0);
+    lv_obj_clear_flag(s_aguja, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(s_aguja, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_transform_pivot_x(s_aguja, 4, 0);
+    lv_obj_set_style_transform_pivot_y(s_aguja, 62, 0);
+
+    /* El rumbo, debajo y en grande: es el dato que se mira */
+    s_rumbo = lv_label_create(s_brujula);
+    lv_label_set_text(s_rumbo, "--");
+    lv_obj_set_style_text_font(s_rumbo, &lv_font_montserrat_40, 0);
+    lv_obj_set_style_text_color(s_rumbo, UI_COLOR_TEXT, 0);
+    lv_obj_align(s_rumbo, LV_ALIGN_TOP_MID, 0, 152);
+
+    s_rumbo_cal = lv_label_create(s_brujula);
+    lv_label_set_text(s_rumbo_cal, "");
+    lv_obj_set_style_text_font(s_rumbo_cal, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_rumbo_cal, UI_COLOR_TEXT_DIM, 0);
+    lv_obj_align(s_rumbo_cal, LV_ALIGN_TOP_MID, 0, 202);
+}
+
 void view_inclinacion_create(lv_obj_t *parent)
 {
     lv_obj_set_style_bg_color(parent, UI_COLOR_BG, 0);
@@ -357,10 +464,13 @@ void view_inclinacion_create(lv_obj_t *parent)
 
     /* Columna izquierda: solo el circulo (le sobra alto de sobra en 320px) */
     lv_obj_t *left = lv_obj_create(parent);
-    lv_obj_set_size(left, LEVEL_RADIUS * 2 + 8, LEVEL_RADIUS * 2 + 8);
+    lv_obj_set_size(left, 340, lv_pct(100));
     lv_obj_set_style_bg_opa(left, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(left, 0, 0);
     lv_obj_set_style_pad_all(left, 0, 0);
+    lv_obj_set_style_pad_row(left, 4, 0);
+    lv_obj_set_flex_flow(left, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(left, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(left, LV_OBJ_FLAG_SCROLLABLE);
 
     s_circle = lv_obj_create(left);
@@ -423,7 +533,7 @@ void view_inclinacion_create(lv_obj_t *parent)
      * cosa cae donde tiene que caer aunque una de las filas se esconda (sin
      * sensor), que con flex seria un salto de todo lo de abajo. */
     lv_obj_t *right = lv_obj_create(parent);
-    lv_obj_set_size(right, 436, lv_pct(100));
+    lv_obj_set_size(right, 420, lv_pct(100));
     lv_obj_set_style_bg_opa(right, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(right, 0, 0);
     lv_obj_set_style_pad_all(right, 0, 0);
@@ -433,24 +543,23 @@ void view_inclinacion_create(lv_obj_t *parent)
     lv_label_set_text(title, "INCLINACION");
     lv_obj_set_style_text_color(title, UI_COLOR_VIOLET, 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_28, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 4);
 
-    s_row_pitch = make_readout(right, "CABECEO", 0xFFFFFF, &s_val_pitch);
-    lv_obj_align(s_row_pitch, LV_ALIGN_TOP_MID, 0, 60);
-
-    s_row_roll = make_readout(right, "BALANCEO", 0xFFFFFF, &s_val_roll);
-    lv_obj_align(s_row_roll, LV_ALIGN_TOP_MID, 0, 120);
+    /* Debajo del grafico: el cabeceo y el balanceo, en la columna izquierda
+     * (que es una columna flex, asi que se colocan solos). */
+    s_row_pitch = make_readout(left, "CABECEO", 0xFFFFFF, &s_val_pitch);
+    s_row_roll  = make_readout(left, "BALANCEO", 0xFFFFFF, &s_val_roll);
 
     /* El aviso de que no hay sensor ocupa el hueco de las dos filas. */
     s_sin_sensor = lv_label_create(right);
-    lv_label_set_text(s_sin_sensor, "Sensor ADXL345\nno detectado");
+    lv_label_set_text(s_sin_sensor, "Sensor de nivel\nno detectado");
     lv_obj_set_style_text_color(s_sin_sensor, UI_COLOR_YELLOW, 0);
     lv_obj_set_style_text_font(s_sin_sensor, &lv_font_montserrat_26, 0);
     lv_obj_set_style_text_align(s_sin_sensor, LV_TEXT_ALIGN_CENTER, 0);
     /* 400 de ancho: con ESC(400)=720 se salia de su columna (436) y su
      * posicion lo dejaba 142 px fuera de la pantalla. Medido. */
     lv_obj_set_width(s_sin_sensor, 400);
-    lv_obj_align(s_sin_sensor, LV_ALIGN_TOP_MID, 0, 84);
+    lv_obj_align(s_sin_sensor, LV_ALIGN_TOP_MID, 0, 150);
     lv_obj_add_flag(s_sin_sensor, LV_OBJ_FLAG_HIDDEN);
 
     /* "NIVELADA" en verde y grande: es la respuesta que se busca al colocar las
@@ -459,7 +568,7 @@ void view_inclinacion_create(lv_obj_t *parent)
     lv_label_set_text(s_label_nivel, "");
     lv_obj_set_style_text_color(s_label_nivel, UI_COLOR_GREEN, 0);
     lv_obj_set_style_text_font(s_label_nivel, &lv_font_montserrat_48, 0);
-    lv_obj_align(s_label_nivel, LV_ALIGN_TOP_MID, 0, 196);
+    lv_obj_align(s_label_nivel, LV_ALIGN_TOP_MID, 0, 290);
 
     s_label_status = lv_label_create(right);
     lv_label_set_text(s_label_status, "");
@@ -467,19 +576,22 @@ void view_inclinacion_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(s_label_status, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_align(s_label_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(s_label_status, lv_pct(100));
-    lv_obj_align(s_label_status, LV_ALIGN_TOP_MID, 0, 258);
+    lv_obj_align(s_label_status, LV_ALIGN_TOP_MID, 0, 350);
 
     s_calib_btn = lv_btn_create(right);
     /* 300x68: con ESC salia de 540x122 y 52 px se quedaban fuera de la
      * pantalla (medido). Es un boton, no un cartel. */
-    lv_obj_set_size(s_calib_btn, 300, 68);
+    lv_obj_set_size(s_calib_btn, 300, 60);
     lv_obj_set_style_bg_color(s_calib_btn, UI_COLOR_BOTON, 0);
     lv_obj_add_event_cb(s_calib_btn, calib_btn_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_align(s_calib_btn, LV_ALIGN_BOTTOM_MID, 0, -24);
+    lv_obj_align(s_calib_btn, LV_ALIGN_BOTTOM_MID, 0, -12);
     lv_obj_t *calib_lbl = lv_label_create(s_calib_btn);
     lv_label_set_text(calib_lbl, "Calibrar nivel");
     lv_obj_set_style_text_font(calib_lbl, &lv_font_montserrat_26, 0);
     lv_obj_center(calib_lbl);
+
+    make_brujula(right);
+    lv_obj_add_flag(s_brujula, LV_OBJ_FLAG_HIDDEN);   /* hasta saber si hay */
 
     s_timer = lv_timer_create(refresh_cb, 200, NULL);
     /* Arranca en pausa: esta pantalla nace oculta (NAV_INFO es la que se ve
