@@ -50,10 +50,11 @@ jobs:
           target: esp32s3
           path: '.'
 
-  # El contrato con la P4 y con la 3,5" (auditoria de comunicacion del
-  # 13-oct-2026): los jobs de p4 y de 35cabina ya miran esta repo, pero si
-  # el push toca SOLO cabina5 no se disparan -- y este es el repo que puede
-  # romper el protocolo sin que nadie se entere hasta la placa.
+  # El contrato con la P4 (auditoria de comunicacion del 13-oct-2026): los jobs
+  # de p4 ya miran esta repo, pero si el push toca SOLO cabina5 no se disparan
+  # -- y este es el repo que puede romper el protocolo sin que nadie se entere
+  # hasta la placa. La 3,5" se retiro el 09-nov-2026 (el dueño no la usara
+  # nunca mas), asi que el unico par es la P4.
   contrato:
     runs-on: ubuntu-latest
     steps:
@@ -62,131 +63,49 @@ jobs:
         with:
           path: cabina5
 
-      - name: Checkout 35cabina
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: Ehuntabi/35cabina
-          path: 35cabina
-
       - name: Checkout p4
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: Ehuntabi/p4
           path: p4
 
-      - name: mini_proto.h igual en los tres
+      - name: mini_proto.h igual que la P4
         run: |
-          # CARRERA DE PUSH (17-oct-2026): los tres repos se publican de uno en
-          # uno y este job compara contra la rama del vecino en el instante en
-          # que corre; si el vecino va por detras se pone rojo sin que haya
-          # deriva. Se reintenta trayendo la rama del vecino otra vez.
+          # Los dos repos se publican de uno en uno: si el de la P4 va por
+          # detras se reintenta un par de veces antes de dar la alarma.
           for intento in 1 2 3 4; do
-            if diff -q cabina5/main/net/mini_proto.h 35cabina/main/net/mini_proto.h >/dev/null &&
-               diff -q cabina5/main/net/mini_proto.h p4/main/net/mini_proto.h >/dev/null; then
-              echo "mini_proto.h igual en los tres"
+            if diff -q cabina5/main/net/mini_proto.h p4/main/net/mini_proto.h >/dev/null; then
+              echo "mini_proto.h igual que la P4"
               exit 0
             fi
             if [ "$intento" = 4 ]; then break; fi
-            echo "--- intento $intento: alguno de los vecinos puede ir por detras; se reintenta en 45 s"
+            echo "--- intento $intento: la P4 puede ir por detras; se reintenta en 45 s"
             sleep 45
-            for r in 35cabina p4; do
-              git -C "$r" fetch -q origin main && git -C "$r" reset -q --hard origin/main || true
-            done
+            git -C p4 fetch -q origin main && git -C p4 reset -q --hard origin/main || true
           done
-          diff cabina5/main/net/mini_proto.h 35cabina/main/net/mini_proto.h || true
           diff cabina5/main/net/mini_proto.h p4/main/net/mini_proto.h || true
-          echo "mini_proto.h se ha separado entre los proyectos"
+          echo "mini_proto.h se ha separado de la P4"
           exit 1
 
-      - name: CUERPO_MAX de las dos cabinas, y que quepa en la P4
+      - name: CUERPO_MAX del satelite, y que quepa en la P4
         run: |
           propio=$(grep -oP '#define\s+CUERPO_MAX\s+\K[0-9]+' cabina5/main/net/viaje_cola.h)
-          otro=$(grep -oP '#define\s+CUERPO_MAX\s+\K[0-9]+' 35cabina/main/net/viaje_cola.h)
           body=$(grep -oP '#define\s+VIAJE_BODY_MAX\s+\K[0-9]+' p4/main/portal/config_server_viaje.c)
-          echo "CUERPO_MAX cabina5=$propio 35cabina=$otro VIAJE_BODY_MAX=$body"
-          [ -n "$propio" ] && [ -n "$otro" ] && [ -n "$body" ] || exit 1
-          [ "$propio" = "$otro" ] || { echo "CUERPO_MAX distinto entre cabinas"; exit 1; }
+          echo "CUERPO_MAX cabina5=$propio VIAJE_BODY_MAX=$body"
+          [ -n "$propio" ] && [ -n "$body" ] || exit 1
           [ "$propio" -lt "$body" ] || { echo "CUERPO_MAX no cabe en la P4"; exit 1; }
 
-      # LOS FICHEROS DEL VIAJE, BYTE A BYTE EN LAS DOS CABINAS (auditoria del
-      # 14-oct-2026). El ciclo del viaje -- la cola, la reconciliacion del
-      # arranque, el contador, los cuerpos que se mandan a la P4 -- es el MISMO
-      # codigo en las dos, y las dos placas escriben sobre el mismo viaje de la
-      # P4. Una edicion en una sola pasaba el CI en verde (solo se comparaban
-      # mini_proto.h y CUERPO_MAX) y a partir de ahi las dos cuentan,
-      # reconcilian o descartan distinto sobre el mismo viaje. Aqui se cae solo.
-      - name: El ciclo del viaje, identico en las dos cabinas
-        run: |
-          # CARRERA DE PUSH (17-oct-2026): los dos repos de las cabinas se
-          # publican de uno en uno y este job compara contra la rama del vecino
-          # en el instante en que corre; si el vecino va por detras se pone rojo
-          # SIN que haya deriva ninguna (paso tres veces seguidas el 17-oct).
-          # Se reintenta trayendo la rama del vecino otra vez: si la diferencia
-          # es de verdad, sigue ahi al cuarto intento y el job cae igual.
-          compara() {
-          for f in main/net/viaje_cola.c \
-                   main/net/viaje_cola.h \
-                   main/net/p4_api.c \
-                   main/net/p4_api.h \
-                   main/net/ota_rx.c \
-                   main/net/ota_rx.h \
-                   main/net/apunte.c \
-                   main/net/apunte.h \
-                   main/net/udp_rx.c \
-                   main/data_model.c \
-                   main/data_model.h \
-                   main/diag_reset.c \
-                   main/diag_reset.h \
-                   main/reloj.c \
-                   main/reloj.h \
-                   main/net/mini_proto.h \
-                   main/salida.c \
-                   main/salida.h \
-                   components/config_storage/config_storage.c \
-                   components/config_storage/include/config_storage.h \
-                   test/viaje_cola_control_arnes.c test/viaje_cola_control.sh \
-                   test/viaje_cola_libre_arnes.c test/viaje_cola_libre.sh \
-                   test/viaje_horario_arnes.c test/viaje_horario.sh \
-                   test/viaje_contadores.sh test/viaje_contadores_arnes.c \
-                   test/ota_version.sh test/ota_version_arnes.c \
-                   test/extrae_cuerpo.py \
-                   main/ui/ui_style.h \
-                   test/estilo.sh ; do
-            if [ ! -f "cabina5/$f" ] || [ ! -f "35cabina/$f" ]; then
-              echo "FALTA $f en alguno de los dos repos"; fallo=1; continue
-            fi
-            # Se comparan SIN las lineas de #include: la 5" es LVGL 9 y la 3,5"
-            # LVGL 8, asi que el include de compatibilidad difiere y no es
-            # deriva. El resto del fichero tiene que ser identico.
-            if ! diff -q <(grep -v '^#include' "cabina5/$f") \
-                         <(grep -v '^#include' "35cabina/$f") >/dev/null; then
-              echo "DISTINTO: $f"
-              diff -u <(grep -v '^#include' "cabina5/$f") \
-                      <(grep -v '^#include' "35cabina/$f") | head -40
-              return 1
-            fi
-          done
-          return 0
-          }
-          for intento in 1 2 3 4; do
-            if compara; then echo "ciclo del viaje identico en las dos cabinas"; exit 0; fi
-            if [ "$intento" = 4 ]; then break; fi
-            echo "--- intento $intento: 35cabina puede ir por detras (se publica de uno en uno); se reintenta en 45 s"
-            sleep 45
-            git -C 35cabina fetch -q origin main && git -C 35cabina reset -q --hard origin/main || true
-          done
-          echo "Las dos cabinas tienen que llevar el MISMO ciclo de viaje"
-          exit 1
+      # LOS FICHEROS DEL VIAJE YA NO SE COMPARAN CON LA 3,5": su repo quedo
+      # congelado el 09-nov-2026 y portarle cada cambio no tenia sentido. Lo que
+      # SI se sigue probando aqui es el comportamiento del ciclo del viaje (los
+      # pasos de abajo), que es lo que de verdad importa.
 
       # Y la clasificacion de la que depende la garantia del cierre se PRUEBA
       # (saca la funcion real de viaje_cola.c y la compila).
       #
-      # SE LANZA LA COPIA DE ESTE REPO (cabina5/test/...), no la de la 3,5"
-      # (16-oct-2026): los tests sacan el codigo del repo que tienen al lado
-      # ($AQUI/..), asi que lanzando la copia de 35cabina se probaba SIEMPRE el
-      # codigo de la 3,5" y el de la 5" solo se comparaba (con el job espejo). Una
-      # divergencia que el espejo no mire -- o que se cuele en el mismo push --
-      # pasaba en verde. Ahora cada CI prueba su propio codigo.
+      # SE LANZA LA COPIA DE ESTE REPO (cabina5/test/...): los tests sacan el
+      # codigo del repo que tienen al lado ($AQUI/..), asi que hay que lanzar la
+      # copia de esta pantalla, no la de otro repo.
       - name: El cierre del viaje siempre cabe en la cola
         run: bash cabina5/test/viaje_cola_control.sh
 
@@ -254,7 +173,7 @@ jobs:
       # caiga aqui es barato; que se caiga con la placa delante, no.
       - name: El CI no publica, y release.sh no publica la clave de broma
         run: |
-          for repo in cabina5 35cabina; do
+          for repo in cabina5; do
             if git -C "$repo" ls-files --error-unmatch main/wifi_credentials.h >/dev/null 2>&1; then
               echo "$repo: main/wifi_credentials.h esta VERSIONADO (lleva la clave real del AP)"; exit 1
             fi
@@ -266,7 +185,7 @@ jobs:
       - name: Los guardas de grabar/publicar siguen en su sitio (las dos cabinas)
         run: |
           fallo=0
-          for repo in cabina5 35cabina; do
+          for repo in cabina5; do
             g="$repo/scripts/grabar.sh"; r="$repo/release.sh"
             for f in "$g" "$r"; do [ -f "$f" ] || { echo "FALTA $f"; fallo=1; }; done
             for frase in 'git describe --tags --exact-match' 'git ls-remote origin' \
@@ -293,7 +212,7 @@ jobs:
           # del SDK ni a un nombre inventado: si apuntan mal, el texto sale con
           # la fuente del SDK (tamaño literal) y no falla al compilar.
           fallo=0
-          for repo in cabina5 35cabina; do
+          for repo in cabina5; do
             malos=$(grep -rhE '^#define +lv_font_montserrat_(bold_)?[0-9]+ +' "$repo/main" --include=*.h \
                     | awk '{print $3}' | grep -vE '^(lv_font_inter_[a-z0-9_]*|FUENTE_[A-Z_]+)$' || true)
             [ -z "$malos" ] || { echo "$repo: alias que NO apuntan a una fuente del proyecto: $malos"; fallo=1; }
@@ -303,7 +222,7 @@ jobs:
 
       - name: La captura de panicos esta versionada (nada de /tmp/cap2.py)
         run: |
-          for repo in cabina5 35cabina; do
+          for repo in cabina5; do
             test -f "$repo/scripts/cap2.py" || { echo "$repo: falta scripts/cap2.py"; exit 1; }
             grep -q 'AQUI/cap2.py' "$repo/scripts/vigilar_panicos.sh" \
               || { echo "$repo: vigilar_panicos.sh no usa scripts/cap2.py"; exit 1; }
@@ -317,6 +236,4 @@ jobs:
         run: |
           shellcheck -S warning \
             cabina5/scripts/grabar.sh cabina5/scripts/vigilar_panicos.sh cabina5/release.sh \
-            cabina5/test/estilo.sh \
-            35cabina/scripts/grabar.sh 35cabina/scripts/vigilar_panicos.sh 35cabina/release.sh \
-            35cabina/test/estilo.sh 35cabina/test/auditar.sh
+            cabina5/test/estilo.sh
