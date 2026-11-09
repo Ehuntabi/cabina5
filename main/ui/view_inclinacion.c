@@ -95,6 +95,53 @@ static lv_obj_t *s_val_roll;
 static lv_obj_t *s_sin_sensor;    /* el aviso, en su sitio */
 static lv_obj_t *s_calib_btn;
 
+/* Rumbo actual en grados (lo pinta brujula_draw_cb). */
+static int s_rumbo_deg;
+
+/* Dibuja la aguja: dos triangulos (norte rojo, sur claro) girados al rumbo.
+ * Se dibuja en el evento del aro, asi que queda por debajo de las letras. */
+static void brujula_draw_cb(lv_event_t *e)
+{
+    lv_obj_t *obj = lv_event_get_target(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    if (!layer) return;
+
+    lv_area_t a;
+    lv_obj_get_coords(obj, &a);
+    int cx = (a.x1 + a.x2) / 2;
+    int cy = (a.y1 + a.y2) / 2;
+
+    const int LARGO = 60;   /* de centro a punta */
+    const int ANCHO = 9;    /* media anchura en la base */
+    float rad = (float)s_rumbo_deg * 3.14159265f / 180.0f;
+    float sn = sinf(rad), cs = cosf(rad);
+
+    /* gira un punto del plano de la aguja (x derecha, y abajo) */
+    #define PT(px, py) ((lv_point_precise_t){ \
+        (lv_value_precise_t)(cx + (px) * cs - (py) * sn), \
+        (lv_value_precise_t)(cy + (px) * sn + (py) * cs) })
+
+    lv_draw_triangle_dsc_t t;
+    lv_draw_triangle_dsc_init(&t);
+
+    /* NORTE: rojo, punta arriba */
+    t.bg_color = UI_COLOR_RED;
+    t.bg_opa = LV_OPA_COVER;
+    t.p[0] = PT(0, -LARGO);
+    t.p[1] = PT(-ANCHO, 0);
+    t.p[2] = PT(ANCHO, 0);
+    lv_draw_triangle(layer, &t);
+
+    /* SUR: claro, punta abajo */
+    t.bg_color = lv_color_hex(0xE8ECF2);
+    t.p[0] = PT(0, LARGO);
+    t.p[1] = PT(-ANCHO, 0);
+    t.p[2] = PT(ANCHO, 0);
+    lv_draw_triangle(layer, &t);
+
+    #undef PT
+}
+
 /* Puntos cardinales de la brujula (N, NE, E...). */
 static const char *cardinal_de(float deg)
 {
@@ -105,7 +152,7 @@ static const char *cardinal_de(float deg)
 }
 
 /* Brujula (solo si el sensor es un BNO055: el ADXL345 no tiene magnetometro) */
-static lv_obj_t *s_brujula, *s_aguja, *s_rumbo, *s_rumbo_cal;
+static lv_obj_t *s_brujula, *s_rumbo, *s_rumbo_cal, *s_rosa;
 static int       s_rumbo_pintado = -1;
 
 /* El color mira cada eje con SU vara, igual que el ovalo que se dibuja. */
@@ -273,7 +320,9 @@ static void refresh_cb(lv_timer_t *t)
             if (r != s_rumbo_pintado) {
                 s_rumbo_pintado = r;
                 /* LVGL gira en decimas de grado: 3600 = vuelta completa. */
-                lv_obj_set_style_transform_rotation(s_aguja, r * 10, 0);
+                /* la aguja se DIBUJA: basta cambiar el angulo y repintar */
+                s_rumbo_deg = r;
+                if (s_rosa) lv_obj_invalidate(s_rosa);
                 char txt[16];
                 snprintf(txt, sizeof txt, "%d\xC2\xB0 %s", r, cardinal_de(rumbo));
                 lv_label_set_text(s_rumbo, txt);
@@ -427,17 +476,26 @@ static void make_brujula(lv_obj_t *col)
         lv_obj_align(l, LV_ALIGN_CENTER, pts[i].x, pts[i].y);
     }
 
-    /* Aguja: barra estrecha centrada; gira sobre su centro */
-    s_aguja = lv_obj_create(cj);
-    lv_obj_set_size(s_aguja, 8, 124);
-    lv_obj_set_style_radius(s_aguja, 4, 0);
-    lv_obj_set_style_bg_color(s_aguja, UI_COLOR_RED, 0);
-    lv_obj_set_style_bg_opa(s_aguja, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(s_aguja, 0, 0);
-    lv_obj_clear_flag(s_aguja, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(s_aguja, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_transform_pivot_x(s_aguja, 4, 0);
-    lv_obj_set_style_transform_pivot_y(s_aguja, 62, 0);
+    /* AGUJA DIBUJADA CON TRIANGULOS (09-nov-2026). La referencia del dueño es
+     * una aguja de triangulos rellenos y afilados, con un buje blanco en el
+     * centro; con rectangulos no se consigue. LVGL 9 trae lv_draw_triangle, asi
+     * que la aguja se PINTA en el evento de dibujo del aro (por debajo de las
+     * letras N/E/S/O y del buje) y el angulo se recalcula al cambiar el rumbo:
+     * no hay objetos girando, no hay bordes dentados y el triangulo se ve
+     * afilado en cualquier direccion. */
+    s_rosa = cj;
+    lv_obj_add_event_cb(cj, brujula_draw_cb, LV_EVENT_DRAW_MAIN_END, NULL);
+
+    /* buje: circulo blanco con aro gris en el centro */
+    lv_obj_t *buje = lv_obj_create(cj);
+    lv_obj_set_size(buje, 24, 24);
+    lv_obj_set_style_radius(buje, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(buje, lv_color_hex(0xF2F5FA), 0);
+    lv_obj_set_style_bg_opa(buje, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(buje, 3, 0);
+    lv_obj_set_style_border_color(buje, lv_color_hex(0x8A93A6), 0);
+    lv_obj_clear_flag(buje, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_center(buje);
 
     /* El rumbo, debajo y en grande: es el dato que se mira */
     s_rumbo = lv_label_create(s_brujula);
