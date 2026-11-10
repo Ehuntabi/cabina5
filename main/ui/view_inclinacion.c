@@ -300,9 +300,12 @@ static void make_rotulo_anillo(lv_obj_t *padre, int radio, const char *txt,
     lv_label_set_text(l, txt);
     lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
     lv_obj_set_style_text_font(l, &FUENTE_NORMAL, 0);
-    /* El rotulo va SOBRE EL ANILLO, un poco hacia dentro: con el dial de 312 el
-     * borde queda a 156 de la cruz, y ahi cae el numero de los 6 grados. */
-    lv_obj_align(l, LV_ALIGN_CENTER, radio - 16, 12);
+    /* El rotulo va SOBRE EL ANILLO, pero MAS hacia dentro de lo que estaba: a
+     * radio-16 caia justo en el recorrido de la bola y con balanceo +3,0 se
+     * comia el "3" y con +6,0 el "6°" (visto en los renders del arbitraje del
+     * 10-nov-2026). La bola llega como mucho a 132 del centro con 18 de radio,
+     * asi que el rotulo se mete 40 px hacia dentro y queda libre. */
+    lv_obj_align(l, LV_ALIGN_CENTER, radio - 40, 12);
 }
 
 static void calib_btn_cb(lv_event_t *e)
