@@ -991,7 +991,18 @@ void view_ajustes_create(lv_obj_t *parent)
      * tarjeta de la version no cupiera sin deslizar. Ancho fijo y puntos
      * suspensivos: el texto normal ("P4: -44 dBm") entra de sobra; los
      * diagnosticos largos ("... sin datos 30s (otro firmware...)") se cortan
-     * aqui, pero siguen enteros en el log. */
+     * aqui, pero siguen enteros en el log.
+     *
+     * 236 Y NO 300 (10-nov-2026): con 300 el reparto dejaba 192 px al rotulo
+     * "Brillo minimo", que en la fuente de su papel (lv_font_montserrat_24 ->
+     * FUENTE_MEDIA_GRANDE, Inter 40) mide 244: se partia en DOS lineas y se
+     * metia encima de la tarjeta de la version (visto en el render del manual;
+     * medido, no a ojo). La fila tiene 776 utiles (800 - 2*12 de margen) y
+     * gasta 64+108+64 de los dos botones y el valor mas 48 de los cuatro
+     * huecos de 12. Quitandole 64 al enlace, el rotulo se queda con 256: los
+     * 244 que necesita y 12 de aire. Lo que se pierde son 64 px de diagnostico
+     * por la derecha, y ahi ya se cortaba con 300 ("P4: sin red (busco
+     * P4-JOINT)" mide 367; el texto normal del enlace son 156). */
 
     lv_obj_t *blbl = lv_label_create(brow);
     lv_label_set_text(blbl, "Brillo mínimo");
@@ -1031,7 +1042,7 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_flex_grow(blbl, 1);
 
     s_enlace = lv_label_create(brow);
-    lv_obj_set_width(s_enlace, 300);
+    lv_obj_set_width(s_enlace, 236);
     lv_obj_set_style_text_align(s_enlace, LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_long_mode(s_enlace, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_font(s_enlace, &lv_font_montserrat_20, 0);
