@@ -168,6 +168,10 @@
 static lv_obj_t *s_circle;
 static lv_obj_t *s_bubble;
 static lv_obj_t *s_label_status;
+/* Momento (lv_tick_get) en que se escribio el mensaje FINAL que hay ahora en la
+ * etiqueta de estado; 0 = no hay ninguno pendiente de borrar. Se usa en
+ * status_final() y en refresh_cb(). */
+static uint32_t s_status_ms;
 static lv_obj_t *s_label_nivel;   /* "NIVELADA", aparte del estado */
 static lv_timer_t *s_timer;
 /* Las dos lecturas, cada una con su cifra. Ver el reparto en
@@ -308,10 +312,38 @@ static void make_rotulo_anillo(lv_obj_t *padre, int radio, const char *txt,
     lv_obj_align(l, LV_ALIGN_CENTER, radio - 40, 12);
 }
 
+/* CUANTO SE QUEDA A LA VISTA UN MENSAJE FINAL (arbitraje del 10-nov-2026).
+ * Antes, "Calibrado" o "No he podido guardarlo" se borraban en el tick
+ * siguiente del refresco (200 ms), asi que el usuario casi no llegaba a
+ * leerlos. Ahora cada mensaje FINAL se queda 2 s y luego se borra solo: el
+ * refresco solo mira la marca de tiempo, nunca el texto.
+ *
+ * "Calibrando..." NO pasa por aqui: dura lo que dure la calibracion (que
+ * bloquea esta misma tarea, ver calib_btn_cb), y un limite de tiempo lo
+ * borraria mientras aun esta midiendo. */
+#define STATUS_VISIBLE_MS  2000
+
+/* Escribe un mensaje FINAL en la etiqueta de estado y arranca su cuenta atras.
+ * Es la unica forma de escribir los finales: si se hiciera con lv_label_set_text
+ * a pelo, el refresco de 200 ms no sabria que hay algo que conservar. */
+static void status_final(const char *txt)
+{
+    lv_label_set_text(s_label_status, txt);
+    /* El 0 esta reservado para "no hay mensaje pendiente", asi que un tick 0
+     * (recien arrancada la placa) se guarda como 1; lv_tick_elaps() ya cuenta
+     * bien el desbordamiento de los 32 bits. */
+    s_status_ms = lv_tick_get();
+    if (s_status_ms == 0) s_status_ms = 1;
+}
+
 static void calib_btn_cb(lv_event_t *e)
 {
     (void)e;
     lv_label_set_text(s_label_status, "Calibrando...");
+    /* Sin cuenta atras: "Calibrando..." tiene que verse hasta que termine la
+     * calibracion. El 0 cancela ademas el mensaje final de una pulsacion
+     * anterior, que si no seguiria contando por detras. */
+    s_status_ms = 0;
     /* Este callback corre en la propia tarea de LVGL: sin forzar el
      * repintado aqui, "Calibrando..." se quedaba en el arbol de objetos
      * pero nunca llegaba a pintarse en pantalla -- tilt_calibrate() bloquea
@@ -321,7 +353,9 @@ static void calib_btn_cb(lv_event_t *e)
      * Detectado por el usuario el 09-sep-2026. */
     lv_refr_now(NULL);
     bool ok = tilt_calibrate();   /* bloquea ~0.5s (ver tilt.h) */
-    lv_label_set_text(s_label_status, ok ? "Calibrado" : "No he podido guardarlo");
+    /* El final, con su cuenta atras: se queda 2 s a la vista (ver
+     * STATUS_VISIBLE_MS) en vez de desaparecer en el tick siguiente. */
+    status_final(ok ? "Calibrado" : "No he podido guardarlo");
 }
 
 /* Lo ultimo PINTADO, para no repintar por un resto de ruido. Ver la zona muerta
@@ -356,6 +390,7 @@ static void refresh_cb(lv_timer_t *t)
         lv_obj_add_flag(s_row_roll, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_sin_sensor, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(s_label_status, "");
+        s_status_ms = 0;   /* sin sensor no queda ningun mensaje que conservar */
         if (s_brujula) lv_obj_add_flag(s_brujula, LV_OBJ_FLAG_HIDDEN);
         return;
     }
@@ -366,7 +401,10 @@ static void refresh_cb(lv_timer_t *t)
     float pitch, roll;
     if (!tilt_get(&pitch, &roll)) {
         lv_label_set_text(s_label_nivel, "");
-        lv_label_set_text(s_label_status, "Error de lectura I2C");
+        /* Error persistente: al reescribirlo cada 200 ms la cuenta atras se
+         * reinicia sola, asi que se queda mientras dure el fallo y desaparece
+         * 2 s despues de la ultima lectura mala. */
+        status_final("Error de lectura I2C");
         return;
     }
     lv_obj_clear_flag(s_bubble, LV_OBJ_FLAG_HIDDEN);
@@ -484,7 +522,15 @@ static void refresh_cb(lv_timer_t *t)
         snprintf(buf, sizeof(buf), "%+.1f\xC2\xB0", roll);
         lv_label_set_text(s_val_roll, buf);
     }
-    lv_label_set_text(s_label_status, "");
+    /* El mensaje FINAL del boton de calibrar ("Calibrado", "No he podido
+     * guardarlo") se queda 2 s a la vista: antes se borraba en el tick
+     * siguiente (200 ms) y el usuario casi no lo veia. Aqui solo se borra
+     * cuando su cuenta atras ha vencido; "Calibrando..." no lleva marca (ver
+     * calib_btn_cb), asi que nunca se borra por tiempo mientras calibra. */
+    if (s_status_ms && lv_tick_elaps(s_status_ms) >= STATUS_VISIBLE_MS) {
+        s_status_ms = 0;
+        lv_label_set_text(s_label_status, "");
+    }
 }
 
 /* Pausa/reanuda la lectura periodica del ADXL345 segun si esta pantalla es

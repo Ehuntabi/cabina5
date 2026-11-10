@@ -18,7 +18,6 @@
 #include "../net/udp_rx.h"
 #include "../net/p4_creds.h"   /* lo que se manda de verdad a la P4 (una sola clave) */
 #include "../net/ota_rx.h"   /* actualizacion por Wi-Fi: la lanza y se pinta aqui */
-#include "../net/mini_proto.h"   /* MINI_PROTO_VERSION: el diagnostico del enlace */
 #include "confirm_screen.h"
 #include "config_storage.h"
 #include "brillo.h"   /* el minimo de brillo, ajustable desde aqui */
@@ -382,35 +381,6 @@ static void wifi_cancel_cb(lv_event_t *e)
 
 /* El Volver del formulario de Wi-Fi no sale de Configuracion: vuelve al menu,
  * que es de donde se entro. */
-/* POR QUE NO LLEGAN DATOS (auditoria del 14-oct-2026): desde aqui, "la P4 no
- * esta" y "la P4 habla otro idioma" (firmware mezclado) se veian IGUAL -- un
- * guion y el punto gris -- y no se arreglan igual: una se arregla encendiendo
- * la P4, la otra grabando la placa que se quedo atras. Corto, que es una linea
- * de la pantalla de Ajustes. */
-static void enlace_diag_sufijo(char *out, size_t n)
-{
-    udp_rx_drop_t motivo = UDP_RX_DROP_NO;
-    int ver = -1, tam = -1;
-    udp_rx_diagnostico(&motivo, &ver, &tam);
-    out[0] = 0;
-    switch (motivo) {
-        case UDP_RX_DROP_TAM:
-            snprintf(out, n, " (otro firmware: %dB v%d)", tam, ver);
-            break;
-        case UDP_RX_DROP_VERSION:
-            snprintf(out, n, " (firmware v%d, no v%d)", ver, (int)MINI_PROTO_VERSION);
-            break;
-        case UDP_RX_DROP_CRC:
-            snprintf(out, n, " (llega corrupto)");
-            break;
-        case UDP_RX_DROP_ORIGEN:
-            snprintf(out, n, " (habla otro aparato)");
-            break;
-        default:
-            break;
-    }
-}
-
 /* Pinta el estado del enlace con la P4. Calla si la pantalla no se ve. */
 static void enlace_timer_cb(lv_timer_t *t)
 {
@@ -437,21 +407,36 @@ static void enlace_timer_cb(lv_timer_t *t)
     int rssi = 0, sin_datos = -1;
     udp_rx_enlace(ssid, sizeof(ssid), &asociado, &rssi, &sin_datos);
     if (!asociado) {
-        lv_label_set_text_fmt(s_enlace, "P4: sin red (busco %s)", ssid);
+        /* 235 px con la fuente real del rotulo (Inter 26, medido con el arnes
+         * el 10-nov-2026). "P4: sin red (buscando)" mide 281 y "P4: sin red
+         * (busco P4-JOINT)" 367, asi que el SSID se cae del rotulo: se ve en el
+         * formulario de Wi-Fi de esta misma pantalla y en el log. */
+        lv_label_set_text(s_enlace, "P4: sin red (busco)");
         lv_obj_set_style_text_color(s_enlace, UI_COLOR_ORANGE, 0);
     } else if (sin_datos < 0) {
         /* Asociada pero SIN haber recibido ni un mensaje desde que arranco.
          * Antes esto se pintaba como "sin datos 0s", que se lee justo al reves
          * ("acaba de llegar un dato") cuando significa "nunca ha llegado nada":
-         * el usuario lo vio el 2-oct-2026 y no habia quien lo entendiera. */
-        char diag[48];
-        enlace_diag_sufijo(diag, sizeof(diag));
-        lv_label_set_text_fmt(s_enlace, "P4: %d dBm, sin datos todavia%s", rssi, diag);
+         * el usuario lo vio el 2-oct-2026 y no habia quien lo entendiera.
+         *
+         * "aun" (y no "todavia") es lo que cabe: 213 px. El dBm tampoco entra
+         * junto al estado ("P4: -55 dBm, sin datos" mide 283), asi que en los
+         * dos estados de "sin datos" manda el estado, que es lo que se mira
+         * cuando no llegan datos; el dBm sigue en el log cada 30 s (ver
+         * view_info.c) y se ve en el estado bueno de este mismo rotulo. */
+        lv_label_set_text(s_enlace, "P4: sin datos aún");
         lv_obj_set_style_text_color(s_enlace, UI_COLOR_ORANGE, 0);
     } else if (sin_datos > 5) {
-        char diag[48];
-        enlace_diag_sufijo(diag, sizeof(diag));
-        lv_label_set_text_fmt(s_enlace, "P4: %d dBm, sin datos %ds%s", rssi, sin_datos, diag);
+        /* La edad solo mientras quepa: 3 cifras son 230 px ("P4: sin datos
+         * 999s") y entran en la caja de 236; con 4 ("3600s") mide 246 y el
+         * rotulo lo partiria en dos lineas con puntos suspensivos. Pasado ese
+         * punto se enseña el estado sin la cifra (el dato exacto sigue en el
+         * log, cada 30 s). */
+        if (sin_datos <= 999) {
+            lv_label_set_text_fmt(s_enlace, "P4: sin datos %ds", sin_datos);
+        } else {
+            lv_label_set_text(s_enlace, "P4: sin datos");
+        }
         lv_obj_set_style_text_color(s_enlace, UI_COLOR_ORANGE, 0);
     } else {
         lv_label_set_text_fmt(s_enlace, "P4: %d dBm", rssi);
@@ -989,9 +974,8 @@ void view_ajustes_create(lv_obj_t *parent)
      * usuario): "-44 dBm, brillo minimo y sus botones en la misma linea". Antes
      * ocupaba una fila propia de 26 px que era justo lo que hacia que la
      * tarjeta de la version no cupiera sin deslizar. Ancho fijo y puntos
-     * suspensivos: el texto normal ("P4: -44 dBm") entra de sobra; los
-     * diagnosticos largos ("... sin datos 30s (otro firmware...)") se cortan
-     * aqui, pero siguen enteros en el log.
+     * suspensivos: lo que no entra se corta AQUI, y por eso los textos estan
+     * MEDIDOS para que entren enteros (ver la tabla de abajo).
      *
      * 236 Y NO 300 (10-nov-2026): con 300 el reparto dejaba 192 px al rotulo
      * "Brillo minimo", que en la fuente de su papel (lv_font_montserrat_24 ->
@@ -999,10 +983,28 @@ void view_ajustes_create(lv_obj_t *parent)
      * metia encima de la tarjeta de la version (visto en el render del manual;
      * medido, no a ojo). La fila tiene 776 utiles (800 - 2*12 de margen) y
      * gasta 64+108+64 de los dos botones y el valor mas 48 de los cuatro
-     * huecos de 12. Quitandole 64 al enlace, el rotulo se queda con 256: los
-     * 244 que necesita y 12 de aire. Lo que se pierde son 64 px de diagnostico
-     * por la derecha, y ahi ya se cortaba con 300 ("P4: sin red (busco
-     * P4-JOINT)" mide 367; el texto normal del enlace son 156). */
+     * huecos de 12. Quitandole 64 al enlace, el rotulo del BRILLO se queda con
+     * 256: los 244 que necesita y 12 de aire (el del enlace son los 236 que fija
+     * lv_obj_set_width mas abajo).
+     *
+     * LO QUE SE ESCRIBE EN EL ROTULO, Y CUANTO MIDE (arbitraje del 10-nov-2026;
+     * medido con el arnes de render y la fuente REAL del rotulo,
+     * lv_font_montserrat_20 -> FUENTE_NORMAL, Inter 26; la caja son 236 px y un
+     * texto mas ancho se parte en dos lineas y sale con puntos suspensivos):
+     *   "P4: -55 dBm" ......... 156   enlace bien
+     *   "P4: sin red (busco)" . 235   sin asociar (la version con el SSID
+     *                                 media 367, ya no cabe)
+     *   "P4: sin datos aún" ... 213   asociada y sin un solo paquete
+     *   "P4: sin datos 999s" .. 230   asociada, parada hace N s (3 cifras)
+     *   "P4: sin datos" ....... 161   idem con N > 999 s: la cifra no cabe
+     * El dBm no cabe junto a los estados de "sin datos" ("P4: -55 dBm, sin
+     * datos" mide 283), asi que en esos dos manda el estado; el dBm sigue en
+     * el log cada 30 s (view_info.c) y se ve en el estado bueno.
+     *
+     * EL DIAGNOSTICO FINO YA NO VA AQUI: "(otro firmware: 41B v6)", "(llega
+     * corrupto)"... se pegaban detras y el rotulo los cortaba SIEMPRE (la base
+     * sola ya daba 336), asi que nunca se han visto en pantalla. El motivo
+     * exacto sigue en el log de udp_rx.c ("drop: ..."), que es donde se mira. */
 
     lv_obj_t *blbl = lv_label_create(brow);
     lv_label_set_text(blbl, "Brillo mínimo");
