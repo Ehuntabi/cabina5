@@ -33,7 +33,8 @@
 #include "net/ota_rx.h"      /* ota_rx_grabando(): no repintar mientras se graba la flash */
 #include "salida.h"          /* salida_hay(): si hay salida abierta AQUI */
 #include "nav.h"
-#include "view_registro.h"    /* view_registro_puntual_declarar_llegada() */
+#include "view_registro.h"
+#include "../net/viaje_diario.h"   /* viaje_diario_disponible() en el aviso de la P4 */    /* view_registro_puntual_declarar_llegada() */
 #include "confirm_screen.h"   /* descartar a mano el apunte atascado, desde la pastilla */
 #include "../data_model.h"
 #include "../net/udp_rx.h"
@@ -2407,12 +2408,25 @@ static void pendientes_click_cb(lv_event_t *e)
              * flash de esta pantalla y entra solo al volver la P4, asi que no
              * hay que sacrificar ningun apunte. El texto ahora lo dice, y el
              * boton de descartar queda como salida voluntaria, no como peaje. */
-            confirm_screen_open("LA P4 NO CONTESTA",
-                                "Lleva un rato sin recoger los\napuntes.\n\n"
-                                "NO SE PIERDE NADA: se siguen\nguardando en esta pantalla\ny entraran solos cuando vuelva.\n\n"
-                                "Si quieres, puedes apartar el\nmas antiguo, pero no hace\nfalta.",
-                                0xFFCC00, "Esperar", "Apartarlo",
-                                NULL, NULL);
+            /* SIN DIARIO NO SE PUEDE PROMETER NADA (revision del 10-nov-2026,
+             * hallazgo del arbitraje): en una placa actualizada por OTA no
+             * existe la particion "diario" (el OTA no toca la tabla), asi que
+             * el aviso de "no se pierde nada" seria MENTIRA justo cuando mas
+             * importa. Se dice lo que toca en cada caso. */
+            if (viaje_diario_disponible()) {
+                confirm_screen_open("LA P4 NO CONTESTA",
+                                    "Lleva un rato sin recoger los\napuntes.\n\n"
+                                    "NO SE PIERDE NADA: se siguen\nguardando en esta pantalla\ny entraran solos cuando vuelva.\n\n"
+                                    "Si quieres, puedes apartar el\nmas antiguo, pero no hace\nfalta.",
+                                    UI_COLOR_YELLOW_HEX, "Esperar", "Apartarlo",
+                                    NULL, NULL);
+            } else {
+                confirm_screen_open("LA P4 NO CONTESTA",
+                                    "Lleva un rato sin recoger los\napuntes y esta pantalla no\ntiene la copia de seguridad\n(falta la particion del diario:\ngraba por USB).\n\n"
+                                    "Para seguir anotando hay que\napartar el mas antiguo:\nse perdera ESE.",
+                                    UI_COLOR_ORANGE_HEX, "Esperar", "Apartarlo",
+                                    NULL, NULL);
+            }
             /* El descarte voluntario va en el boton de la derecha (ver
              * confirm_screen_no_accion): asi el boton grande y verde es
              * ESPERAR, que es lo que hay que hacer. */

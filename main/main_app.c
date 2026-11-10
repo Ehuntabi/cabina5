@@ -23,6 +23,7 @@
 #include "ui/nav.h"
 #include "net/udp_rx.h"
 #include "net/viaje_cola.h"
+#include "net/viaje_diario.h"   /* viaje_diario_disponible(): ver aviso_perdidas_cb */
 #include "net/p4_test.h"   /* auto-test del canal de subida a la P4 */
 #include "net/ota_rx.h"   /* actualizacion por Wi-Fi desde Ajustes */
 #include "ui/view_info.h"
@@ -235,6 +236,10 @@ static void aviso_perdidas_cb(lv_timer_t *t)
     lv_timer_del(t);
     int cola = viaje_cola_perdidos_al_arrancar();
     if (!s_nvs_borrada_al_arrancar && cola <= 0) return;   /* no se perdio nada */
+    /* CON EL DIARIO NO SE HA PERDIDO NADA (revision del 10-nov-2026): lo que la
+     * NVS tiro al reiniciarse esta en la copia duradera y se reencola solo. El
+     * aviso de perdida solo vale cuando no hay diario. */
+    if (viaje_diario_disponible() && viaje_diario_pendientes() > 0) return;
 
     char cuerpo[320];
     if (s_nvs_borrada_al_arrancar) {

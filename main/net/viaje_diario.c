@@ -348,7 +348,20 @@ static bool escanear(uint32_t base, uint32_t *gen_out, bool *sucio_out)
      * pasar bits de 1 a 0: escribir encima de bytes ya escritos NO los
      * reemplaza, los MEZCLA. Si no se limpia, el siguiente apunte se graba
      * sobre los restos del anterior y sale un cuerpo corrupto. */
-    if (sucio_out) *sucio_out = (off < base + s_half);
+    /* SUCIO = hay bytes escritos justo detras del cursor (no simplemente que
+     * quede sitio). Antes se miraba "off < fin de la mitad", que es SIEMPRE
+     * cierto porque se reserva el margen de la cabecera: el diario compactaba en
+     * CADA arranque y avisaba siempre (hallazgo del arbitraje del 10-nov-2026).
+     * Se miran los 16 bytes siguientes: si son 0xFF, la zona esta limpia. */
+    if (sucio_out) {
+        uint8_t siguiente[REG_TAM];
+        *sucio_out = false;
+        if (off + REG_TAM <= base + s_half && fl_leer(off, siguiente, sizeof siguiente)) {
+            for (size_t k = 0; k < sizeof siguiente; k++) {
+                if (siguiente[k] != 0xFF) { *sucio_out = true; break; }
+            }
+        }
+    }
     return true;
 }
 

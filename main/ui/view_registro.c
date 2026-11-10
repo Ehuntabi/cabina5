@@ -2487,6 +2487,77 @@ static bool numero_limpio(const char *s)
     return dig;
 }
 
+/* ¿TIENE TEXTO ESTE CAMPO? (10-nov-2026)
+ *
+ * Se mira si HAY algo escrito, no cuanto vale: un "0" tecleado es una
+ * respuesta ("fue gratis") y el campo vacio es "no lo se". La P4 distingue las
+ * dos cosas igual (vacio = no apuntado, ver texto_a_numero alla), y confundirlas
+ * aqui seria convertir un cero a proposito en un "no hay dato". Espacios de
+ * sobra no son un dato. */
+static bool ta_tiene_dato(lv_obj_t *ta)
+{
+    const char *t = ta ? lv_textarea_get_text(ta) : NULL;
+    if (!t) return false;
+    while (*t == ' ' || *t == '\t') t++;
+    return *t != 0;
+}
+
+/* ¿Hay ALGO que apuntar en el formulario de esta categoria? (10-nov-2026)
+ *
+ * POR QUE EXISTE: desde PUNTUAL se podia tocar Guardar sin escribir un solo
+ * numero -- y el apunte salia igual. La P4 lo acepta (un campo vacio no es un
+ * error para ella) y escribe una FILA VACIA en su CSV: un apunte que no dice
+ * nada es peor que ninguno, porque en la hoja de calculo parece que ese dia se
+ * paro y no hubo gasto, cuando lo que paso es que no se relleno.
+ *
+ * QUE CUENTA COMO DATO: lo que TECLEA el usuario (importe, precio, coste,
+ * litros, km, motivo) y lo que MARCA (las casillas del mantenimiento). Los
+ * SELECTORES no cuentan -- ni la moneda, ni "cuantas bombonas", ni el resultado
+ * de la ITV: make_choice_row() deja marcada la primera opcion nada mas crear el
+ * formulario (lv_buttonmatrix_set_btn_ctrl(bm, 0, CHECKED)), asi que estarian
+ * "llenos" hasta en un formulario recien abierto. Contarlos haria que esta
+ * comprobacion no saltase NUNCA en bombona e ITV, que es justo donde el
+ * descuido de guardar sin teclear es mas facil. Y las opciones que ensenan no
+ * se pierden: "si fue gratis, escribe 0" (que si es un dato, ver
+ * ta_tiene_dato). El resultado de la ITV se sigue anotando en cuanto se teclea
+ * el precio o los km, o un 0 si salio sin coste.
+ *
+ * LAS DEMAS CATEGORIAS NO SE MIRAN, y a proposito: en valoracion, servicios y
+ * aguas "sin numeros" es lo normal (un sitio gratis, una noche sin extras) y
+ * bloquearlas impediria apuntar cosas que si valen. CAT_PERNOCTA tampoco: lleva
+ * sitio, noches y servicios aunque no haya un euro.
+ *
+ * Se comprueba en apunte_encolar(), que es el unico camino a la cola: vale
+ * igual para un suelto (peaje), para cerrar un evento de un viaje y para la
+ * salida puntual, sin tres copias de la regla que se puedan desincronizar. */
+static bool hay_algo_que_apuntar(categoria_t cat)
+{
+    switch (cat) {
+        case CAT_REPOSTAJE:
+            return ta_tiene_dato(s_repo_importe_ta) ||
+                   ta_tiene_dato(s_repo_litros_ta)  ||
+                   ta_tiene_dato(s_repo_km_ta);
+        case CAT_PEAJE:
+            return ta_tiene_dato(s_peaje_importe_ta);
+        case CAT_BOMBONA:
+            return ta_tiene_dato(s_bombona_precio_ta);
+        case CAT_MANTENIMIENTO:
+            for (uint8_t i = 0; i < MANT_COUNT; i++)
+                if (lv_obj_has_state(s_mant_chk[i], LV_STATE_CHECKED)) return true;
+            /* El motivo de "Otros" va casilla aparte (otros_sincroniza_casilla
+             * las deja de acuerdo), pero se mira tambien el texto: si algun dia
+             * esa sincronia se rompe, lo tecleado no puede quedarse sin guardar
+             * por culpa de esta comprobacion. */
+            return ta_tiene_dato(s_mant_km_ta)    ||
+                   ta_tiene_dato(s_mant_coste_ta) ||
+                   ta_tiene_dato(s_mant_otros_ta);
+        case CAT_ITV:
+            return ta_tiene_dato(s_itv_precio_ta) || ta_tiene_dato(s_itv_km_ta);
+        default:
+            return true;   /* categorias sin dinero: ver el comentario de arriba */
+    }
+}
+
 /* Los campos NUMEROS del formulario de ESTA categoria, con las mismas listas
  * que valida la P4 (numeros_de_tipo). Los que no aplican (un servicio sin
  * marcar, un precio vacio) valen siempre. */
@@ -2544,6 +2615,24 @@ fin:
 
 static bool apunte_encolar(categoria_t cat)
 {
+    /* NADA QUE APUNTAR (10-nov-2026): con todos los campos de dinero vacios no
+     * se encola nada. Antes el apunte salia igual y la P4 escribia una fila
+     * vacia en su CSV (ver hay_algo_que_apuntar). Va ANTES que la de numeros a
+     * medias: si hay algo escrito pero mal ("1.2.3"), el aviso util es el otro.
+     *
+     * Se dice con ORANGE y no en rojo: no se ha perdido nada ni se ha roto
+     * nada, falta un dato. Y se ofrece la salida ("si fue gratis, escribe 0")
+     * porque un aviso que solo prohibe deja al usuario sin saber que hacer. */
+    if (!hay_algo_que_apuntar(cat)) {
+        ESP_LOGW(TAG, "'%s' NO se encola: no hay ningun dato en el formulario",
+                 CAT_NOMBRE[cat]);
+        confirm_screen_aviso("Nada que apuntar",
+                             "No has puesto ningun importe\nni ningun otro dato.\n\n"
+                             "Si fue gratis, escribe 0:\nen blanco no es lo mismo\nque cero.",
+                             UI_COLOR_ORANGE_HEX, "Entendido");
+        return false;
+    }
+
     /* NADA DE NUMEROS A MEDIAS (08-nov-2026): ver numero_limpio(). Se mira ANTES
      * de nada y no se encola: un 400 de la P4 por esto no lo suelta la cola. */
     {

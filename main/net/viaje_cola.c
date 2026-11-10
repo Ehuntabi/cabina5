@@ -961,8 +961,21 @@ static void reparto_task(void *arg)
              * p4_api/apunte.c con id). Antes se quedaba de cabeza reintentando
              * para siempre y la pantalla pedia al usuario que lo apartara a
              * mano. Se aparta solo, avisando: no se pierde nada que se pudiera
-             * entregar. */
-            if (viaje_diario_id_de(cuerpo) == 0) {
+             * entregar.
+             *
+             * SOLO SI HABIA UNA ENTRADA QUE LEER (arbitraje del 10-nov-2026).
+             * Este bloque esta en la rama de "leer_cabeza() dijo que no", que es
+             * TAMBIEN la de la cola vacia -- y ahi `cuerpo` no se ha tocado: es
+             * la basura de la pila o el cuerpo de la vuelta anterior. Mirandolo
+             * sin mas, en un arranque con la cola vacia esto decia "apunte sin
+             * id (cuerpo corrupto), lo aparto" cada REINTENTO_MS, culpando a un
+             * apunte que no existe, y -- peor -- llamaba a descartar_cabeza(
+             * UINT32_MAX), que borra "la que haya": si en ese hueco de
+             * microsegundos entraba un apunte nuevo, se quedaba fuera de la
+             * cola (y sin diario, perdido). leer_cabeza() deja idx_enviado
+             * DISTINTO de UINT32_MAX exactamente cuando habia una entrada, asi
+             * que esta condicion es la que separa los dos casos. */
+            if (idx_enviado != UINT32_MAX && viaje_diario_id_de(cuerpo) == 0) {
                 resumen_apunte(cuerpo, resumen, sizeof(resumen));
                 ESP_LOGE(TAG, "apunte sin id (cuerpo corrupto), lo aparto: %s",
                          resumen);
@@ -1518,7 +1531,8 @@ void viaje_cola_init(viaje_cola_cambio_cb cb)
     /* "Se perdieron N apuntes al arrancar" era verdad cuando la NVS era la unica
      * copia. Con el diario esos apuntes se reencolan solos: si estan ahi, no se
      * ha perdido nada y no hay que asustar a nadie. */
-    if (s_perdidos_arranque > 0 && viaje_diario_pendientes() > 0) {
+    if (s_perdidos_arranque > 0 &&
+        viaje_diario_pendientes() >= (size_t)s_perdidos_arranque) {
         ESP_LOGW(TAG, "la cola se reinicio con %d apuntes, pero el diario los "
                       "tiene: se recuperan solos", s_perdidos_arranque);
         s_perdidos_arranque = 0;
