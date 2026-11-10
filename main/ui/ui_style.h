@@ -73,6 +73,21 @@
 #define COL_ACCION_OK    UI_COLOR_GREEN_HEX
 #define COL_ACCION_STOP  UI_COLOR_RED_HEX
 
+/* ── Espaciado de letras de los titulos (10-nov-2026) ───────────────────────
+ *
+ * Los titulos en mayusculas de la P4 llevan las letras separadas (ver su
+ * docs/GUIA_ESTILO.md, seccion 4): un rotulo de 26-30 px en versalitas, sin
+ * espacio entre letras, se lee como un dato mas y no como el nombre de la
+ * pantalla. El VALOR de ese espaciado vive aqui, no en cada vista, para que
+ * los rotulos de las tres placas se separen igual.
+ *
+ * Dos papeles, como en la P4: UI_LS_TITULO es el de un titulo de pantalla o de
+ * tarjeta; UI_LS_AJUSTE es el que cabe en los rotulos largos (el 1 de
+ * "CONGELADOR" en la P4). La auditoria de estilo rechaza el numero escrito a
+ * mano en el sitio de la llamada. */
+#define UI_LS_TITULO 2
+#define UI_LS_AJUSTE 1
+
 /* ── Y ya listos para usar ───────────────────────────────────────────────── */
 #define UI_COLOR_BG           lv_color_hex(UI_COLOR_BG_HEX)
 #define UI_COLOR_CARD         lv_color_hex(UI_COLOR_CARD_HEX)
