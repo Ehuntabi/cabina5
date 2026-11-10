@@ -941,6 +941,22 @@ static void reparto_task(void *arg)
              * hay diario), se sigue abajo y se duerme, que es lo de antes. */
             if (rellena_desde_diario() > 0) continue;
 
+            /* UN CUERPO SIN id NO SE PUEDE ENTREGAR NUNCA (10-nov-2026): la P4
+             * necesita el id para aplicar el apunte y para no duplicarlo, asi
+             * que un cuerpo sin id es un cuerpo CORRUPTO (los monta siempre
+             * p4_api/apunte.c con id). Antes se quedaba de cabeza reintentando
+             * para siempre y la pantalla pedia al usuario que lo apartara a
+             * mano. Se aparta solo, avisando: no se pierde nada que se pudiera
+             * entregar. */
+            if (viaje_diario_id_de(cuerpo) == 0) {
+                resumen_apunte(cuerpo, resumen, sizeof(resumen));
+                ESP_LOGE(TAG, "apunte sin id (cuerpo corrupto), lo aparto: %s",
+                         resumen);
+                descartar_cabeza(idx_enviado);
+                vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
+                continue;
+            }
+
             /* Cola vacia: dormir hasta REINTENTO_MS, pero SIN esperar a que
              * se cumpla si mientras tanto se encola algo nuevo -- viaje_
              * cola_push() suelta este semaforo, y aqui se despierta al
