@@ -10,39 +10,52 @@
  * (antes dibujaba en los 480x320 logicos de la UI heredada, ver estilos.h):
  * las dos lecturas pasaron a dos filas con su etiqueta y su cifra grande.
  *
- * ── EL REPARTO DE AHORA (10-nov-2026): DOS ZONAS, CON SU ROTULO CADA UNA ──
+ * ── EL REPARTO DE AHORA (10-nov-2026, SEGUNDA VUELTA) ──────────────────────
  *
- * El dueno pidio, viendo la version de octubre: "el texto de CABECEO -5.3 y
- * BALANCEO -14.2 se puede empequenezer (es mas importante el grafico e intentar
- * separar inclinacion y brujula cada una en su lado)", y que el boton de
- * calibrar, que calibra el NIVEL, deje de estar debajo de la brujula. Ahora la
- * pantalla es:
+ * La pantalla se rehizo en dos zonas (commit anterior): banda de rotulos de
+ * 36 px con "INCLINACION" y "ORIENTACION", raya de 2 px en x=400 y dos zonas
+ * iguales de 380x432. El dueno, con esa foto delante, pidio dos cosas mas: "se
+ * puede agrandar el grafico de nivel aprovechando bien el espacio vertical y
+ * centrar en vertical la brujula". Las dos zonas y la raya se quedan; lo que
+ * cambia es el reparto del ALTO de cada una. Las dos suman 432 clavados:
  *
- *   - Una BANDA DE ROTULOS de 36 px (letra de 18, que empieza a 8 del borde)
- *     con DOS rotulos del mismo estilo, uno sobre cada zona: "INCLINACION" y
- *     "ORIENTACION". Antes habia un unico titulo centrado; con dos, la pantalla
- *     se lee como dos instrumentos distintos, y una RAYA vertical fina (2 px de
- *     CARD_BORDER) en x=400 termina de separarlos.
- *   - Dos ZONAS iguales de 380x432 (los 36 de la banda + 432 + 12 de margen
- *     cierran los 480): IZQUIERDA la inclinacion, DERECHA la orientacion.
- *   - IZQUIERDA: el nivel de 264 px (era 240) y debajo las dos lecturas
- *     (CABECEO / BALANCEO) en DOS COLUMNAS pequenas (rotulo 18, cifra 30; antes
- *     26/40 en dos filas de 56), "NIVELADA" en 30 y el boton de calibrar
- *     (300x48) pegado abajo: calibra el nivel, asi que vive con el nivel.
- *     Las columnas y no las filas: con las filas, las dos lecturas piden 78 px
- *     de alto y el nivel se queda en 240; en columnas piden 60 y el nivel gana
- *     esos 18 px. Cada cifra sigue teniendo su rotulo justo encima, que es lo
- *     que se mira de un golpe de vista desde el asiento.
- *   - DERECHA: la brujula de 264 px (el mismo tamano que el nivel, para que las
- *     dos zonas pesen lo mismo) con la rosa de los vientos, el rumbo y, debajo,
- *     el aviso de calibracion: integrado en el instrumento y no encima de la
- *     pantalla. La logica no cambia: sin calibrar, ambar ("gira el sensor (cal
- *     0/3)"); a 3/3, "brujula calibrada" en gris tenue. El hueco esta reservado
- *     para que no salte nada al pasar de un texto al otro.
- *   - La RESPUESTA del boton ("Calibrando...", "Calibrado", "Error de lectura
- *     I2C") va al pie, al otro lado de la raya y a la altura del boton: con el
- *     boton en la zona izquierda ya no cabe encima de el sin quitarle 22 px al
- *     nivel, y ahi sigue estando al lado de donde se ha pulsado.
+ *   IZQUIERDA ...... 312 + 8 + 60 + 4 + 48 = 432
+ *     nivel 312 (radio 156; antes 264) ......... 0..312
+ *     aire ..................................... 312..320
+ *     lecturas 60 (dos columnas de 120x60) ..... 320..380
+ *     aire ..................................... 380..384
+ *     pie 48 (boton 200x48 + "NIVELADA") ....... 384..432
+ *
+ *     Para que el nivel gane esos 48 px hay que juntar en UNA fila las dos
+ *     cosas que antes iban una debajo de otra: "NIVELADA" (letra de 30, 37 de
+ *     alto) y el boton. Van al pie: el boton a la derecha, PEGADO A LA RAYA
+ *     (asi su respuesta, que cae al otro lado, sigue estando al lado de donde
+ *     se pulsa) y "NIVELADA" a su izquierda, en la misma fila. El boton baja
+ *     de 300 a 200 de ancho: "Calibrar nivel" mide 161 en letra 26, quedan
+ *     ~20 px de relleno por lado y el blanco tactil (200x48) sigue sobrado;
+ *     200 + 151 de "NIVELADA" + 29 de hueco = 380 justos. El boton acaba a 8
+ *     de la raya, igual que antes.
+ *
+ *   DERECHA ........ 16 + 320 + 16 + 22 + 18 + 33 + 7 = 432
+ *     aire ..................................... 0..16
+ *     bloque brujula (264) + 8 + rumbo (48) .... 16..336
+ *     aire ..................................... 336..352
+ *     aviso de calibracion (18 de letra, 22) ... 352..374
+ *     aire ..................................... 374..392
+ *     estado del boton (26 de letra, 33) ....... 392..425
+ *     pie ..................................... 425..432
+ *
+ *     La brujula NO cambia de tamano (264; el dueno solo pedia centrarla). Lo
+ *     que cambia es que el BLOQUE (brujula + rumbo = 320) se centra en el
+ *     hueco que le dejan el aviso y el estado: 16 de aire arriba y otros 16
+ *     hasta el aviso. Antes el bloque iba pegado al techo de la zona (y=0) con
+ *     el aviso a 4 px del rumbo y un hueco muerto de 84 px al pie: por eso se
+ *     veia alto. El aviso se queda con el instrumento (dentro del mismo
+ *     contenedor: si no hay brujula desaparece con ella) y la linea de estado
+ *     del boton se queda al pie, a la altura del boton, como estaba.
+ *
+ * Los dos instrumentos ya NO miden lo mismo (312 el nivel, 264 la brujula): el
+ * dueno manda el nivel al centro de la pantalla y lo que pedia era agrandarlo.
  *
  * TODO SE COLOCA CON lv_obj_align Y MEDIDAS DE LA REJILLA DE 4, no con flex:
  * cuando falta el sensor se esconden las dos lecturas y el aviso ocupa su
@@ -63,15 +76,16 @@
  * cola segun la especificacion de Dometic (3 de lado a lado). Empezo en 15, con
  * lo que todo lo util quedaba en el primer cuarto del circulo y la bola apenas
  * se movia. */
-/* 132 de radio = 264 px de dial. Es lo que cierra la zona izquierda de 432 px:
- * 264 del dial + 8 + 60 de las dos lecturas en columna + 4 + 37 de "NIVELADA" +
- * 11 + 48 del boton = 432, justo el alto de la zona (ver el reparto entero en
- * view_inclinacion_create). Antes 240 (y 280 antes de eso): el boton de
- * calibrar, que ahora vive aqui, se come lo que se gano al empequenecer las
- * cifras, asi que este es el tamano mas grande que cabe sin recortar. */
-#define LEVEL_RADIUS    132
-/* 18 y no 14: en un dial de 264 la bola de 14 se pierde (y el recorrido hasta
- * el borde es de 114 px, que tambien la haria pequena). */
+/* 156 de radio = 312 px de dial (eran 264). Es lo que cierra la zona izquierda
+ * de 432 px ahora que "NIVELADA" y el boton comparten fila: 312 del dial + 8 +
+ * 60 de las dos lecturas en columna + 4 + 48 del pie = 432, justo el alto de la
+ * zona (ver el reparto entero arriba y en view_inclinacion_create). Antes 132:
+ * el dueno pidio "agrandar el grafico aprovechando el espacio vertical", y la
+ * fila que se gana al juntar "NIVELADA" con el boton son estos 48 px. Con 160
+ * (320 de dial) el pie se saldria 4 px. */
+#define LEVEL_RADIUS    156
+/* 18 y no 14: en un dial de 312 la bola de 14 se pierde (y el recorrido hasta
+ * el borde es de 138 px, que tambien la haria pequena). */
 #define BUBBLE_RADIUS   18   /* px, burbuja */
 #define MAX_DEG_SHOWN   6.0f  /* a partir de esto la burbuja se pega al borde */
 
@@ -125,11 +139,29 @@
  * de alto, asi que la zona puede empezar en 36 sin pisarlos. */
 #define ROTULO_Y        8
 
-/* El aro de la brujula: 264 px (132 de radio), el mismo diametro que el nivel
- * para que las dos zonas de la pantalla pesen lo mismo. La rosa (N/E/S/O) va a
- * 104 del centro: la letra (33 de alto) queda a 7 px del borde interior del aro
- * (antes, con el aro de 224, iba a 88 y quedaba a 4). La aguja escala con el
- * aro (ver brujula_draw_cb). */
+/* El PIE de la zona izquierda: el boton y "NIVELADA" en la MISMA fila de 48
+ * (384 + 48 = 432, el alto de la zona). Antes "NIVELADA" tenia linea propia
+ * (37 px) justo encima del boton; juntarlos es lo que le da al dial los 48 px
+ * que gana. El boton, de 200 de ancho y pegado a la raya: 200 + 151 de
+ * "NIVELADA" en letra 30 + 29 de hueco = 380, el ancho de la zona justo. */
+#define PIE_Y           384
+#define BOTON_ANCHO     200
+#define BOTON_ALTO      48
+/* (48 del boton - 37 de la letra) / 2 = 5,5; a la rejilla, 4: la palabra queda
+ * 2 px por encima del centro optico del boton, que no se nota al lado. */
+#define NIVELADA_Y      388
+
+/* El bloque de la brujula en su zona (ver el reparto de la cabecera):
+ * brujula 264 + 8 + rumbo 48 = 320, centrado en el hueco que dejan el aviso y
+ * el estado (16 de aire arriba, otros 16 hasta el aviso). */
+#define BRUJULA_Y       16
+#define BRUJULA_AVISO_Y 336      /* dentro del contenedor: 16 + 336 = 352 */
+
+/* El aro de la brujula: 264 px (132 de radio). Ya NO es el mismo diametro que
+ * el nivel: el dueno pidio agrandar el nivel y centrar la brujula, no
+ * agrandarla, y la brujula no tiene un 6.0 grados que cuanto mas grande mejor.
+ * La rosa (N/E/S/O) va a 104 del centro: la letra (33 de alto) queda a 7 px del
+ * borde interior del aro. La aguja escala con el aro (ver brujula_draw_cb). */
 #define BRUJULA_DIAM    264
 #define BRUJULA_CARDINAL_OFF  104
 
@@ -223,14 +255,18 @@ static lv_color_t color_for_level(float pitch, float roll)
 
 /* Zona aceptable, en forma de ovalo. LVGL no dibuja elipses, pero un rectangulo
  * con el radio al maximo da una "pastilla" -- semicirculos arriba y abajo con
- * los lados rectos -- que a estas proporciones se lee igual de bien. Se mete 4
- * px para dentro porque a 6 grados el alto coincide justo con el borde del dial
- * y se saldria por encima de su propio marco. */
+ * los lados rectos -- que a estas proporciones se lee igual de bien.
+ *
+ * EL ALTO VA RECORTADO 12 px (no 4): a 6 grados el ovalo pediria el radio
+ * entero del dial, y el dial tiene 4 px de borde, asi que con -4 el trazo
+ * caia 2 px ENCIMA del aro rojo (se veia el ambar cruzando el borde, como
+ * colgando). Con -12 se queda a 150 del centro, 2 px dentro del borde interior
+ * (152) y sin pisarlo. */
 static void make_ovalo(lv_obj_t *padre)
 {
     lv_obj_t *o = lv_obj_create(padre);
     lv_obj_set_size(o, RADIO_DE(AMBAR_ROLL_DEG) * 2,
-                       RADIO_DE(AMBAR_PITCH_DEG) * 2 - 4);
+                       RADIO_DE(AMBAR_PITCH_DEG) * 2 - 12);
     lv_obj_set_style_radius(o, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(o, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(o, 2, 0);
@@ -264,8 +300,8 @@ static void make_rotulo_anillo(lv_obj_t *padre, int radio, const char *txt,
     lv_label_set_text(l, txt);
     lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
     lv_obj_set_style_text_font(l, &FUENTE_NORMAL, 0);
-    /* El rotulo va SOBRE EL ANILLO, un poco hacia dentro: con el dial de 264 el
-     * borde queda a 132 de la cruz, y ahi cae el numero de los 6 grados. */
+    /* El rotulo va SOBRE EL ANILLO, un poco hacia dentro: con el dial de 312 el
+     * borde queda a 156 de la cruz, y ahi cae el numero de los 6 grados. */
     lv_obj_align(l, LV_ALIGN_CENTER, radio - 16, 12);
 }
 
@@ -288,8 +324,9 @@ static void calib_btn_cb(lv_event_t *e)
 /* Lo ultimo PINTADO, para no repintar por un resto de ruido. Ver la zona muerta
  * en refresh_cb(). */
 /* 7 px y no 5: con 5 el usuario, viendolo en la placa, pidio apretar mas
- * (24-ago-2026). Con el dial de radio 132 son 0,37 grados, por debajo del
- * circulo verde de 1 grado que marca "nivelada": no se come informacion. */
+ * (24-ago-2026). Con el dial de radio 156 son 0,30 grados (7 / (138 px de
+ * recorrido) * 6), por debajo del circulo verde de 1 grado que marca
+ * "nivelada": no se come informacion. */
 #define BOLA_ZONA_MUERTA_PX  7
 #define TEXTO_HISTERESIS_DEG 0.08f
 
@@ -345,25 +382,33 @@ static void refresh_cb(lv_timer_t *t)
      * malo. */
     int off_x = (int)((cr / MAX_DEG_SHOWN) * (LEVEL_RADIUS - BUBBLE_RADIUS));
     int off_y = -(int)((cp / MAX_DEG_SHOWN) * (LEVEL_RADIUS - BUBBLE_RADIUS));
-    /* LA BOLA NO SE SALE DEL DIAL (10-nov-2026). El desplazamiento se calculaba
-     * eje a eje, asi que en diagonal la distancia podia pasar del radio util
-     * (p.ej. cabeceo -5.3 y balanceo -14.2 dejan la bola fuera del circulo, y se
-     * veia colgando por la esquina). Aqui se recorta el VECTOR para que su
-     * longitud no pase nunca del radio interior. */
+    /* LA BOLA NO SE SALE DEL DIAL (10-nov-2026; es el "punto rosa" de la foto).
+     * El desplazamiento se hacia eje a eje, cada uno con su tope, asi que en
+     * diagonal la distancia podia pasar del radio util: con cabeceo -5.3 y
+     * balanceo -14.2 los dos ejes se iban al tope (114 px) y el vector medía
+     * 161 px con el dial de radio 132 -- la bola, de 36 y pintada en ROJO
+     * (0xFF4444, que sobre el fondo casi negro se lee rosa), salia colgando por
+     * la esquina. Aqui se recorta el VECTOR (no cada eje): su longitud no pasa
+     * nunca del radio util, asi que el tope es un circulo dentro del dial, que
+     * es lo que se espera de una burbuja. */
     {
-        int radio_util = LEVEL_RADIUS - BUBBLE_RADIUS - 4;
+        /* Radio interior del dial (156 - 4 de borde) menos la bola y 2 px de
+         * aire: 132. Con el -4 de antes la bola quedaba TANGENTE al borde
+         * interior y en el render se veia pegada al aro. */
+        const int radio_util = LEVEL_RADIUS - 4 - BUBBLE_RADIUS - 2;
         int d2 = off_x * off_x + off_y * off_y;
-        if (radio_util > 0 && d2 > radio_util * radio_util) {
+        if (d2 > radio_util * radio_util) {
             float k = (float)radio_util / sqrtf((float)d2);
             off_x = (int)((float)off_x * k);
             off_y = (int)((float)off_y * k);
         }
     }
     /* ZONA MUERTA. El filtro de tilt.c quita casi todo el ruido, pero lo que
-     * queda basta para que la bola no pare: el dial reparte 6 grados en 114 px,
-     * asi que UNA centesima de grado ya es un cuarto de pixel y cualquier resto
-     * mueve el dibujo. Aqui se corta por lo sano: la bola no se pinta en otro
-     * sitio hasta que el sitio nuevo esta a BOLA_ZONA_MUERTA_PX o mas.
+     * queda basta para que la bola no pare: el dial reparte 6 grados en 138 px
+     * (156 - 18 de la bola), asi que UNA centesima de grado ya es 0,23 px y
+     * cualquier resto mueve el dibujo. Aqui se corta por lo sano: la bola no se
+     * pinta en otro sitio hasta que el sitio nuevo esta a BOLA_ZONA_MUERTA_PX
+     * o mas.
      *
      * Y cuando se mueve va al sitio EXACTO, no a saltos de ese tamano: la zona
      * muerta decide CUANDO se redibuja, no donde. */
@@ -465,7 +510,7 @@ static void screen_evento_cb(lv_event_t *e)
 #define LECT_ALTO     60
 #define LECT_COL_W    120
 #define LECT_HUECO    16
-#define LECT_Y        272   /* alto del dial (264) + 8 de aire */
+#define LECT_Y        320   /* alto del dial (312) + 8 de aire */
 
 static lv_obj_t *make_readout(lv_obj_t *padre, const char *etiqueta,
                               lv_coord_t dx, lv_obj_t **valor_out)
@@ -523,18 +568,20 @@ void view_inclinacion_diag_arbol(void)
  * rumbo no vale y se avisa en ambar. */
 static void make_brujula(lv_obj_t *zona)
 {
-    /* El contenedor mide el aro + el rumbo + el aviso: 264 + 8 + 48 + 4 + 22 =
-     * 346. Se redondea a 348 (rejilla de 4) y el aviso va pegado arriba, asi
-     * que sobran 2 px por abajo. Es el bloque que se esconde entero cuando el
-     * sensor no tiene brujula (ADXL345): el boton de calibrar NO va aqui
-     * dentro, porque el nivel si existe en esa placa. */
+    /* El contenedor mide el BLOQUE (aro 264 + 8 + rumbo 48 = 320) mas el hueco
+     * hasta el aviso (16) y el aviso (22): 358, redondeado a 360 (rejilla de
+     * 4, sobran 2 por abajo). Va a BRUJULA_Y (16): asi el bloque queda con 16
+     * de aire arriba y 16 hasta el aviso, centrado en el hueco que le dejan el
+     * aviso y la linea de estado del boton. Es el bloque que se esconde entero
+     * cuando el sensor no tiene brujula (ADXL345): el boton de calibrar NO va
+     * aqui dentro, porque el nivel si existe en esa placa. */
     s_brujula = lv_obj_create(zona);
-    lv_obj_set_size(s_brujula, ZONA_ANCHO, 348);
+    lv_obj_set_size(s_brujula, ZONA_ANCHO, 360);
     lv_obj_set_style_bg_opa(s_brujula, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_brujula, 0, 0);
     lv_obj_set_style_pad_all(s_brujula, 0, 0);
     lv_obj_clear_flag(s_brujula, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(s_brujula, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_align(s_brujula, LV_ALIGN_TOP_MID, 0, BRUJULA_Y);
 
     lv_obj_t *cj = lv_obj_create(s_brujula);
     lv_obj_set_size(cj, BRUJULA_DIAM, BRUJULA_DIAM);
@@ -593,15 +640,18 @@ static void make_brujula(lv_obj_t *zona)
     lv_obj_set_style_text_color(s_rumbo, UI_COLOR_TEXT, 0);
     lv_obj_align(s_rumbo, LV_ALIGN_TOP_MID, 0, 272);
 
-    /* El aviso de calibracion va pegado al rumbo y no en una linea aparte de la
-     * pantalla: es una nota del instrumento (y en letra de pie, 18, para que no
-     * compita con el dato). El texto lo pone refresh_cb: ambar sin calibrar y
-     * "brujula calibrada" en gris a 3/3; aqui solo se le reserva el sitio. */
+    /* El aviso de calibracion va JUSTO DEBAJO DEL BLOQUE (16 px, que es el aire
+     * que le toca ahora que el bloque se centra) y no pegado al rumbo: con el
+     * bloque centrado, el hueco de abajo es el mismo que el de arriba. Sigue
+     * siendo una nota del instrumento (letra de pie, 18, para que no compita
+     * con el dato) y va dentro de este contenedor para que desaparezca con la
+     * brujula si el sensor no la tiene. El texto lo pone refresh_cb: ambar sin
+     * calibrar y "brujula calibrada" en gris a 3/3. */
     s_rumbo_cal = lv_label_create(s_brujula);
     lv_label_set_text(s_rumbo_cal, "");
     lv_obj_set_style_text_font(s_rumbo_cal, &FUENTE_PIE, 0);
     lv_obj_set_style_text_color(s_rumbo_cal, UI_COLOR_TEXT_DIM, 0);
-    lv_obj_align(s_rumbo_cal, LV_ALIGN_TOP_MID, 0, 324);
+    lv_obj_align(s_rumbo_cal, LV_ALIGN_TOP_MID, 0, BRUJULA_AVISO_Y);
 }
 
 void view_inclinacion_create(lv_obj_t *parent)
@@ -651,10 +701,11 @@ void view_inclinacion_create(lv_obj_t *parent)
     lv_obj_align(raya, LV_ALIGN_TOP_MID, 0, ROTULO_Y);
 
     /* ── ZONA IZQUIERDA: la inclinacion ────────────────────────────────
-     * El nivel manda (264 px), debajo las dos lecturas en columna, "NIVELADA"
-     * y, pegado abajo, el boton de calibrar: calibra el nivel, vive con el
-     * nivel. Todo centrado en la misma columna de 380 para que se lea como un
-     * bloque. */
+     * El nivel manda (312 px; es lo que pide el dueno y lo que da el alto con
+     * las lecturas y el pie en una sola fila), debajo las dos lecturas en
+     * columna y, pegados al pie, el boton de calibrar Y "NIVELADA" (que calibra
+     * el nivel, asi que vive con el nivel). Todo centrado en la misma columna
+     * de 380 para que se lea como un bloque. */
     lv_obj_t *left = lv_obj_create(parent);
     lv_obj_set_size(left, ZONA_ANCHO, ZONA_ALTO);
     lv_obj_set_pos(left, MARGEN_PAGINA, ZONA_Y);
@@ -681,8 +732,8 @@ void view_inclinacion_create(lv_obj_t *parent)
 
     /* Anillos de referencia, de fuera adentro. El del centro es la zona de
      * NIVELADO y va en verde: cuando la bola entra ahi, ya puedes parar. Es
-     * pequeno (NIVELADO_DEG es 1 grado, que a esta escala son 20 px) y la
-     * propia bola lo tapa -- a proposito: taparlo ES la senal. */
+     * pequeno (NIVELADO_DEG es 1 grado, que a esta escala son 26 px de radio,
+     * 52 de aro) y la propia bola lo tapa -- a proposito: taparlo ES la senal. */
     make_ovalo(s_circle);
     make_anillo(s_circle, RADIO_DE(NIVELADO_DEG), COL_NIVEL, 2);
 
@@ -722,54 +773,60 @@ void view_inclinacion_create(lv_obj_t *parent)
     lv_obj_clear_flag(s_bubble, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_center(s_bubble);
 
-    /* Las dos lecturas: 264 del dial + 8 + 60 de la banda + 4 + 37 de
-     * "NIVELADA" + 11 + 48 del boton = 432, el alto de la zona justo. Si se
-     * toca una, hay que tocar el reparto entero (las constantes de arriba). */
+    /* Las dos lecturas: 312 del dial + 8 + 60 de la banda + 4 + 48 del pie (el
+     * boton y "NIVELADA" en la misma fila) = 432, el alto de la zona justo. Si
+     * se toca una, hay que tocar el reparto entero (las constantes de arriba). */
     s_row_pitch = make_readout(left, "CABECEO", -(LECT_COL_W + LECT_HUECO) / 2,
                                &s_val_pitch);
     s_row_roll  = make_readout(left, "BALANCEO",  (LECT_COL_W + LECT_HUECO) / 2,
                                &s_val_roll);
 
-    /* El aviso de que no hay sensor ocupa el hueco de las dos columnas: 268 lo
-     * deja centrado en esa banda (272..332) sin llegar a "NIVELADA" (336). */
+    /* El aviso de que no hay sensor ocupa el hueco de las dos columnas: 316 lo
+     * deja en la banda que va del dial (312) al pie (384) -- son dos lineas de
+     * 33 = 66, que no caben en los 60 de la banda de lecturas, de ahi que
+     * empiece 4 px antes. */
     s_sin_sensor = lv_label_create(left);
     lv_label_set_text(s_sin_sensor, "Sensor de nivel\nno detectado");
     lv_obj_set_style_text_color(s_sin_sensor, UI_COLOR_YELLOW, 0);
     lv_obj_set_style_text_font(s_sin_sensor, &FUENTE_NORMAL, 0);
     lv_obj_set_style_text_align(s_sin_sensor, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(s_sin_sensor, LECT_COL_W * 2 + LECT_HUECO);
-    lv_obj_align(s_sin_sensor, LV_ALIGN_TOP_MID, 0, 268);
+    lv_obj_align(s_sin_sensor, LV_ALIGN_TOP_MID, 0, 316);
     lv_obj_add_flag(s_sin_sensor, LV_OBJ_FLAG_HIDDEN);
 
     /* "NIVELADA" en verde: es la respuesta que se busca al colocar las rampas,
-     * y se lee desde fuera de la autocaravana. Va debajo de las cifras, no en
-     * la otra zona: es del nivel. En 30 y no en 40: al empequenezer las
-     * lecturas, esta linea es la que paga los 11 px que el nivel gana de alto;
-     * sigue siendo el texto mas grande despues de los instrumentos. */
+     * y se lee desde fuera de la autocaravana. Ahora comparte la fila del pie
+     * con el boton (a su izquierda) en vez de tener linea propia: es la linea
+     * que paga los 48 px que gana el dial. Sigue siendo el texto mas grande
+     * despues de los instrumentos (letra 30) y crece hacia la derecha, asi que
+     * la alineada a la izquierda queda a 29 px del boton (151 + 29 + 200 = 380). */
     s_label_nivel = lv_label_create(left);
     lv_label_set_text(s_label_nivel, "");
     lv_obj_set_style_text_color(s_label_nivel, UI_COLOR_GREEN, 0);
     lv_obj_set_style_text_font(s_label_nivel, &FUENTE_MEDIA, 0);
-    lv_obj_align(s_label_nivel, LV_ALIGN_TOP_MID, 0, 336);
+    lv_obj_align(s_label_nivel, LV_ALIGN_TOP_LEFT, 0, NIVELADA_Y);
 
     /* El boton de calibrar, pegado al pie de la zona IZQUIERDA: calibra el
-     * nivel, no la brujula, y estaba en la zona equivocada. 300x48 (antes
-     * 300x60): 48 es el alto del boton grande de la guia (UI_HEADER_H) y sigue
-     * siendo un blanco tactil de sobra por lo ancho; con 60 el nivel se queda
-     * en 252. Cierra la zona a 12 px del borde de abajo de la pantalla. */
+     * nivel, no la brujula, y estaba en la zona equivocada. 200x48 (era
+     * 300x48): 48 es el alto del boton grande de la guia (UI_HEADER_H) y el
+     * ancho es lo que queda al compartir la fila con "NIVELADA"; "Calibrar
+     * nivel" mide 161 en letra 26, asi que sobran ~20 px de relleno a cada lado
+     * y el blanco tactil sigue de sobra. Se alinea a la DERECHA de la zona para
+     * quedar a 8 px de la raya, al lado de donde sale su respuesta. */
     s_calib_btn = lv_btn_create(left);
-    lv_obj_set_size(s_calib_btn, 300, 48);
+    lv_obj_set_size(s_calib_btn, BOTON_ANCHO, BOTON_ALTO);
     lv_obj_set_style_bg_color(s_calib_btn, UI_COLOR_BOTON, 0);
     lv_obj_add_event_cb(s_calib_btn, calib_btn_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_align(s_calib_btn, LV_ALIGN_TOP_MID, 0, 384);
+    lv_obj_align(s_calib_btn, LV_ALIGN_TOP_RIGHT, 0, PIE_Y);
     lv_obj_t *calib_lbl = lv_label_create(s_calib_btn);
     lv_label_set_text(calib_lbl, "Calibrar nivel");
     lv_obj_set_style_text_font(calib_lbl, &FUENTE_NORMAL, 0);
     lv_obj_center(calib_lbl);
 
     /* ── ZONA DERECHA: la orientacion ──────────────────────────────────
-     * La brujula es la protagonista (264 px, el mismo tamano que el nivel) y
-     * debajo su rumbo y el aviso de calibracion. */
+     * La brujula (264 px) NO se agranda: el dueno pedia centrarla en vertical,
+     * que es lo que hace make_brujula con el bloque (16 de aire arriba, 16
+     * hasta el aviso y el estado al pie). */
     lv_obj_t *right = lv_obj_create(parent);
     lv_obj_set_size(right, ZONA_ANCHO, ZONA_ALTO);
     lv_obj_set_pos(right, MARGEN_PAGINA + ZONA_ANCHO + ZONA_HUECO, ZONA_Y);
@@ -783,11 +840,10 @@ void view_inclinacion_create(lv_obj_t *parent)
     /* La respuesta del boton de calibrar ("Calibrando...", "Calibrado", "No he
      * podido guardarlo") y los errores de lectura ("Error de lectura I2C").
      * Va al pie, AL OTRO LADO DE LA RAYA y centrada en vertical con el boton
-     * (384 + 24 = 408; la letra de 26 mide 33, de ahi 392): con el boton ya en
-     * la zona izquierda no cabe encima de el sin quitarle 22 px al nivel, y
-     * aqui sigue estando al lado de donde se ha pulsado (la raya son 8 px, no
-     * la otra punta de la pantalla). En 26 y TEXT_SOFT porque es la respuesta a
-     * lo que acabas de pulsar y un error tiene que leerse, no susurrarse. */
+     * (384 + 24 = 408; la letra de 26 mide 33, de ahi 392): el boton acaba a 8
+     * px de la raya, asi que la respuesta sale justo al lado de donde se ha
+     * pulsado. En 26 y TEXT_SOFT porque es la respuesta a lo que acabas de
+     * pulsar y un error tiene que leerse, no susurrarse. */
     s_label_status = lv_label_create(right);
     lv_label_set_text(s_label_status, "");
     lv_obj_set_style_text_color(s_label_status, UI_COLOR_TEXT_SOFT, 0);
