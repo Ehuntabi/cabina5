@@ -2,7 +2,10 @@
 
 Había dos manuales y el de verdad es **uno solo**:
 
-    ~/joint/documentacion/manual/manual_uso_autocaravana.md
+    ~/joint/manual/manual_uso_autocaravana.md
+
+(`~/joint/manual` es un enlace a `~/joint/documentacion/manual`: la misma
+carpeta con dos nombres.)
 
 De ahí se generan el **PDF** y el **HTML** que se leen de verdad
 (`manual_uso_autocaravana.pdf`, `manual_uso_autocaravana.html`), con sus
