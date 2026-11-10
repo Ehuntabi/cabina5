@@ -2092,12 +2092,17 @@ void view_info_create(lv_obj_t *parent)
     lv_obj_set_width(s_pendientes, lv_pct(96));
     lv_obj_set_style_text_align(s_pendientes, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(s_pendientes, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_content_height(s_pendientes,
-                              lv_font_get_line_height(&FUENTE_PIE));
     /* Sombra negra alrededor: la pastilla cae ENCIMA de las tarjetas de aguas y
      * temperaturas, y sin separacion el naranja se pegaba a sus bordes. */
     lv_obj_set_style_border_color(s_pendientes, UI_COLOR_BG, 0);
     lv_obj_set_style_border_width(s_pendientes, 3, 0);
+    /* EL ALTO VA DESPUES DEL BORDE (10-nov-2026): lv_obj_set_content_height()
+     * mide el AREA DE CONTENIDO, y el borde de 3 px se suma por fuera. Puesto
+     * antes del borde, el texto se quedaba 6 px corto y salia recortado por
+     * abajo en la placa (visto en el render del manual; estaba asi desde el
+     * 17-oct). Se pone una linea de fuente MAS el borde de arriba y abajo. */
+    lv_obj_set_content_height(s_pendientes,
+                              lv_font_get_line_height(&FUENTE_PIE) + 6);
     lv_obj_align(s_pendientes, LV_ALIGN_BOTTOM_MID, 0, -6);
     /* Se TOCA cuando hay algo que cerrar: lleva derecho a la lista. Un aviso
      * que solo avisa obliga a acordarse de a donde hay que ir. */
