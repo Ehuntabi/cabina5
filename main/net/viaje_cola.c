@@ -1437,11 +1437,32 @@ void viaje_cola_init(viaje_cola_cambio_cb cb)
             char clave[16];
             clave_de(i, clave, sizeof(clave));
             nvs_handle_t h;
-            if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) break;
+            /* SI LA NVS NO SE DEJA LEER, NO SE RECONSTRUYE (revision del
+             * 10-nov-2026, hallazgo del arnes de integracion): antes un simple
+             * `break` seguia adelante, borraba la cola y la rellenaba del
+             * diario. Si el diario no tenia esos apuntes (solo estaban en la
+             * NVS), el indice se ponia a 0 y la pantalla decia "0 sin grabar"
+             * con los cuerpos todavia en la flash y encima q0/q1 se podian
+             * pisar con el siguiente apunte. */
+            if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) {
+                ESP_LOGE(TAG, "no puedo leer la cola al arrancar: NO la reconstruyo");
+                reconstruible = false;
+                break;
+            }
             size_t len = sizeof(cuerpo);
             esp_err_t e = nvs_get_str(h, clave, cuerpo, &len);
             nvs_close(h);
-            if (e != ESP_OK) continue;
+            if (e == ESP_ERR_NVS_NOT_FOUND || e == ESP_ERR_NVS_INVALID_LENGTH) {
+                continue;   /* esa entrada no estaba: no hay nada que rescatar */
+            }
+            if (e != ESP_OK) {
+                /* Transitorio (sin memoria, NVS ocupada): tampoco se reconstruye,
+                 * porque no sabemos que hay en esa entrada. */
+                ESP_LOGE(TAG, "no puedo leer un apunte de la cola (%s): NO "
+                              "reconstruyo", esp_err_to_name(e));
+                reconstruible = false;
+                break;
+            }
             uint32_t id = viaje_diario_id_de(cuerpo);
             if (id == 0 || !viaje_diario_contiene(id)) {
                 if (id && viaje_diario_anota(cuerpo, id)) {

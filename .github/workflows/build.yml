@@ -158,6 +158,16 @@ jobs:
       - name: Diario del viaje (copia duradera en la flash)
         run: bash cabina5/test/viaje_diario.sh
 
+      # Y que la cola y el diario sean UNA sola cosa (10-nov-2026): la cola de la
+      # NVS es un PREFIJO EXACTO de los pendientes del diario, y de esa regla
+      # depende que el `fin` no adelante a los apuntes que solo estan en el
+      # diario (el fallo que se cazo ese dia: el viaje se cerraba en la P4 sin
+      # ellos). Este test compila los DOS ficheros de produccion (viaje_cola.c y
+      # viaje_diario.c) con dobles de NVS, FreeRTOS y la P4, y comprueba el orden
+      # REAL de los cuerpos que salen por el cable.
+      - name: La cola es un prefijo de los pendientes del diario
+        run: bash cabina5/test/viaje_cola_integracion.sh
+
       # Y las decisiones de la actualizacion OTA (comparacion de versiones y
       # sha256): se sacan del ota_rx.c real y se compilan en el runner. Un error
       # aqui deja la pantalla con un firmware que no arranca.
