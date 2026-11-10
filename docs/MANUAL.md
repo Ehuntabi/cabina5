@@ -3,13 +3,23 @@
 Guía de las anotaciones del viaje: viaje, paradas, repostajes, peajes, bombonas
 y mantenimiento. Escrita para usarla en la carretera, no para programar.
 
-> **Antes de nada, lo importante:** todo lo que anotas aquí **ya llega a la P4 y
-> se guarda en su tarjeta**, en la carpeta del viaje. Probado el 22-ago-2026.
+> **Antes de nada, lo importante:** todo lo que anotas aquí **llega a la P4 y se
+> guarda en su tarjeta**, en la carpeta del viaje. Y **antes de salir de esta
+> pantalla ya está escrito en su propia memoria** (10-nov-2026), que es lo que
+> hace imposible perderlo. Probado el 22-ago-2026 y, el 10-nov-2026, con la P4
+> desenchufada a mitad.
 >
-> **Y no hace falta que la P4 esté encendida.** Si no está, el apunte se queda
-> esperando y sale solo en cuanto vuelve. Mientras haya algo sin entregar verás
-> abajo en la pantalla principal un aviso naranja: **"2 sin enviar"**. No se
-> pierde nada al quitar el contacto.
+> **Puedes anotar con la P4 apagada sin miedo.** Cada apunte se guarda primero en
+> una copia duradera aquí dentro, y de esa copia **solo se borra cuando la P4
+> contesta que lo tiene**. Si la P4 está apagada, fuera de alcance o se va la
+> corriente, el apunte espera y **sale solo** en cuanto vuelve: al encenderla, al
+> volver a dar el contacto o al reiniciar la pantalla. Quitar el contacto no se
+> lleva nada.
+>
+> Mientras quede algo sin entregar se ve en dos sitios: abajo en la pantalla de
+> Datos, **«2 sin enviar»**, y arriba en el cuaderno, **«2 SIN GRABAR EN LA P4»**
+> (apartado 4). Ese número cuenta también lo que espera en la copia, no solo lo
+> que está en la cola de salida.
 >
 > Lo único que **no** se guarda es lo que anotes **sin un viaje en marcha**: no
 > hay carpeta donde escribirlo. La pantalla te avisa cuando pasa.
@@ -22,7 +32,7 @@ Hay **tres pantallas** y se cambia **deslizando el dedo** a izquierda o derecha:
 
 ```
    INCLINACIÓN   <—>   DATOS   <—>   REGISTROS
-    (nivelar)         (arranque)      (anotar)
+  (nivel y rumbo)     (arranque)      (anotar)
 ```
 
 Al encender siempre aparece **Datos**, la del centro.
@@ -139,12 +149,30 @@ cuanto la P4 vuelva, y **no se pierden al quitar el contacto**. Está siempre a
 la vista mientras quede algo, porque esta pantalla no puede saber que vas a
 apagar — se queda sin corriente y ya.
 
+**Es el mismo número que la pastilla «N SIN GRABAR EN LA P4» del cuaderno**
+(apartado 4), que es donde se ve mientras anotas. Aquí está además **el porqué y
+la salida**: la pastilla añade al número un motivo, y un toque abre el cartel que
+lo explica y ofrece qué hacer.
+
+| Lo que pone la pastilla | Qué significa | Al tocarla |
+|---|---|---|
+| **NO CONTESTA, TOCA AQUI** | La P4 lleva un rato sin recoger apuntes: apagada o fuera de su wifi | El cartel **«LA P4 NO CONTESTA»**, con **Esperar** (lo que toca) y **Apartarlo** |
+| **CLAVE MAL, AJUSTES** | La P4 rechaza el usuario y la clave del portal | Un aviso que lleva a **Ajustes → Wi-Fi** |
+| **LA P4 PIDE CLAVE ADMIN** | Lo que hay en cabeza cierra o aparta un viaje que está grabando **otra** pantalla | **Descartarlo** o **Esperar** (apartado 5) |
+| **LA P4 NO PUEDE ESCRIBIR** | Está encendida y contesta, pero su tarjeta (o su memoria interna) está llena o fallando | Un aviso con lo que pasa. Los apuntes **no** se pierden: siguen aquí |
+| **ATASCADO, TOCA AQUI** | La P4 rechaza un apunte concreto y no va a entrar solo | Un cartel que dice qué pasa y ofrece **Descartarlo** |
+| **CASI LLENA** | La cola de salida se está llenando | No hace falta tocar nada: no se pierde nada (ver abajo) |
+
 > **Si ese aviso se pone ROJO y dice «CASI LLENA», hazle caso.** Caben **14**
 > apuntes esperando (la cola son 16 huecos y 2 están reservados para que el cierre
 > del viaje entre siempre), y como la P4 está siempre encendida lo normal es que la
 > cola se vacíe sola en segundos: que llegue a acumular tantos significa que no le
-> están llegando —la P4 sin corriente, o esta pantalla fuera de su wifi—. Si se
-> llena del todo, el siguiente apunte **no se puede anotar** y te lo dice.
+> están llegando —la P4 sin corriente, o esta pantalla fuera de su wifi—.
+>
+> **Pero ya no se pierde nada por eso**: esa cola es solo la ventana de salida.
+> Lo que no le cabe sigue guardado en la copia duradera de esta pantalla (aguanta
+> **128** apuntes esperando) y entra solo en cuanto la cola drene. Hazle caso
+> igual, porque es el aviso de que algo no está llegando.
 
 > **El aviso de «sin cerrar» se ve aquí, no solo en el cuaderno.** Si dejaste
 > algo declarado, abajo al centro sale una pastilla naranja **«2 sin cerrar ›»**.
@@ -155,14 +183,44 @@ apagar — se queda sin corriente y ya.
 > a la P4); si hay de los dos, salen juntos. Ese no se toca: se arregla solo en
 > cuanto la P4 aparezca.
 
+### Si la P4 no contesta
+
+El cartel **«LA P4 NO CONTESTA»** es el que sale al tocar la pastilla cuando la
+P4 lleva un rato apagada o fuera de alcance, o sea cuando sigues anotando y
+cerrando apuntes sin que ella dé señales. El texto cambia según lo que sepa
+hacer esta pantalla, y la diferencia importa:
+
+| Lo que dice | Cuándo sale | Qué hacer |
+|---|---|---|
+| **NO SE PIERDE NADA**: «se siguen guardando en esta pantalla y entran solos cuando vuelva» | Esta pantalla tiene la copia duradera | **Esperar**, que es el botón grande y verde. Seguir anotando es seguro |
+| «Para seguir anotando hay que apartar el más antiguo: se perderá ESE» | La pantalla se ha actualizado **solo por OTA** y no tiene la copia | **Esperar** si puedes; si no, **Apartarlo**, y se pierde ese apunte y solo ese |
+
+> **Lo de la copia y el OTA, para que no pille de sorpresa:** la copia duradera
+> vive en un trozo de memoria que **el OTA no crea**. Una pantalla actualizada
+> solo por el aire anota igual, pero sin esa copia. Se arregla **una vez**
+> grabándola por USB con la imagen completa; a partir de ahí el OTA sirve como
+> siempre (apartado 11, punto 6).
+
 ---
 
-## 3. Pantalla de Inclinación (nivelar)
+## 3. Pantalla de Inclinación y brújula
+
+Dos instrumentos, cada uno en su mitad y con su rótulo en la banda de arriba:
+**INCLINACIÓN** a la izquierda y **ORIENTACIÓN** a la derecha, separadas por una
+raya vertical que parte la pantalla en dos. Es lo que deja claro, de un vistazo,
+qué es cada cosa (10-nov-2026).
+
+| Zona | Qué lleva |
+|---|---|
+| **INCLINACIÓN** (izquierda) | El nivel, que es lo más grande de la pantalla; **CABECEO** y **BALANCEO** en dos columnas pequeñas; la palabra **NIVELADA** y el botón **Calibrar nivel** |
+| **ORIENTACIÓN** (derecha) | La brújula, el **rumbo** debajo y el aviso de calibración |
+
+### El nivel
 
 Un nivel de burbuja para aparcar. La bola **rueda hacia el lado bajo**: si se va
-hacia ti, ese lado es el que hay que subir.
-
-Colores:
+hacia ti, ese lado es el que hay que subir. La bola toma el color del aro en el
+que está, así que el color solo ya dice si vas bien, sin comparar posiciones ni
+leer números.
 
 | Color | Significado |
 |---|---|
@@ -176,8 +234,24 @@ encima de eso el frigo de absorción trabaja mal.
 **La forma ovalada amarilla del centro es esa zona aceptable**, y es oval a
 propósito: no es lo mismo de lado a lado que de morro a cola. Mientras la bola se
 quede **dentro de ese óvalo**, sigues dentro de lo que aguanta el frigo; en cuanto
-se sale, el dial se pone **rojo**. Dibujarlo redondo sería mentir por los dos lados
-a la vez: asustaría de más cabeceando y de menos balanceando.
+se sale, la bola se pone **roja**. Dibujarlo redondo sería mentir por los dos
+lados a la vez: asustaría de más cabeceando y de menos balanceando.
+
+Los aros llevan su cifra escrita al lado —**1** en verde, **3** en ámbar y
+**6°** en rojo—, y la cruz del centro es el cero. Así el nivel dice **cuánto**,
+no solo hacia dónde. El borde de fuera del dial está pintado en rojo siempre: es
+el final de la escala, no un aviso de que estés mal.
+
+**La bola ya no se sale del dial** (10-nov-2026). Antes, con mucha pendiente en
+diagonal, los dos ejes se iban a tope a la vez y la bola asomaba por el lado de
+la diagonal, colgando fuera del aro; ahora el recorrido se recorta al círculo,
+así que el tope es siempre el borde y nunca se cuela por un lado.
+
+Debajo del nivel, **CABECEO** (morro a cola) y **BALANCEO** (de lado a lado),
+cada uno con su cifra en grados y su signo, en dos columnas que no bailan al
+cambiar el número. Y cuando los dos están por debajo de 1° sale **NIVELADA** en
+verde, al lado del botón: el color solo no basta si lo miras de reojo desde
+fuera, con las rampas en la mano.
 
 > **La bola tarda un instante en asentarse, y es a propósito.** El sensor tiene
 > un ruido propio que, ampliado por el dial, se veía como un temblor que no
@@ -188,12 +262,38 @@ a la vez: asustaría de más cabeceando y de menos balanceando.
 
 **Botón "Calibrar nivel":** pon el cero cuando la autocaravana esté realmente
 nivelada (comprobado con un nivel de burbuja de verdad). Corrige que la pantalla
-no esté montada perfectamente recta.
+no esté montada perfectamente recta. La respuesta —«Calibrando…», «Calibrado» o
+«No he podido guardarlo»— sale **al otro lado de la raya**, a la altura del
+botón, al lado de donde acabas de pulsar.
 
 > El sensor va montado **girado** en su soporte, y el programa ya lo tiene en
 > cuenta. No hay nada que tocar. Si algún día se cambia el soporte y el nivel
 > empieza a marcar el balanceo donde debería marcar el cabeceo, es eso — hay que
 > avisar para corregirlo en el programa.
+
+### La brújula
+
+Dice hacia dónde apunta el morro. La aguja lleva el **norte en rojo** y el sur en
+claro, con los cuatro puntos cardinales alrededor; debajo va el **rumbo** en
+grados y su punto cardinal —«123° SE»—, que es el dato que se lee de un vistazo
+mientras colocas la autocaravana.
+
+La brújula **se calibra sola**, pero la ayudas tú: hasta que el magnetómetro esté
+a punto, debajo del rumbo sale en ámbar **«gira el sensor (cal N/3)»**, con lo que
+le falta. Basta con **dar una vuelta completa con el vehículo**, despacio y en un
+sitio despejado —lejos de vallas metálicas, torres y coches— hasta que llegue a
+**3/3**; entonces el aviso pasa a decir que está calibrada, en gris, y el rumbo se
+pone en blanco. La calibración **se guarda**: no hay que repetirla en cada
+arranque.
+
+> **Mientras diga «cal N/3», el rumbo no vale.** En ámbar está avisando, no
+> midiendo: una aguja que miente es peor que un aviso. Y ojo con el botón:
+> «Calibrar nivel» calibra **el nivel**, no la brújula; para la brújula, la vuelta
+> con el vehículo.
+
+El sensor va dentro de la pantalla, así que no hay nada que orientar a mano: si
+gira el vehículo, gira el sensor. Con el sensor viejo, que no lleva brújula, esta
+mitad se queda sin instrumento; el nivel sigue funcionando igual.
 
 ---
 
@@ -217,6 +317,28 @@ Arriba, una franja fina con **la hora** y dos puntos: **GPS** y **P4**. Verde =
 va; ámbar = el GPS todavía busca; gris = no hay. Los dos puntos **caducan con el
 enlace**: si se cae la comunicación con la P4 se apagan, porque un indicador que
 miente justo cuando algo va mal es peor que no tenerlo.
+
+### La pastilla «N SIN GRABAR EN LA P4»
+
+Arriba del todo de los dos menús —el de **NUEVA SALIDA** y el del **viaje en
+curso**— puede salir una pastilla naranja con un número:
+
+**«3 SIN GRABAR EN LA P4 - TOCA AQUI»**
+
+Es **lo que has anotado y todavía no está en la P4**. Cuenta las dos cosas: lo
+que espera en la cola de salida y lo que aguanta en la copia duradera de esta
+pantalla, así que el número es de fiar aunque la P4 lleve días sin dar señales
+(10-nov-2026).
+
+- **Se va sola.** No hay que quitarla ni hay un botón para ello: desaparece en
+  el momento en que la P4 confirma el último apunte. Lo normal es verla un
+  instante y nada más; al guardar algo, sale un rato mientras se entrega.
+- **Si se queda, algo no llega.** No es una avería del apunte —está guardado—,
+  sino de la entrega: la P4 apagada, fuera de alcance, o el Wi-Fi o la clave mal
+  puestos. Mientras esté ahí, **puedes seguir anotando**: nada se pierde.
+- **Se toca y te lleva a la pantalla de Datos**, que es donde está el motivo
+  puesto con palabras («NO CONTESTA, TOCA AQUI», «CLAVE MAL, AJUSTES», «CASI
+  LLENA»…) y la salida de cada uno (apartado 2).
 
 ### Sin salida en marcha
 
@@ -307,12 +429,22 @@ de un toque, así que un dedo equivocado tiene que tener vuelta atrás. El apunt
 memoria interna, así que **sobrevive a que se apague la pantalla** — que es
 justo lo que va a pasar en cuanto quites el contacto.
 
+**Y una vez guardado ya no se puede perder.** Cada apunte se escribe en la copia
+duradera de esta pantalla antes de salir hacia la P4, y de ahí solo se borra
+cuando la P4 contesta que lo tiene (10-nov-2026). Si la P4 está apagada, el
+apunte espera —y lo dice la pastilla de «N SIN GRABAR EN LA P4», más arriba—.
+Puedes quitar el contacto y anotar el siguiente con la P4 todavía apagada: se
+mandan solos al volver, y también al reiniciar la pantalla.
+
 **Caben cuatro cosas abiertas a la vez.** Cuatro y no una porque en una estancia
 larga conviven: pernoctas cinco días en un camping y por el medio sales a
 repostar, compras una bombona y pagas un peaje.
 
-**Hace falta la P4 encendida** para declarar: el apunte lleva su hora de inicio y
-esta pantalla no tiene reloj propio. Si no está, avisa y no anota.
+**La hora la da la P4.** Para declarar hace falta que esta pantalla la haya
+conocido desde que se encendió —el apunte lleva su hora de inicio y aquí no hay
+reloj propio—, así que si nunca se han enlazado, avisa y no anota. Pero una vez
+enlazadas, **puedes anotar aunque la P4 se apague a mitad**: la hora se sigue
+calculando con lo que ha pasado desde la última vez que habló.
 
 ### Al volver a dar el contacto: cerrar lo que dejaste abierto
 
@@ -726,6 +858,21 @@ enlacen antes de anotar la parada.
 
 ## 8. Los demás formularios
 
+> **Un formulario en blanco no se guarda** (10-nov-2026). En los que son de
+> dinero —**repostaje, peaje, bombona, mantenimiento e ITV**—, si no has puesto
+> ningún importe ni ningún otro dato, al darle a guardar sale **«Nada que
+> apuntar»** y no se anota nada. Antes se guardaba una fila vacía y en la hoja de
+> cálculo parecía que ese día se paró y no hubo gasto, cuando lo que pasó es que
+> no se rellenó.
+>
+> **Si fue gratis, escribe 0.** En blanco no es lo mismo que cero: el cero es un
+> dato («no costó nada») y el blanco es «no lo he mirado». Basta un dato de los
+> suyos para que se guarde: en el repostaje, los litros o los kilómetros; en
+> mantenimiento, marcar una casilla; en la ITV, el precio o los kilómetros. Las
+> aguas, la pernocta y la valoración no se miran: ahí «sin números» es lo normal
+> —un sitio gratis, una noche sin extras— y bloquearlas impediría apuntar cosas
+> que sí valen.
+
 ### Repostaje
 
 Importe (con su moneda), **litros** y **kilómetros**. Abajo, calculado solo: el
@@ -975,11 +1122,15 @@ llama por lo que es: **`historico.tar`**.
 | **"Sin la P4"** al finalizar parada | Lo mismo: sin fecha no se puede calcular la estancia |
 | **"La P4 no acepta la clave"** | Falta el usuario (`p4`) o la **clave del punto de acceso** en Ajustes → Wi-Fi: la misma con la que esta pantalla entra en la red |
 | **"Ya hay un viaje abierto"** | La P4 tiene uno sin cerrar. Termínalo antes de empezar otro |
-| **"Sensor ADXL345 no detectado"** | El sensor de inclinación no responde. Es un problema de conexión, no de uso |
+| **"Sensor de nivel no detectado"** | El sensor de inclinación no responde. Es un problema de conexión, no de uso |
 | El nivel marca torcido estando recta | Pulsa **Calibrar nivel** con la autocaravana bien nivelada |
+| **"gira el sensor (cal N/3)"** bajo el rumbo | La brújula todavía no está calibrada: da una vuelta completa con el vehículo, despacio y en un sitio despejado (apartado 3) |
 | Volviste a Registros y estaba en blanco | Normal: al salir se limpia. Lo no guardado se pierde |
 | **"N sin enviar"** en naranja | No es avería: hay apuntes esperando a la P4. Se van solos cuando aparezca |
-| **"N sin enviar - CASI LLENA"** en rojo | Sí es aviso: sale cuando quedan 3 huecos de 16 (y sigue con menos). La P4 lleva rato sin recibir; mira si tiene corriente y si esta pantalla ve su wifi |
+| **"N SIN GRABAR EN LA P4"** arriba en el cuaderno | El mismo aviso, pero en la pantalla desde la que anotas. Cuenta también lo que espera en la copia duradera. Tócalo para ver el motivo y la salida |
+| **"N sin enviar - CASI LLENA"** en rojo | Es la cola de salida la que se llena: la P4 lleva rato sin recibir. **No se pierde nada** (lo que no cabe espera en la copia de esta pantalla), pero mira si la P4 tiene corriente y si esta pantalla ve su wifi |
+| **"LA P4 NO CONTESTA"** | La P4 lleva un rato sin recoger apuntes. **Esperar** y seguir anotando: no se pierde nada. Si el cartel dice que hay que apartar el más antiguo, es una pantalla actualizada solo por OTA (apartado 2) |
+| **"Nada que apuntar"** | Guardaste un formulario de dinero sin poner ni un importe ni ningún otro dato. Si fue gratis, escribe 0 |
 | **"Guardado solo aquí"** | Lo anotaste sin viaje en marcha, así que no va a la tarjeta. Inicia un viaje antes |
 
 ---
@@ -1009,6 +1160,12 @@ Para no llevarse sorpresas:
    símbolos de moneda (€, £) ni un par de letras raras (ł, č), así que las monedas
    van con su código (EUR, GBP) y "zl"/"Kc" sin diacríticos. Antes (con las
    Montserrat del SDK) sí era verdad lo de los cuadraditos.
+6. **La copia duradera pide una grabación por USB, una sola vez.** Llegó con un
+   trozo nuevo de memoria, y eso el OTA no lo crea: una pantalla actualizada
+   **solo por el aire** sigue anotando igual, pero sin la copia. Si al tocar la
+   pastilla el cartel dice que falta la copia y que hay que grabar por USB, es
+   eso. Con una grabación por cable se queda para siempre, y a partir de ahí el
+   OTA normal sigue sirviendo.
 
 Lo que viene: la posición de cada apunte suelto (el recorrido y los kilómetros
 del viaje ya están, ver §9).
