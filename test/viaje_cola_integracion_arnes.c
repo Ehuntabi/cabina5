@@ -129,6 +129,24 @@ static void ids_en_nvs(uint32_t *ids, size_t n)
     }
 }
 
+/* Deja DOS apuntes que solo existen en la NVS: el diario no deja escribir (es el
+ * escenario del fin de semana del 7-8-nov). Los ids son id0 e id0+1, y en la NVS
+ * quedan en q0 y q1. */
+static void solo_en_la_nvs(uint32_t id0)
+{
+    viaje_diario_test_borra_todo();
+    dobles_nvs_borra();
+    dobles_p4_limpia();
+    viaje_diario_test_falla(true);
+    viaje_diario_init();              /* no puede ni estrenar: se queda sin diario */
+    viaje_cola_init(cb_pendientes);
+    for (uint32_t id = id0; id <= id0 + 1; id++) {
+        char b[CUERPO_MAX];
+        cuerpo_registro(b, sizeof b, id, "peaje");
+        viaje_cola_push(b, NULL);     /* el alta en el diario falla: solo a la cola */
+    }
+}
+
 int main(void)
 {
     char b[CUERPO_MAX];
@@ -270,17 +288,57 @@ int main(void)
        id_en(dobles_p4_cuerpo(2)) == 503, "en orden 501, 502, 503");
     ok(cola() == 0 && diario() == 0, "no se pierde ninguno");
 
-    /* LO QUE NO SE AFIRMA AQUI, Y POR QUE (hallazgo del 10-nov-2026, SIN
-     * arreglar). El rescate de arriba es el camino bueno. Si el nvs_open() de
-     * solo lectura de main/net/viaje_cola.c:1440 falla en ese mismo bucle (es un
-     * fallo transitorio: "sin memoria" al arrancar), el `break` sale del bucle
-     * SIN poner reconstruible = false, y entonces borra_cola_entera() +
-     * rellena_desde_diario() dejan el indice a cero con los apuntes que solo
-     * estaban en la NVS fuera de el: la pantalla dice "0 sin grabar" con los
-     * cuerpos todavia en la flash (y el siguiente push pisa q0/q1). Es
-     * justamente el caso que este bloque prueba, pero con la NVS fallando, y hoy
-     * sale mal; el arnes tiene que pasar, asi que no se afirma aqui. Queda
-     * descrito en el informe: hay que anadirlo cuando se arregle. */
+    /* ESTE ERA EL HUECO que cazo este arnes (hallazgo del 10-nov-2026, ya
+     * arreglado en viaje_cola.c): si la NVS no se dejaba leer en el bucle de
+     * rescate, antes se seguia adelante, borraba la cola y la rellenaba del
+     * diario (vacio), y los apuntes que solo estaban en la NVS desaparecian del
+     * indice. El bloque de abajo lo prueba ya arreglado. */
+
+    /* ── 3a bis. NVS ilegible al arrancar: la cola NO se toca ────────────── */
+    printf("\n=== 3a bis. NVS ilegible al arrancar: la cola se queda COMO ESTABA ===\n");
+    /* El hermano bueno, para ver la diferencia: los mismos 2 apuntes solo en la
+     * NVS, con la NVS legible => se reconstruye (igual que 3a). */
+    solo_en_la_nvs(611);
+    ok(cola() == 2 && diario() == 0, "dos apuntes SOLO en la NVS (el diario no los tiene)");
+    viaje_diario_test_falla(false);      /* el diario vuelve */
+    viaje_cola_init(cb_pendientes);      /* reinicio con la NVS legible */
+    ok(diario() == 2 && cola() == 2,
+       "con la NVS legible, el rescate SI reengancha la cola (el caso bueno)");
+
+    /* Y ahora el malo: al reiniciar, la NVS no se deja ABRIR en solo lectura.
+     * La PRIMERA apertura de solo lectura de viaje_cola_init() es la de los
+     * indices (indices_leer) y la SEGUNDA la del bucle de rescate, asi que se
+     * hace fallar a partir de la segunda para caer justo en la rama arreglada
+     * (si fallara la primera, el bucle ni se ejecutaria). */
+    solo_en_la_nvs(601);
+    ok(cola() == 2 && diario() == 0, "otra vez dos apuntes SOLO en la NVS");
+    viaje_diario_test_falla(false);
+    dobles_nvs_open_ro_falla(2);
+    viaje_cola_init(cb_pendientes);
+    dobles_nvs_open_ro_falla(0);
+    ok(cola() == 2, "con la NVS ilegible NO se borra la cola: siguen los 2");
+    ok(diario() == 0, "y no se reconstruye nada desde el diario (esta vacio)");
+    ok(id_en(dobles_nvs_cadena("q0")) == 601 && id_en(dobles_nvs_cadena("q1")) == 602,
+       "los cuerpos siguen donde estaban");
+    ok(viaje_cola_sin_grabar() == 2, "y la pantalla sigue diciendo 2 sin grabar (no 0)");
+
+    /* Y el apunte siguiente NO puede pisarlos: espera en el diario. */
+    cuerpo_registro(b, sizeof b, 701, "repostaje");
+    motivo = VIAJE_COLA_ERR_NVS;
+    ok(viaje_cola_push(b, &motivo), "el apunte nuevo se acepta");
+    ok(cola() == 2, "y NO se cuela en la cola: los 2 de la NVS van delante");
+    ok(id_en(dobles_nvs_cadena("q0")) == 601 && id_en(dobles_nvs_cadena("q1")) == 602,
+       "q0 y q1 NO se han pisado");
+    ok(!dobles_nvs_tiene("q2"), "el nuevo no ocupa la NVS: espera en el diario");
+    ok(diario() == 1, "y ahi queda anotado");
+
+    /* Y se entrega TODO en orden: no se ha perdido ninguno. */
+    dobles_p4_limpia();
+    dobles_p4_estado(200);
+    reparto_hasta_vaciar();
+    ok(dobles_p4_enviados() == 3 && id_en(dobles_p4_cuerpo(0)) == 601 &&
+       id_en(dobles_p4_cuerpo(1)) == 602 && id_en(dobles_p4_cuerpo(2)) == 701,
+       "salen los 3 en orden (601, 602, 701): no se pierde ninguno");
 
     /* ── 3b. init: se borra la cola y se rellena desde el diario ─────────── */
     printf("\n=== 3b. Si la cola se pierde, al arrancar se rellena desde el diario ===\n");

@@ -36,6 +36,18 @@ void dobles_nvs_sin_espacio(bool activo);
  * invisible" que la cola tiene que deshacer borrando el cuerpo. */
 void dobles_nvs_indices_sin_espacio(bool activo);
 
+/* Hace que nvs_open(NVS_READONLY) falle (ESP_ERR_NVS_NO_FREE_PAGES: un fallo de
+ * APERTURA, no de dato) a partir de la apertura de solo lectura numero 'desde'
+ * (1 = todas; 0 = desactivado). La cuenta empieza de cero en esta misma llamada.
+ *
+ * El 'desde' existe porque no todas las aperturas de solo lectura son lo mismo
+ * para el codigo bajo prueba: viaje_cola_init() abre PRIMERO para leer los
+ * indices (indices_leer) y DESPUES, dentro del bucle de rescate, una por apunte.
+ * Para probar la rama "no puedo leer el apunte, NO reconstruyo la cola" hay que
+ * fallar la SEGUNDA (desde = 2): si fallara la primera, el bucle de rescate ni
+ * siquiera llegaria a ejecutarse. */
+void dobles_nvs_open_ro_falla(unsigned desde);
+
 /* ── La P4 (el POST HTTP) ───────────────────────────────────────────────── */
 
 void   dobles_p4_limpia(void);              /* olvida los envios y pone estado 200 */

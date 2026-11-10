@@ -83,6 +83,20 @@ static void indices_leer(uint32_t *cabeza, uint32_t *cola)
     nvs_close(h);
 }
 
+/* Igual, pero DICE si la NVS no se pudo ni abrir. Solo lo usa la reconstruccion
+ * del arranque: si no se pueden leer los indices, la cola es un misterio y no se
+ * puede borrar (ver viaje_cola_init). Revision del 10-nov-2026. */
+static bool indices_leer_ok(uint32_t *cabeza, uint32_t *cola)
+{
+    *cabeza = 0; *cola = 0;
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return false;
+    nvs_get_u32(h, K_CABEZA, cabeza);
+    nvs_get_u32(h, K_COLA, cola);
+    nvs_close(h);
+    return true;
+}
+
 /* Devuelve si se han guardado DE VERDAD. Antes no se miraba, y ahi habia un
  * agujero por el que se perdian apuntes en silencio: el cuerpo se escribe
  * primero y el indice despues, asi que si el indice no entra -- la NVS son
@@ -1428,7 +1442,16 @@ void viaje_cola_init(viaje_cola_cambio_cb cb)
     if (viaje_diario_disponible()) {
         bool reconstruible = true;
         uint32_t cabeza, cola;
-        indices_leer(&cabeza, &cola);
+        /* SI NI SIQUIERA SE PUEDEN LEER LOS INDICES, NO SE TOCA NADA (revision
+         * del 10-nov-2026): antes cabeza/cola quedaban 0/0, el bucle de rescate
+         * no corria y se borraba el indice igual, con lo que los apuntes que
+         * solo estaban en la NVS se quedaban en la flash sin que nadie los
+         * contara (y el siguiente alta podia pisarlos). */
+        if (!indices_leer_ok(&cabeza, &cola)) {
+            ESP_LOGE(TAG, "no puedo leer los indices de la cola al arrancar: NO "
+                          "la reconstruyo");
+            reconstruible = false;
+        }
         for (uint32_t i = cabeza; i < cola; i++) {
             /* cuerpo ESTATICO: esto corre en la tarea main (3,5 KB) y una copia
              * de 896 B mas la de rellena_desde_diario() la desbordaban. Se llama

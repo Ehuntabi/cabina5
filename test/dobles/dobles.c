@@ -64,6 +64,8 @@ static char               s_ns[NVS_NS_CUANTOS][NVS_NS_MAX];
 static size_t             s_ns_n;
 static bool               s_sin_espacio;
 static bool               s_indices_sin_espacio;
+static unsigned           s_open_ro_desde;   /* 0 = no falla */
+static unsigned           s_open_ro_n;       /* aperturas contadas desde que se armo */
 
 /* Copia sin el aviso de truncado de snprintf: lo que sobra se corta y punto
  * (los cuerpos que se prueban caben de sobra). */
@@ -136,6 +138,11 @@ esp_err_t nvs_open(const char *namespace_name, nvs_open_mode_t open_mode,
                    nvs_handle_t *out_handle)
 {
     if (!namespace_name || !out_handle) return ESP_ERR_INVALID_ARG;
+    /* Fallo de APERTURA a voluntad (ver dobles_nvs_open_ro_falla). */
+    if (open_mode == NVS_READONLY && s_open_ro_desde) {
+        s_open_ro_n++;
+        if (s_open_ro_n >= s_open_ro_desde) return ESP_ERR_NVS_NO_FREE_PAGES;
+    }
     if (open_mode == NVS_READONLY && !ns_existe(namespace_name))
         return ESP_ERR_NVS_NOT_FOUND;
 
@@ -260,6 +267,8 @@ void dobles_nvs_borra(void)
     s_ns_n = 0;
     s_sin_espacio = false;
     s_indices_sin_espacio = false;
+    s_open_ro_desde = 0;
+    s_open_ro_n = 0;
 }
 
 bool dobles_nvs_tiene(const char *clave)
@@ -289,6 +298,12 @@ size_t dobles_nvs_claves(void)
 
 void dobles_nvs_sin_espacio(bool activo) { s_sin_espacio = activo; }
 void dobles_nvs_indices_sin_espacio(bool activo) { s_indices_sin_espacio = activo; }
+
+void dobles_nvs_open_ro_falla(unsigned desde)
+{
+    s_open_ro_desde = desde;   /* 0 = desactivado */
+    s_open_ro_n = 0;
+}
 
 /* ── La P4 simulada ───────────────────────────────────────────────────────── */
 
