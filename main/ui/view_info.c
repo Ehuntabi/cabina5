@@ -2206,10 +2206,14 @@ static void pendientes_aplicar(void *arg)
      * Wi-Fi -- y conviene enterarse ANTES de que no quepa el siguiente, que ahi
      * ya no se puede anotar. Tres de margen: da tiempo a reaccionar sin dar la
      * lata por uno o dos. */
-    /* El tope que importa es el de APUNTES, no el de la cola: dos huecos estan
-     * reservados al cierre del viaje (ver VIAJE_COLA_RESERVA_CONTROL), asi que
-     * el aviso tiene que saltar contra ESE tope, no contra 16. */
-    bool casi = s_pend_valor + 3 >= VIAJE_COLA_APUNTES_MAX;
+    /* OJO CON QUE NUMERO SE COMPARA (revision del 10-nov-2026, hallazgo A):
+     * 's_pend_valor' es lo que NO esta en la P4 contando el DIARIO, que puede
+     * llegar a 128. El tope de 14 es el de la VENTANA de la NVS: comparar el
+     * total contra el avisaba "CASI LLENA" con 11 apuntes aunque no hubiera
+     * ningun problema (el diario aguanta 128 y se envia solo). "Casi llena" es
+     * sobre la ventana de envio, asi que se pregunta por ella. */
+    size_t en_ventana = viaje_cola_pendientes();
+    bool casi = en_ventana + 3 >= VIAJE_COLA_APUNTES_MAX;
     /* Un 409 sostenido no se arregla solo aunque la P4 este encendida y
      * respondiendo (es un apunte del viaje anterior, o un choque de numeracion;
      * NO es que este apagada) -- por eso lleva su propio aviso, distinto de
@@ -2396,17 +2400,23 @@ static void pendientes_click_cb(lv_event_t *e)
         }
         if (atasco == VIAJE_COLA_ATASCO_SIN_RESPUESTA) {
             /* La P4 no contesta (apagada, o esta pantalla fuera de su Wi-Fi).
-             * Se llega aqui con los apuntes acumulandose: el cierre del viaje SI
-             * entra (huecos reservados al control), pero para SEGUIR anotando
-             * hay que hacer sitio, y el unico que puede es el usuario. Se dice
-             * cual se pierde y que, si la P4 solo estaba apagada, habrian
-             * entrado solos al volver (auditoria del 14-oct-2026). */
+             *
+             * ANTES decia que para seguir anotando habia que apartar el mas
+             * antiguo y que se perderia ESE. YA NO ES VERDAD (10-nov-2026): con
+             * el diario, lo que no cabe en la ventana de envio se queda en la
+             * flash de esta pantalla y entra solo al volver la P4, asi que no
+             * hay que sacrificar ningun apunte. El texto ahora lo dice, y el
+             * boton de descartar queda como salida voluntaria, no como peaje. */
             confirm_screen_open("LA P4 NO CONTESTA",
-                                "Lleva un rato sin recoger los\napuntes. Si solo estaba\napagada, entraran solos\ncuando vuelva.\n\n"
-                                "Para seguir anotando hay que\napartar el mas antiguo:\nse perdera ESE.",
-                                0xFF4444, "Apartarlo", "Esperar",
-                                descartar_apunte_cb, NULL);
-            confirm_screen_ok_destructivo();
+                                "Lleva un rato sin recoger los\napuntes.\n\n"
+                                "NO SE PIERDE NADA: se siguen\nguardando en esta pantalla\ny entraran solos cuando vuelva.\n\n"
+                                "Si quieres, puedes apartar el\nmas antiguo, pero no hace\nfalta.",
+                                0xFFCC00, "Esperar", "Apartarlo",
+                                NULL, NULL);
+            /* El descarte voluntario va en el boton de la derecha (ver
+             * confirm_screen_no_accion): asi el boton grande y verde es
+             * ESPERAR, que es lo que hay que hacer. */
+            confirm_screen_no_accion(descartar_apunte_cb, NULL);
             return;
         }
         /* RECHAZO: la P4 no acepta ese cuerpo (casi siempre, firmware mas
@@ -2446,6 +2456,14 @@ void view_info_set_pendientes(size_t pendientes)
      * de deadlock. Detectado por el usuario el 09-sep-2026. */
     if (lvgl_port_lock(0)) {
         s_pend_valor = pendientes;
+        /* Y el MISMO numero a la pantalla de registros, que es desde donde se
+         * graba el viaje (ver view_registro_set_sin_grabar en view_registro.h).
+         * Hasta el 10-nov-2026 este aviso vivia solo aqui, y aqui es donde no
+         * se mira mientras se anota: un viaje entero se quedo en la cola sin
+         * que el usuario se enterara hasta dias despues. Se llama DENTRO del
+         * cerrojo porque esta funcion llega de la tarea del reparto y el lock
+         * es reentrante: la de registros hace lo mismo con su propio dato. */
+        view_registro_set_sin_grabar(pendientes);
         lv_async_call(pendientes_aplicar, NULL);
         lvgl_port_unlock();
     }

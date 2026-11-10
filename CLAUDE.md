@@ -99,6 +99,31 @@ diagnosticar sin arrancar la app están el **modo captura**
 3. Se publica con `release.sh`; la última es la **v1.30** (tag `v1.30`,
    16-oct-2026), con su `cabina5-v1.30.bin` en `~/joint-releases`.
 
+## El viaje no se pierde: copia duradera en la flash (10-nov-2026)
+
+El fin de semana del 7-8-nov el usuario no pudo grabar un viaje. La cola de
+apuntes vivía **solo** en la NVS (16 huecos) y el aviso de atasco estaba solo en
+la pantalla de Información, así que el fallo se descubrió días después.
+
+Ahora cada apunte se escribe **antes** de encolarse en la partición `diario`
+(1 MB, ver `partitions.csv`) con `main/net/viaje_diario.c`, y de ahí solo sale
+cuando la P4 responde 200 para ese id (o cuando el usuario lo descarta, que se
+marca como descartado a propósito). Al arrancar, y cada vez que la cola se queda
+vacía, el repartidor saca el pendiente más antiguo del diario y lo reencola: si
+la cola se llenó, se reinició o la NVS falló, el apunte vuelve solo.
+
+- Formato: registro append-only con CRC y **cabecera de commit al final** de la
+  compactación, para que un corte de corriente no se lleve nada (se sigue
+  leyendo la mitad vieja).
+- La partición nueva obliga a **grabar por USB** (el OTA solo escribe la app y
+  no toca la tabla de particiones; sin la partición, el diario se desactiva y
+  todo funciona como antes, con un aviso en el log).
+- Número que enseña la pantalla: `viaje_cola_sin_grabar()` (diario ∪ cola), no
+  `viaje_cola_pendientes()` (que son solo los que caben en la ventana de envío).
+- Prueba: `bash test/viaje_diario.sh` (compila el módulo de producción con
+  flash simulada; cubre reinicio, corte a mitad de escritura y compactación
+  interrumpida). Va en el CI.
+
 ## Grabar en la placa (16-oct-2026)
 
 Se graba con **`scripts/grabar.sh [puerto]`** (por defecto `/dev/ttyUSB0`), que

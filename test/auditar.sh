@@ -32,12 +32,15 @@ echo "=== 1. El binario es el de la IDF que pide el proyecto (v5.5.5) ==="
 # que vale es la misma que la de la P4.
 BIN=$(ls "build/$APP.bin" 2>/dev/null | head -1)
 if [ -n "$BIN" ]; then
-    # Se acepta el sufijo "-dirty": el IDF de este PC lleva los parches del
-    # proyecto de la P4 sin commitear (scripts/aplicar_parche_idf.sh), asi que
-    # git describe devuelve v5.5.5-dirty. Lo que importa es el numero.
-    strings "$BIN" | grep -qE '^v5\.5\.5(-dirty)?$' \
+    # Se aceptan los sufijos "-joint" y "-dirty": el IDF de este PC lleva los
+    # parches del proyecto de la P4 y va etiquetado v5.5.5-joint (antes de la
+    # etiqueta, git describe daba v5.5.5-dirty por esos mismos parches sin
+    # commitear, ver scripts/aplicar_parche_idf.sh). Lo que importa es el
+    # numero; el sufijo solo dice de que arbol salio. Detectado el 10-nov-2026:
+    # la regla se quedo en "-dirty" y daba el build por malo.
+    strings "$BIN" | grep -qE '^v5\.5\.5(-joint|-dirty)?$' \
         && ok "el .bin lleva IDF v5.5.5 (el mismo arbol parcheado que la P4)" \
-        || mal "el .bin NO lleva IDF v5.5.5 ($(strings "$BIN" | grep -oE '^v5\.[0-9]\.[0-9]+(-dirty)?$' | head -1))"
+        || mal "el .bin NO lleva IDF v5.5.5 ($(strings "$BIN" | grep -oE '^v5\.[0-9]\.[0-9]+(-joint|-dirty)?$' | head -1))"
     ver=$(strings "$BIN" | grep -oE '^v[0-9]+\.[0-9]+$' | head -1)
     [ -n "$ver" ] && ok "version embebida: $ver" || mal "el .bin no lleva version embebida (¿build sin tags?)"
 else

@@ -63,6 +63,11 @@ bool viaje_cola_push(const char *cuerpo, viaje_cola_error_t *motivo_out);
 
 size_t viaje_cola_pendientes(void);
 
+/* Apuntes que NO estan en la P4, contando tambien la copia duradera del diario.
+ * Es el numero que enseña la pantalla: `viaje_cola_pendientes()` son solo los
+ * que caben en la ventana de envio. */
+size_t viaje_cola_sin_grabar(void);
+
 /* Por que esta atascada la cola. Un solo motivo cada vez, y el que manda es el
  * del apunte de cabeza (que es el que no avanza). Antes esto eran dos booleanos
  * sueltos (409 y 401) y todo lo demas -- un 400 de la P4 con firmware viejo, un

@@ -26,6 +26,7 @@
 #include "entry_screen.h"
 #include "confirm_screen.h"
 #include "view_info.h"
+#include "lv_port_compat.h"   /* lvgl_port_lock/unlock: ver view_registro_set_sin_grabar() */
 #include "../icons/iconos.h"
 #include "estilos.h"   /* escala de fuentes y medidas de la pantalla */
 #include "config_storage.h"
@@ -5963,13 +5964,16 @@ static void viaje_p4_aviso_actualizar(void)
         lv_label_set_text(s_viaje_p4_aviso,
             "Ese viaje lo empezo la OTRA\npantalla y puede seguir en\nmarcha.\n\n"
             "Cierralo desde ella. Si de\nverdad quieres cerrarlo desde\naqui, GUARDARLO.");
-    } else if (viaje_cola_pendientes() > 0) {
+    } else if (viaje_cola_sin_grabar() > 0) {
+        /* sin_grabar y no pendientes (revision del 10-nov-2026, hallazgo C):
+         * los pendientes de la NVS son solo la ventana de envio; el total que
+         * NO esta en la P4 incluye el diario. */
         lv_label_set_text_fmt(s_viaje_p4_aviso,
             "La P4 tiene un viaje abierto.\n\n"
-            "Tienes %u apunte(s) sin enviar:\n"
+            "Tienes %u apunte(s) sin grabar:\n"
             "puede ser el cierre del anterior.\n"
             "Prueba GUARDARLO antes de\napartar nada.",
-            (unsigned)viaje_cola_pendientes());
+            (unsigned)viaje_cola_sin_grabar());
     } else {
         lv_label_set_text(s_viaje_p4_aviso,
             "La P4 tiene un viaje abierto.\nHay que cerrarlo antes de\nempezar otro.");
@@ -5981,6 +5985,148 @@ static void p4_abierto_cb(lv_event_t *e)
     (void)e;
     viaje_p4_aviso_actualizar();   /* el texto depende de por que es (409 o 412) */
     mostrar_menu(PAN_VIAJE_P4);
+}
+
+/* ── LAS PASTILLAS DE "SIN GRABAR EN LA P4" (10-nov-2026) ───────────────────
+ *
+ * POR QUE EXISTEN: el aviso de apuntes sin entregar vivia SOLO en la pantalla de
+ * datos (view_info_set_pendientes) y esa no es la que se mira mientras se
+ * anota: se anota desde aqui. El viaje del fin de semana del 7-8-nov-2026 dejo
+ * la cola llena (16 huecos) y el usuario no se entero hasta DIAS despues, ya
+ * sin nada que hacer. Esta pastilla es aquel aviso, pero en las pantallas desde
+ * las que se graba, y ademas se toca: lleva a la de datos, que es donde esta el
+ * detalle (clave mal, atascado, casi llena...) y la unica salida.
+ *
+ * POR QUE DOS Y NO UNA: el carrusel de registros tiene DOS pantallas de menu
+ * segun haya salida o no, y las dos pueden estar delante mientras se graba:
+ *
+ *   - PAN_PRINCIPAL, cuando NO hay salida en marcha (el menu de "NUEVA SALIDA");
+ *   - PAN_SALIDA, cuando SI la hay. Y esta es la que se ve MIENTRAS se graba el
+ *     viaje, o sea justo el caso del 7-8-nov-2026: con la pastilla solo en la
+ *     principal el aviso no se habria visto, porque la pantalla que el usuario
+ *     tenia delante mientras los apuntes se acumulaban era esta otra.
+ *
+ * Son dos WIDGETS pero UNA sola logica: el mismo callback de toque, la misma
+ * creacion (sin_grabar_pastilla_crear) y el mismo repintado (sin_grabar_aplicar
+ * pinta las dos), para que no puedan acabar diciendo cosas distintas ni se
+ * retoque una y se olvide la otra.
+ *
+ * Cada pastilla se crea UNA vez, con su pantalla (ver crear_menus). NO en
+ * view_registro_reset(), que el carrusel lo llama cada vez que sales de esta
+ * pagina: crear otra en cada vuelta dejaria objetos huerfanos colgando del
+ * arbol y el aviso duplicado. */
+static lv_obj_t *s_sin_grabar;          /* la de la pantalla PRINCIPAL */
+static lv_obj_t *s_sin_grabar_salida;   /* la del menu de la SALIDA */
+static size_t    s_sin_grabar_n;        /* lo ultimo que ha dicho el repartidor */
+
+/* Definidas abajo, con el resto de la pastilla. */
+static void sin_grabar_aplicar(void *arg);
+
+/* Un aviso que solo avisa obliga a acordarse de a donde hay que ir. El toque
+ * lleva a la pantalla de datos, que es donde el mismo numero sale explicado y
+ * con las salidas (reintentar, descartar, ir a Ajustes...). El MISMO callback
+ * para las dos pastillas. */
+static void sin_grabar_click_cb(lv_event_t *e)
+{
+    (void)e;
+    nav_ir_a_info();
+}
+
+/* Crea UNA de las dos pastillas, ya vestida y a falta del numero. Vive en una
+ * funcion porque son dos pantallas: copiar los mismos diez estilos en las dos
+ * es la forma segura de que un dia se retoque una y la otra no, y aqui el texto
+ * y el tamano de las dos tienen que ser identicos.
+ *
+ * Ha de llamarse como PRIMER hijo del cuerpo de la pantalla: el cuerpo es un
+ * flex en columna, asi que el primero queda arriba del todo, que es donde un
+ * aviso se ve. Nace con HIDDEN (lo primero que se le pone): LVGL la saca del
+ * reparto, no ocupa ni un pixel y la pantalla queda exactamente como estaba.
+ *
+ * Naranja de aviso y no rojo: un apunte esperando se arregla solo en cuanto la
+ * P4 contesta, no es un error. Y solo sale si de verdad queda algo por
+ * entregar, que no es lo normal (la cola se vacia sola en segundos). */
+static lv_obj_t *sin_grabar_pastilla_crear(lv_obj_t *body)
+{
+    lv_obj_t *p = lv_label_create(body);
+    lv_obj_add_flag(p, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(p, "");
+    lv_obj_set_style_bg_color(p, UI_COLOR_ORANGE, 0);
+    lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
+    lv_obj_set_style_text_color(p, UI_COLOR_SOBRE_CLARO, 0);
+    /* LETRA DE PIE (18), el mismo papel que la pastilla de la pantalla de
+     * datos: las dos dicen lo mismo y se tienen que leer igual. Con la letra
+     * normal (26) el texto entero no cabria en una linea. */
+    lv_obj_set_style_text_font(p, &FUENTE_PIE, 0);
+    lv_obj_set_style_pad_hor(p, 20, 0);
+    lv_obj_set_style_pad_ver(p, 8, 0);
+    lv_obj_set_style_radius(p, LV_RADIUS_CIRCLE, 0);
+    /* ANCHO CASI COMPLETO + SCROLL CIRCULAR, igual que en view_info.c: la
+     * pastilla NO se dimensiona sola al texto (con un numero largo se saldria
+     * de la pantalla). Asi el texto corto sale centrado y entero y el largo se
+     * desplaza en bucle en vez de recortarse, de modo que el numero y el "TOCA
+     * AQUI" nunca desaparecen. El alto se fija al de UNA linea de la fuente
+     * para que una cadena larga no parta la pastilla en dos. */
+    lv_obj_set_width(p, lv_pct(96));
+    lv_obj_set_style_text_align(p, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(p, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_content_height(p, lv_font_get_line_height(&FUENTE_PIE));
+    /* Se TOCA: lleva a la pantalla de datos, que es donde esta el detalle.
+     * Zona tactil 10 px mayor que el dibujo, como todos los avisos tactiles de
+     * la app (ver view_info.c). */
+    lv_obj_add_flag(p, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(p, 10);
+    lv_obj_add_event_cb(p, sin_grabar_click_cb, LV_EVENT_CLICKED, NULL);
+    return p;
+}
+
+void view_registro_set_sin_grabar(size_t n)
+{
+    /* Esto llega de la TAREA DEL REPARTO (viaje_cola.c -> view_info_set_pendientes),
+     * no de la tarea de LVGL, y tocar un widget desde otra tarea corrompe la
+     * lista de objetos: el fallo aparece mucho despues y en otro sitio. Mismo
+     * remedio que en view_info_set_pendientes(): el numero se guarda DENTRO del
+     * cerrojo (lo lee sin_grabar_aplicar() desde la tarea de LVGL) y el
+     * repintado se aplaza con lv_async_call. lock(0) = espera SIN LIMITE, no un
+     * timeout: con timeout se perderia el numero en silencio mientras LVGL esta
+     * barriendo el panel (medido en p4_api.c/view_info.c). El cerrojo es
+     * reentrante, asi que esto vale igual si algun dia lo llama la propia tarea
+     * de LVGL. */
+    if (lvgl_port_lock(0)) {
+        s_sin_grabar_n = n;
+        lv_async_call(sin_grabar_aplicar, NULL);
+        lvgl_port_unlock();
+    }
+}
+
+/* Pinta (o esconde) UNA de las dos pastillas. */
+static void sin_grabar_pintar(lv_obj_t *p)
+{
+    /* Cada pantalla comprueba la suya: la vista se monta por pantallas y el
+     * repartidor avisa al arrancar (viaje_cola_init() llama al callback con lo
+     * que quedo del encendido anterior), asi que esto puede llegar cuando
+     * todavia no existe -- tocar NULL desde otra tarea seria un crash. Mismo
+     * patron que s_ui_lista y que el aviso de la P4 (s_viaje_p4_aviso). El
+     * numero no se pierde: se queda en s_sin_grabar_n y lo pinta la creacion. */
+    if (!p) return;
+
+    if (s_sin_grabar_n == 0) {
+        lv_obj_add_flag(p, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_label_set_text_fmt(p, "%u SIN GRABAR EN LA P4 - TOCA AQUI",
+                          (unsigned)s_sin_grabar_n);
+    lv_obj_clear_flag(p, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* Repinta LAS DOS: el aviso es el mismo y las dos pantallas tienen que decir lo
+ * mismo en el mismo instante. Corre SIEMPRE en la tarea de LVGL: al crear las
+ * pantallas (directo) y, el resto de las veces, desde el lv_async_call() del
+ * setter de arriba. */
+static void sin_grabar_aplicar(void *arg)
+{
+    (void)arg;
+    sin_grabar_pintar(s_sin_grabar);
+    sin_grabar_pintar(s_sin_grabar_salida);
 }
 
 static void crear_menus(lv_obj_t *parent)
@@ -5996,6 +6142,26 @@ static void crear_menus(lv_obj_t *parent)
      * el hueco, que es como se ve en la captura. */
     lv_obj_set_flex_align(body, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
+
+    /* LA PASTILLA DE "SIN GRABAR EN LA P4" (ver el bloque de arriba, junto a
+     * s_sin_grabar). Se crea la PRIMERA del cuerpo: en el reparto flexible eso
+     * la pone en la banda de arriba, que es donde tiene que verse.
+     *
+     * EN EL FLUJO, no flotando como la de la pantalla de datos: alli la
+     * pastilla cae sobre el hueco entre tarjetas, pero aqui el boton grande se
+     * lleva TODO el alto que sobra (flex_grow), asi que una pastilla flotante
+     * aterrizaria ENCIMA del boton verde y pareceria un adorno suyo. En el
+     * flujo se lleva su propia banda y el boton se ajusta solo; cuando no hay
+     * nada que avisar la pastilla lleva HIDDEN, LVGL la saca del reparto y la
+     * pantalla queda exactamente como estaba. */
+    s_sin_grabar = sin_grabar_pastilla_crear(body);
+    /* La cola avisa al arrancar, y eso puede haber pasado ANTES de que esta
+     * pantalla existiera: el numero esta en s_sin_grabar_n, asi que se pinta ya
+     * en vez de esperar al siguiente cambio (que puede no llegar en horas).
+     * Igual que pendientes_aplicar(NULL) al final de view_info_create(); aqui
+     * solo existe todavia la de esta pantalla. */
+    sin_grabar_aplicar(NULL);
+
     boton_grande(body, ICO_MAS, "NUEVA SALIDA", "viaje o gestion suelta",
                  COL_ACCION_OK, ir_a_cb, (void *)(uintptr_t)PAN_TIPO);
     /* DEL ANCHO DE LA COLUMNA, como el boton grande de arriba (16-oct-2026).
@@ -6034,6 +6200,27 @@ static void crear_menus(lv_obj_t *parent)
 
     /* --- 3. Menu de salida: el principal mientras dure el viaje --- */
     body = pantalla_crear(parent, PAN_SALIDA, NULL, -1);
+    /* LA MISMA PASTILLA, Y AQUI ES LA QUE DE VERDAD HACE FALTA (ver el bloque de
+     * arriba, junto a s_sin_grabar): este es el menu que esta puesto MIENTRAS
+     * se graba el viaje, o sea la pantalla que tenia delante el usuario del
+     * 7-8-nov-2026. Se crea la PRIMERA del cuerpo, igual que en la principal,
+     * para que quede arriba del todo.
+     *
+     * Con la pastilla oculta (lo normal) NO cambia nada: HIDDEN la saca del
+     * reparto flexible y la tira del viaje, el boton grande y los dos de abajo
+     * se colocan exactamente como siempre. Cuando aparece se lleva su banda, y
+     * el alto que cede lo pone el boton grande de "ANADIR PARADA", que es el
+     * unico elastico (flex_grow): su contenido mide ~113 px y le quedan ~150,
+     * asi que no se recorta nada.
+     *
+     * Va POR ENCIMA de la tira del viaje (nombre y dia) y no debajo: el aviso
+     * es lo que hay que ver al entrar en la pantalla, y la tira sigue igual de
+     * legible 48 px mas abajo, sin que nada la tape. */
+    s_sin_grabar_salida = sin_grabar_pastilla_crear(body);
+    /* Con esta ya existen las dos pastillas: se pinta el numero que la cola
+     * tuviera, que puede haber avisado antes de que se creara la vista. */
+    sin_grabar_aplicar(NULL);
+
     tira_crear(body, TIRA_SALIDA);
 
     boton_grande(body, ICO_MAS, "ANADIR PARADA", NULL,

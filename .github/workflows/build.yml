@@ -151,6 +151,13 @@ jobs:
       - name: El minimo de brillo (rango y doble toque)
         run: bash cabina5/test/brillo_min.sh
 
+      # El viaje NO se puede perder (10-nov-2026): cada apunte se guarda antes en
+      # una particion de la flash y solo sale cuando la P4 confirma su id. Este
+      # test compila el modulo de produccion con flash simulada y prueba
+      # reinicio, corte a mitad de escritura y compactacion interrumpida.
+      - name: Diario del viaje (copia duradera en la flash)
+        run: bash cabina5/test/viaje_diario.sh
+
       # Y las decisiones de la actualizacion OTA (comparacion de versiones y
       # sha256): se sacan del ota_rx.c real y se compilan en el runner. Un error
       # aqui deja la pantalla con un firmware que no arranca.

@@ -156,3 +156,8 @@ CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=64
 CONFIG_ESP_COREDUMP_USE_STACK_SIZE=y
 CONFIG_ESP_COREDUMP_STACK_SIZE=1792
 CONFIG_ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS=5
+
+# Pila de la tarea main a 8 KB (10-nov-2026): el diario del viaje y la
+# reconstruccion de la cola al arrancar usan buffers de ~1 KB y con 3,5 KB la
+# placa arrancaba en bucle (LoadProhibited, pantalla blanca y negra).
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192

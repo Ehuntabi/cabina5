@@ -8,12 +8,36 @@
 #pragma once
 
 #include "lvgl.h"
+#include <stddef.h>   /* size_t en view_registro_set_sin_grabar() */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 void view_registro_create(lv_obj_t *parent);
+
+/* Aviso "N SIN GRABAR EN LA P4 - TOCA AQUI" en las DOS pantallas de menu que se
+ * pueden estar viendo mientras se graba: la principal (sin salida en marcha) y
+ * el menu de la salida (con el viaje en marcha). Con n == 0 las pastillas se
+ * esconden.
+ *
+ * POR QUE EXISTE (10-nov-2026): los apuntes que no han llegado a la P4 se
+ * avisaban SOLO en la pantalla de datos, que es justo la que no se mira cuando
+ * se esta anotando: el viaje se graba desde aqui. El fin de semana del
+ * 7-8-nov-2026 la cola se lleno (16 huecos) y el usuario no se entero hasta
+ * dias despues, cuando ya no habia nada que hacer. Ahora el aviso esta tambien
+ * en las pantallas desde las que se graba -- incluida la del viaje en marcha,
+ * que es la que se tiene delante mientras se anota -- y al tocarlo lleva a la
+ * de datos, que es donde estan el detalle (clave mal, atascado, casi llena) y
+ * su salida.
+ *
+ * La llama view_info_set_pendientes(): es el unico sitio que ya se entera de
+ * que cambia el numero de pendientes (viaje_cola_init). Esa llamada viene de
+ * la tarea del reparto y no de la de LVGL, asi que dentro se coge el cerrojo
+ * del port y se aplaza el repintado con lv_async_call, igual que alli. Se
+ * puede llamar antes de que la vista exista: no hace nada y no pierde el
+ * numero (lo pinta la creacion de las pantallas). */
+void view_registro_set_sin_grabar(size_t n);
 
 /* Devuelve la vista al menu de iconos, cierre el formulario que estuviera
  * abierto y el editor de campo si lo estaba.

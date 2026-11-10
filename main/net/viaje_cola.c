@@ -15,6 +15,7 @@
  * un viaje no puede cerrarse en la P4 con apuntes suyos todavia por llegar.
  */
 #include "viaje_cola.h"
+#include "viaje_diario.h"   /* copia duradera de cada apunte (10-nov-2026) */
 #include "p4_api.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -125,6 +126,27 @@ static void clave_de(uint32_t idx, char *out, size_t n)
 
 /* ── API ──────────────────────────────────────────────────────────────────── */
 
+/* Apuntes que NO estan en la P4, contando la copia duradera (10-nov-2026).
+ *
+ * Es el numero que tiene que enseñar la pantalla. viaje_cola_pendientes() son
+ * solo los que estan en la ventana de envio de la NVS: si la cola se lleno o se
+ * reinicio, hay apuntes que siguen en el diario sin estar en ella, y si se
+ * contara la cola a secas el usuario veria "0 sin grabar" con el viaje a medias.
+ * Si no hay diario (particion ausente), se cae al comportamiento de antes. */
+size_t viaje_cola_sin_grabar(void)
+{
+    /* REVISION del 10-nov-2026 (hallazgo 4): antes era max(cola, diario), que
+     * no es la union. Con la invariante "la cola es un PREFIJO de los
+     * pendientes del diario", el total sin grabar ES el del diario; el de la
+     * cola solo manda cuando no hay diario (particion ausente) o cuando un alta
+     * directa rompio el prefijo, y entonces el mayor de los dos sigue siendo lo
+     * mas prudente. */
+    size_t en_diario = viaje_diario_pendientes();
+    size_t en_cola = viaje_cola_pendientes();
+    if (!viaje_diario_disponible()) return en_cola;
+    return (en_cola > en_diario) ? en_cola : en_diario;
+}
+
 size_t viaje_cola_pendientes(void)
 {
     uint32_t cabeza, cola;
@@ -139,9 +161,31 @@ size_t viaje_cola_apuntes_libres(void)
     return (n >= tope) ? 0 : (tope - n);
 }
 
+/* Vacia la cola ENTERA (borra sus claves de la NVS y pone los indices a cero).
+ * Solo se usa al arrancar, con el diario disponible como fuente de la verdad
+ * (ver viaje_cola_init). */
+static void borra_cola_entera(void)
+{
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    uint32_t cabeza, cola;
+    indices_leer(&cabeza, &cola);
+    for (uint32_t i = cabeza; i < cola; i++) {
+        char clave[16];
+        clave_de(i, clave, sizeof(clave));
+        borrar_entrada(clave);
+    }
+    indices_escribir(0, 0);
+    xSemaphoreGive(s_mutex);
+}
+
 static void avisar_cambio(void)
 {
-    if (s_cambio_cb) s_cambio_cb(viaje_cola_pendientes());
+    /* Se avisa con viaje_cola_sin_grabar() y NO con viaje_cola_pendientes()
+     * (revision del 10-nov-2026): los pendientes de la NVS son solo la ventana
+     * de envio. Si la cola se reinicio o se lleno, hay apuntes que solo estan en
+     * el diario, y la pantalla habria enseñado 0 (o 1) con el viaje a medias:
+     * exactamente el sintoma que este cambio viene a quitar. */
+    if (s_cambio_cb) s_cambio_cb(viaje_cola_sin_grabar());
 }
 
 /* ¿Este cuerpo es una operacion de CONTROL (el cierre del viaje o el descarte)?
@@ -207,40 +251,32 @@ static void resumen_apunte(const char *cuerpo, char *out, size_t n)
     snprintf(out, n, "op=%s id=%s", op, id);
 }
 
-bool viaje_cola_push(const char *cuerpo, viaje_cola_error_t *motivo_out)
+/* Encola un cuerpo ya montado. 'anotar_diario' distingue el apunte que viene
+ * de la pantalla (hay que guardarlo en la copia duradera) del que saca el
+ * repartidor DEL PROPIO diario para reenviarlo (ya esta anotado: volver a
+ * anotarlo lo duplicaria en la flash para siempre). */
+/* Encola un cuerpo EN LA NVS. Devuelve false si no hay hueco (o la NVS no
+ * deja escribir). No toca el diario: el alta en el diario es cosa de
+ * push_interno(), y el reencolado de lo que ya estaba anotado no debe repetirla
+ * (se duplicaria en la flash en cada vuelta).
+ *
+ * EL TOPE DEPENDE DE QUE SE ENCOLA: un apunte normal no puede comerse los dos
+ * huecos reservados al cierre (ver VIAJE_COLA_RESERVA_CONTROL). */
+static bool encola_nvs(const char *cuerpo, viaje_cola_error_t *motivo_out)
 {
-    if (motivo_out) *motivo_out = VIAJE_COLA_ERR_NINGUNO;
-
-    if (!cuerpo || !cuerpo[0]) return false;
-    if (strlen(cuerpo) >= CUERPO_MAX) {
-        ESP_LOGE(TAG, "apunte demasiado largo (%u bytes, tope %d), NO se encola",
-                 (unsigned)strlen(cuerpo), CUERPO_MAX);
-        /* LARGO, no NVS (17-oct-2026): con ERR_NVS la pantalla decia "fallo de
-         * memoria del aparato" cuando el problema era que el apunte no cabe. El
-         * delito y el diagnostico tienen que coincidir. */
-        if (motivo_out) *motivo_out = VIAJE_COLA_ERR_LARGO;
-        return false;
-    }
-
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     uint32_t cabeza, cola;
     indices_leer(&cabeza, &cola);
 
-    /* El tope depende de QUE se esta encolando: un apunte normal no puede
-     * comerse los huecos reservados al cierre (ver VIAJE_COLA_RESERVA_CONTROL). */
     uint32_t tope = es_op_de_control(cuerpo)
                   ? (uint32_t)CAPACIDAD
                   : (uint32_t)(CAPACIDAD - VIAJE_COLA_RESERVA_CONTROL);
     /* El tope NUNCA puede pasar de CAPACIDAD: migrar_cola() da la cola por
-     * corrupta y la BORRA ENTERA si (cola - cabeza) > CAPACIDAD al arrancar
-     * (viaje_cola.c, "no_cuadra"), asi que un off-by-one aqui se paga con los
-     * apuntes del usuario. */
+     * corrupta y la BORRA ENTERA si (cola - cabeza) > CAPACIDAD al arrancar,
+     * asi que un off-by-one aqui se paga con los apuntes del usuario. */
     if (tope > (uint32_t)CAPACIDAD) tope = (uint32_t)CAPACIDAD;
     if (cola - cabeza >= tope) {
         xSemaphoreGive(s_mutex);
-        ESP_LOGE(TAG, "cola LLENA (%lu de %u, tope %lu para este cuerpo): no se "
-                      "encola nada mas", (unsigned long)(cola - cabeza),
-                 (unsigned)CAPACIDAD, (unsigned long)tope);
         if (motivo_out) *motivo_out = VIAJE_COLA_ERR_LLENA;
         return false;
     }
@@ -259,10 +295,7 @@ bool viaje_cola_push(const char *cuerpo, viaje_cola_error_t *motivo_out)
     nvs_close(h);
     if (e != ESP_OK) {
         xSemaphoreGive(s_mutex);
-        ESP_LOGE(TAG, "no puedo guardar el apunte: %s", esp_err_to_name(e));
-        /* NVS_NOT_ENOUGH_SPACE aqui NO es "la cola logica esta llena" (eso ya
-         * se ha descartado arriba): es la particion entera sin sitio, por lo
-         * demas que comparte con ella. Un apagon/reset la P4 no lo arregla. */
+        ESP_LOGE(TAG, "no puedo guardar el apunte en la cola: %s", esp_err_to_name(e));
         if (motivo_out) *motivo_out = VIAJE_COLA_ERR_NVS;
         return false;
     }
@@ -280,14 +313,114 @@ bool viaje_cola_push(const char *cuerpo, viaje_cola_error_t *motivo_out)
 
     char resumen[40];
     resumen_apunte(cuerpo, resumen, sizeof(resumen));
-    ESP_LOGI(TAG, "encolado #%lu (%u pendientes): %s",
+    ESP_LOGI(TAG, "encolado #%lu (%u en la ventana): %s",
              (unsigned long)cola, (unsigned)(cola + 1 - cabeza), resumen);
+    return true;
+}
+
+/* LA COLA ES UN PREFIJO DE LOS PENDIENTES DEL DIARIO, y esto es lo que lo
+ * mantiene (revision adversarial del 10-nov-2026, hallazgo B1).
+ *
+ * Sin esta regla, con la cola llena (14 apuntes) un apunte nuevo se quedaba
+ * SOLO en el diario y el `fin` -- que tiene huecos reservados -- entraba igual
+ * y se ponia DETRAS de la cola pero DELANTE de ese apunte: el viaje se cerraba
+ * en la P4 sin el, y el apunte acababa en /sdcard/vehiculo o, con otro viaje
+ * abierto, en un 409 "rezagado" que atascaba la cola del viaje nuevo. Se
+ * perdian los apuntes a partir del 15 sin un solo aviso.
+ *
+ * Ahora el que toca encolar es SIEMPRE el pendiente numero (lo que ya hay en la
+ * cola): asi no hay forma de adelantar a nadie. Si no cabe, no se encola nada
+ * mas y el apunte espera en el diario, que es una copia duradera.
+ *
+ * Devuelve cuantos ha encolado. */
+static size_t rellena_desde_diario(void)
+{
+    if (!viaje_diario_disponible()) return 0;
+
+    size_t puestos = 0;
+    for (;;) {
+        size_t en_cola = viaje_cola_pendientes();
+        if (en_cola >= viaje_diario_pendientes()) break;   /* ya esta todo dentro */
+
+        char cuerpo[CUERPO_MAX];
+        uint32_t id;
+        if (!viaje_diario_en(en_cola, cuerpo, sizeof(cuerpo), &id)) break;
+
+        if (!encola_nvs(cuerpo, NULL)) break;   /* sin hueco: se espera a que drene */
+        puestos++;
+    }
+    return puestos;
+}
+
+/* Encola un cuerpo ya montado. 'anotar_diario' distingue el apunte que viene
+ * de la pantalla (hay que guardarlo en la copia duradera) del que trae el
+ * propio repartidor desde el diario. */
+static bool push_interno(const char *cuerpo, bool anotar_diario,
+                         viaje_cola_error_t *motivo_out)
+{
+    if (motivo_out) *motivo_out = VIAJE_COLA_ERR_NINGUNO;
+
+    if (!cuerpo || !cuerpo[0]) return false;
+    if (strlen(cuerpo) >= CUERPO_MAX) {
+        ESP_LOGE(TAG, "apunte demasiado largo (%u bytes, tope %d), NO se encola",
+                 (unsigned)strlen(cuerpo), CUERPO_MAX);
+        /* LARGO, no NVS (17-oct-2026): con ERR_NVS la pantalla decia "fallo de
+         * memoria del aparato" cuando el problema era que el apunte no cabe. El
+         * delito y el diagnostico tienen que coincidir. */
+        if (motivo_out) *motivo_out = VIAJE_COLA_ERR_LARGO;
+        return false;
+    }
+
+    if (anotar_diario) {
+        /* ── LA COPIA DURADERA, PRIMERO (10-nov-2026) ──────────────────────
+         * El fin de semana del 7-8-nov el viaje no se pudo grabar y no habia
+         * nada mas que estos 16 huecos de NVS. Ahora el apunte se escribe en la
+         * flash antes de encolarse, y de ahi solo sale cuando la P4 confirma su
+         * id. */
+        uint32_t id = viaje_diario_id_de(cuerpo);
+        bool anotado = false;
+        if (id == 0) {
+            /* M1 de la revision: un cuerpo sin id no se puede vigilar. No se
+             * calla: el id 0 solo sale si next_trip_seq() no pudo ni abrir la
+             * NVS, y sin id la P4 tampoco deduplica. */
+            ESP_LOGE(TAG, "apunte SIN id (%s...): no habra copia duradera ni "
+                          "deduplicacion en la P4", cuerpo);
+        } else {
+            anotado = viaje_diario_anota(cuerpo, id);
+            if (!anotado) {
+                ESP_LOGE(TAG, "el apunte %lu NO ha quedado en el diario; solo en la cola",
+                         (unsigned long)id);
+            }
+        }
+
+        /* Y ahora se encola lo que toque POR ORDEN (ver rellena_desde_diario). */
+        rellena_desde_diario();
+
+        if (anotado) {
+            /* Esta a salvo en la flash: se enviara solo, entre hoy y cuando la
+             * cola drene. */
+            avisar_cambio();
+            if (s_despertar) xSemaphoreGive(s_despertar);
+            return true;
+        }
+
+        /* Sin diario (o sin id): comportamiento de siempre, encolar directo. */
+        if (!encola_nvs(cuerpo, motivo_out)) return false;
+        avisar_cambio();
+        if (s_despertar) xSemaphoreGive(s_despertar);
+        return true;
+    }
+
+    /* Reencolado de algo que ya estaba en el diario: solo la NVS. */
+    if (!encola_nvs(cuerpo, motivo_out)) return false;
     avisar_cambio();
-    /* Si reparto_task esta dormida esperando a que la cola deje de estar
-     * vacia, que se entere ya: sin esto, este apunte podia tardar hasta
-     * REINTENTO_MS (15 s) en empezar a enviarse. */
     if (s_despertar) xSemaphoreGive(s_despertar);
     return true;
+}
+
+bool viaje_cola_push(const char *cuerpo, viaje_cola_error_t *motivo_out)
+{
+    return push_interno(cuerpo, true, motivo_out);
 }
 
 /* Saca la cabeza: borra su clave de la NVS y avanza el indice.
@@ -552,7 +685,11 @@ bool viaje_cola_tiene_op_pendiente(const char *op)
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READONLY, &h) == ESP_OK) {
         for (uint32_t i = cabeza; i < cola; i++) {
-            char clave[16], cuerpo[CUERPO_MAX];
+            /* cuerpo ESTATICO: esto corre en la tarea main (3,5 KB) y una copia
+             * de 896 B mas la de rellena_desde_diario() la desbordaban. Se llama
+             * una sola vez al arrancar, antes de que exista el repartidor. */
+            static char cuerpo[CUERPO_MAX];
+            char clave[16];
             clave_de(i, clave, sizeof(clave));
             size_t len = sizeof(cuerpo);
             if (nvs_get_str(h, clave, cuerpo, &len) == ESP_OK &&
@@ -652,7 +789,27 @@ bool viaje_cola_ultima_es_op(const char *op)
         nvs_close(h);
     }
     xSemaphoreGive(s_mutex);
-    return es;
+    if (es) return true;
+
+    /* SI EN LA COLA NO ESTA, PUEDE ESTAR SOLO EN EL DIARIO (revision del
+     * 10-nov-2026): con la cola llena o reiniciada, el `fin` puede vivir solo
+     * ahi. Esta funcion decide si al arrancar hay que cerrar la salida, asi que
+     * mirando solo la NVS se podia dejar un viaje ya cerrado como abierto (o al
+     * reves). Se mira el pendiente MAS NUEVO del diario, que es el equivalente
+     * al ultimo de la cola. */
+    char del_diario[CUERPO_MAX];
+    uint32_t id_d;
+    if (viaje_diario_ultimo(del_diario, sizeof(del_diario), &id_d))
+        return strstr(del_diario, busca) != NULL;
+    return false;
+}
+
+/* Marca en el diario lo que se tira a mano. Se llama con el cuerpo ya leido
+ * (ver viaje_cola_descartar_cabeza). Un descarte NO es una entrega: queda dicho
+ * en el diario para que no se reenvie nunca y para que se pueda auditar. */
+static void diario_descarta(const char *cuerpo)
+{
+    viaje_diario_confirma(viaje_diario_id_de(cuerpo), true);
 }
 
 bool viaje_cola_descartar_cabeza(void)
@@ -691,9 +848,29 @@ bool viaje_cola_descartar_cabeza(void)
         ESP_LOGW(TAG, "el apunte de cabeza ya no esta atascado: no descarto nada");
         return false;
     }
+    /* El cuerpo de la cabeza se lee ANTES de borrarla: de ahi sale el id con el
+     * que se marca en el diario como DESCARTADO (ver diario_descarta()). Si se
+     * borrara primero no habria forma de saber cual era. */
+    char cuerpo_descartado[CUERPO_MAX];
+    char clave[16];
+    clave_de(cabeza, clave, sizeof(clave));
+    nvs_handle_t h;
+    bool hay_cuerpo = false;
+    if (nvs_open(NS, NVS_READONLY, &h) == ESP_OK) {
+        size_t len = sizeof(cuerpo_descartado);
+        hay_cuerpo = (nvs_get_str(h, clave, cuerpo_descartado, &len) == ESP_OK);
+        nvs_close(h);
+    }
+    /* EL DIARIO SE MARCA ANTES DE BORRAR (revision del 10-nov-2026, M3): si se
+     * fuera la corriente entre las dos operaciones, marcando primero queda
+     * DESCARTADO para siempre (que es lo que pidio el usuario) y el borrado de
+     * la NVS se rehace solo al arrancar. Al reves, el apunte resucitaba. */
+    if (hay_cuerpo) diario_descarta(cuerpo_descartado);
     /* El borrado va DENTRO de este mismo cerrojo (ver borrar_cabeza_con_mutex). */
     borrar_cabeza_con_mutex();
     xSemaphoreGive(s_mutex);
+    /* El hueco que deja se rellena con el siguiente pendiente del diario. */
+    rellena_desde_diario();
     avisar_cambio();                /* el contador de la pantalla, ya sin cerrojo */
     /* El atasco era de ESA entrada: la marca se va con ella. Si la siguiente
      * vuelve a fallar, se volvera a marcar sola en unos segundos. */
@@ -756,6 +933,14 @@ static void reparto_task(void *arg)
             if (viaje_cola_pendientes() > 0)
                 ESP_LOGW(TAG, "la cabeza no se pudo leer (fallo transitorio): "
                               "reintento sin descartar nada");
+
+            /* LA COLA SE HA QUEDADO VACIA PERO PUEDE QUEDAR BACKLOG EN EL
+             * DIARIO (10-nov-2026). Con la regla del prefijo, esto solo pasa si
+             * la cola se dreno: se rellena con los siguientes pendientes, en
+             * orden, y se sigue enviando sin dormir. Si no cabe ninguno (o no
+             * hay diario), se sigue abajo y se duerme, que es lo de antes. */
+            if (rellena_desde_diario() > 0) continue;
+
             /* Cola vacia: dormir hasta REINTENTO_MS, pero SIN esperar a que
              * se cumpla si mientras tanto se encola algo nuevo -- viaje_
              * cola_push() suelta este semaforo, y aqui se despierta al
@@ -801,6 +986,9 @@ static void reparto_task(void *arg)
             intentos_5xx = 0;
             intentos_sin_resp = 0;
             s_atasco = VIAJE_COLA_ATASCO_NO;
+            /* COPIAS DURADERA: este id ya esta en la P4. Solo aqui (y en el
+             * descarte a mano) sale un apunte del diario. */
+            viaje_diario_confirma(viaje_diario_id_de(cuerpo), false);
             if (descartar_cabeza(idx_enviado)) {
                 /* normal: la cabeza era la que se entrego */
             } else {
@@ -811,6 +999,9 @@ static void reparto_task(void *arg)
                 ESP_LOGW(TAG, "entregado, pero la cola cambio mientras tanto: "
                               "no saco nada (la P4 lo vera como duplicado)");
             }
+            /* El hueco que deja este se rellena ya con el siguiente del diario,
+             * asi la ventana va siempre llena (y el orden se mantiene solo). */
+            rellena_desde_diario();
             /* Sin espera: si hay mas, se sigue vaciando de seguido. Que la P4
              * este respondiendo es justo el momento de aprovechar. */
             continue;
@@ -953,6 +1144,7 @@ static void reparto_task(void *arg)
                               "op: firmware viejo?). Lo SUELTO: el destino va "
                               "tambien en el cierre, y un aviso no puede bloquear "
                               "los apuntes ni el fin que vienen detras");
+                diario_descarta(cuerpo);
                 descartar_cabeza(idx_enviado);
                 /* La marca de atasco era de ESE apunte (el aviso) y se va con el:
                  * la cabeza nueva es un apunte SANO y no puede nacer con la
@@ -1001,6 +1193,11 @@ static void reparto_task(void *arg)
                 if (cabeza_igual(&idx_adv, &intentos_adv)) {
                     ESP_LOGW(TAG, "el aviso de destino no entra (%d): lo suelto, "
                                   "que el destino va tambien en el cierre", estado);
+                    /* Tambien en el diario (revision del 10-nov-2026): sin esto
+                     * el aviso resucita en cuanto la cola se queda vacia (el
+                     * repartidor lo saca del diario) y se reintenta y se vuelve
+                     * a soltar en bucle. La rama del 400 ya lo hacia. */
+                    diario_descarta(cuerpo);
                     descartar_cabeza(idx_enviado);
                     /* Ver el mismo arreglo en la rama del 400: la marca de
                      * atasco se va con el apunte que la puso (si no, la cabeza
@@ -1199,9 +1396,75 @@ void viaje_cola_init(viaje_cola_cambio_cb cb)
     if (!s_despertar) ESP_LOGE(TAG, "xSemaphoreCreateBinary fallo: sin memoria?");
     s_cambio_cb = cb;
 
+    /* LA COPIA DURADERA SE MONTA ANTES QUE LA COLA (10-nov-2026): si la cola se
+     * reinicia, el diario es lo que permite recuperar lo que habia dentro. */
+    viaje_diario_init();
+
     migrar_cola();
 
-    size_t n = viaje_cola_pendientes();
+    /* ── LA COLA SE RECONSTRUYE DESDE EL DIARIO (10-nov-2026) ───────────────
+     * La cola es la ventana de envio y el diario manda. Al arrancar se vuelve a
+     * llenar desde el, en orden, para que la invariante "la cola es un prefijo
+     * de los pendientes del diario" valga SIEMPRE (si no, un apunte podria
+     * adelantar a otro). Antes se rescata lo que solo este en la NVS (pasa si
+     * el alta en el diario fallo por lleno o por E/S): se anota y asi no se
+     * pierde al vaciar la cola. */
+    if (viaje_diario_disponible()) {
+        bool reconstruible = true;
+        uint32_t cabeza, cola;
+        indices_leer(&cabeza, &cola);
+        for (uint32_t i = cabeza; i < cola; i++) {
+            /* cuerpo ESTATICO: esto corre en la tarea main (3,5 KB) y una copia
+             * de 896 B mas la de rellena_desde_diario() la desbordaban. Se llama
+             * una sola vez al arrancar, antes de que exista el repartidor. */
+            static char cuerpo[CUERPO_MAX];
+            char clave[16];
+            clave_de(i, clave, sizeof(clave));
+            nvs_handle_t h;
+            if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) break;
+            size_t len = sizeof(cuerpo);
+            esp_err_t e = nvs_get_str(h, clave, cuerpo, &len);
+            nvs_close(h);
+            if (e != ESP_OK) continue;
+            uint32_t id = viaje_diario_id_de(cuerpo);
+            if (id == 0 || !viaje_diario_contiene(id)) {
+                if (id && viaje_diario_anota(cuerpo, id)) {
+                    ESP_LOGW(TAG, "apunte %lu rescatado del encendido anterior "
+                                  "(solo estaba en la NVS)", (unsigned long)id);
+                } else {
+                    /* NO SE PUEDE RESCATAR (sin id, indice de RAM lleno o E/S).
+                     * Revision del 10-nov-2026: antes se anotaba sin mirar el
+                     * resultado y luego se borraba la cola, asi que ese apunte
+                     * se perdia EN SILENCIO. Ahora no se borra nada: se queda
+                     * en la cola como estaba y se sigue como siempre. */
+                    ESP_LOGE(TAG, "no puedo rescatar un apunte de la cola al "
+                                  "arrancar (id %lu): NO reconstruyo la cola para "
+                                  "no perderlo", (unsigned long)id);
+                    reconstruible = false;
+                    break;
+                }
+            }
+        }
+        if (!reconstruible) {
+            ESP_LOGW(TAG, "la cola se queda como estaba (sin reconstruir desde el diario)");
+        } else {
+        borra_cola_entera();
+        size_t p = rellena_desde_diario();
+        if (p) ESP_LOGW(TAG, "cola reconstruida desde el diario: %u apuntes en la "
+                             "ventana de envio", (unsigned)p);
+        }
+    }
+
+    /* "Se perdieron N apuntes al arrancar" era verdad cuando la NVS era la unica
+     * copia. Con el diario esos apuntes se reencolan solos: si estan ahi, no se
+     * ha perdido nada y no hay que asustar a nadie. */
+    if (s_perdidos_arranque > 0 && viaje_diario_pendientes() > 0) {
+        ESP_LOGW(TAG, "la cola se reinicio con %d apuntes, pero el diario los "
+                      "tiene: se recuperan solos", s_perdidos_arranque);
+        s_perdidos_arranque = 0;
+    }
+
+    size_t n = viaje_cola_sin_grabar();
     if (n) ESP_LOGW(TAG, "arranco con %u apuntes sin entregar del encendido anterior",
                     (unsigned)n);
 
