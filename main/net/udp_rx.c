@@ -99,6 +99,7 @@ static volatile int     s_rssi_cache = 0;
 static volatile int64_t s_rssi_us = 0;
 static esp_timer_handle_t s_reconnect_timer;
 static esp_timer_handle_t s_dhcp_timer;      /* asociada sin IP: ver dhcp_timer_cb */
+static int                s_dhcp_fallos;     /* intentos seguidos de IP fija (ver dhcp_timer_cb) */
 #define RECONNECT_DELAY_US (500 * 1000)
 
 /* ── Vigilante de DATOS (2-oct-2026) ────────────────────────────────────────
@@ -746,11 +747,30 @@ static void dhcp_timer_cb(void *arg)
     ip.netmask.addr = esp_ip4addr_aton("255.255.255.0");
     ip.gw.addr = esp_ip4addr_aton("192.168.4.1");
 
-    esp_netif_dhcpc_stop(netif);                   /* no-op si no estaba andando */
+    esp_err_t dstop = esp_netif_dhcpc_stop(netif);  /* no-op si no estaba andando */
+    if (dstop != ESP_OK && dstop != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
+        ESP_LOGW(TAG, "no pude parar el DHCP del cliente: %s", esp_err_to_name(dstop));
+    }
     if (esp_netif_set_ip_info(netif, &ip) != ESP_OK) {
-        ESP_LOGE(TAG, "no he podido ponerme la IP fija %s", ip_txt);
+        /* NO SE DEJA ASI (arbitraje del 13-nov): este temporizador es de UN
+         * SOLO TIRO y rx_task espera WIFI_BIT_GOT_IP indefinidamente. Con un
+         * return seco, la cabina se quedaba ASOCIADA y MUDA (sin telemetria, sin
+         * latido, sin vigilante de mudez y sin OTA) hasta ciclar el contacto.
+         * reconnect_timer_cb ya se re-arma en su rama de fallo; esta hace lo
+         * mismo. No se fuerza la bandera de IP (un socket sin ruta no sirve):
+         * se reintenta, y si insiste se suelta la asociacion para rehacerla. */
+        ESP_LOGE(TAG, "no he podido ponerme la IP fija %s: reintento en %d ms",
+                 ip_txt, DHCP_REINTENTO_US / 1000);
+        if (++s_dhcp_fallos >= 3) {
+            ESP_LOGW(TAG, "la IP fija falla %d veces: suelto la asociacion", s_dhcp_fallos);
+            s_dhcp_fallos = 0;
+            esp_wifi_disconnect();
+        }
+        if (s_dhcp_timer)
+            esp_timer_start_once(s_dhcp_timer, (uint64_t)DHCP_REINTENTO_US);
         return;
     }
+    s_dhcp_fallos = 0;
     ESP_LOGW(TAG, "el DHCP no contesta: me pongo la IP fija %s"
                   " y sigo (la P4 esta en 192.168.4.1)", ip_txt);
     /* Que la IP quede en el log tambien cuando va bien: es lo que hace falta

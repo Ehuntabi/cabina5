@@ -452,6 +452,7 @@ esp_err_t tilt_init(void)
  * se guarda el perfil en NVS UNA vez, para no repetir la calibracion en cada
  * arranque. */
 static bool s_cal_guardada = false;
+static int64_t s_ultimo_intento_cal_us;   /* ultimo intento de guardar el perfil (ver arriba) */
 
 bool tilt_get_heading(float *heading_deg, uint8_t *cal)
 {
@@ -468,13 +469,27 @@ bool tilt_get_heading(float *heading_deg, uint8_t *cal)
     if (cal) {
         if (reg_read(BNO_CALIB_STAT, &st, 1) == ESP_OK) *cal = st & 0x03;
         else *cal = 0;
-        /* Calibrado y aun sin guardar: se guarda el perfil de una vez. */
+        /* Calibrado y aun sin guardar: se guarda el perfil de una vez.
+         *
+         * CON ESPERA SI FALLA (arbitraje 13-nov): esto corre en la tarea de LVGL
+         * cada 200 ms, asi que mientras save_tilt_bno_calib() fallara se
+         * intentaba un nvs_set_blob CINCO VECES POR SEGUNDO, con la cache de
+         * flash apagada y la tarea de dibujo parada. Ahora, como mucho uno cada
+         * 30 s. */
         if (*cal == 3 && !s_cal_guardada) {
-            uint8_t prof[BNO_CALIB_PROF_LEN];
-            if (reg_read(BNO_CALIB_PROF, prof, sizeof prof) == ESP_OK &&
-                save_tilt_bno_calib(prof, sizeof prof) == ESP_OK) {
-                s_cal_guardada = true;
-                ESP_LOGI(TAG, "brujula calibrada: perfil guardado en NVS");
+            int64_t ahora_s = esp_timer_get_time();
+            if (s_ultimo_intento_cal_us == 0 ||
+                ahora_s - s_ultimo_intento_cal_us > 30LL * 1000 * 1000) {
+                s_ultimo_intento_cal_us = ahora_s;
+                uint8_t prof[BNO_CALIB_PROF_LEN];
+                if (reg_read(BNO_CALIB_PROF, prof, sizeof prof) == ESP_OK &&
+                    save_tilt_bno_calib(prof, sizeof prof) == ESP_OK) {
+                    s_cal_guardada = true;
+                    ESP_LOGI(TAG, "brujula calibrada: perfil guardado en NVS");
+                } else {
+                    ESP_LOGW(TAG, "no pude guardar el perfil de calibracion; "
+                                  "lo reintento en 30 s");
+                }
             }
         }
     }

@@ -896,7 +896,10 @@ bool viaje_cola_descartar_cabeza(void)
 static void reparto_task(void *arg)
 {
     (void)arg;
-    char cuerpo[CUERPO_MAX];
+    /* INICIALIZADO (arbitraje 13-nov): en la rama de "leer_cabeza dijo que no"
+     * se mira el cuerpo, y con la cola vacia o tras un fallo transitorio no se
+     * habia escrito nunca: era basura de pila. */
+    char cuerpo[CUERPO_MAX] = {0};
     uint32_t idx_400 = UINT32_MAX;   /* indice de cola del ultimo 400 visto */
     int intentos_400 = 0;
     uint32_t idx_adv = UINT32_MAX;   /* indice del ultimo advisory que no entra */
@@ -917,6 +920,10 @@ static void reparto_task(void *arg)
          * podia borrar una entrada que nadie habia entregado. */
         uint32_t idx_enviado = UINT32_MAX;   /* la entrada que hay en la mano */
         bool cabeza_rota = false;
+        cuerpo[0] = '\0';   /* que no se reutilice el cuerpo de la vuelta anterior */
+        /* Compactacion del diario pendiente: la hace ESTA tarea (sin el cerrojo
+         * de LVGL) y no el guardado de la pantalla (arbitraje 13-nov). */
+        (void)viaje_diario_compactar_si_toca();
         if (!leer_cabeza(cuerpo, sizeof(cuerpo), &idx_enviado, &cabeza_rota)) {
             /* OJO: leer_cabeza dice que no por dos motivos distintos, y hay que
              * separarlos. Si la cola esta vacia, a dormir. Pero si hay
@@ -975,7 +982,16 @@ static void reparto_task(void *arg)
              * cola (y sin diario, perdido). leer_cabeza() deja idx_enviado
              * DISTINTO de UINT32_MAX exactamente cuando habia una entrada, asi
              * que esta condicion es la que separa los dos casos. */
-            if (idx_enviado != UINT32_MAX && viaje_diario_id_de(cuerpo) == 0) {
+            /* SOLO SI LA ENTRADA ESTA ROTA DE VERDAD (arbitraje 13-nov).
+             * El testigo de antes era idx_enviado != UINT32_MAX, y leer_cabeza()
+             * lo rellena ANTES de leer -- tambien cuando el fallo es transitorio
+             * (NVS ocupada, sin memoria). En ese caso cabeza_rota es false, el
+             * cuerpo no se ha leido y aqui se decidia sobre un buffer vacio: un
+             * apunte BUENO acababa descartado de la NVS sin haberse enviado.
+             * cabeza_rota solo se pone para NOT_FOUND/INVALID_LENGTH, que es "esta
+             * entrada no se puede entregar nunca". */
+            if (cabeza_rota && idx_enviado != UINT32_MAX &&
+                viaje_diario_id_de(cuerpo) == 0) {
                 resumen_apunte(cuerpo, resumen, sizeof(resumen));
                 ESP_LOGE(TAG, "apunte sin id (cuerpo corrupto), lo aparto: %s",
                          resumen);

@@ -82,6 +82,9 @@ static SemaphoreHandle_t s_mtx;
 #endif
 
 static bool compacta(void);   /* se define mas abajo; init la usa para limpiar */
+/* Compactacion PEDIDA desde anota() para que la haga otra tarea (ver
+ * viaje_diario_compactar_si_toca). */
+static volatile bool s_compactar_pendiente;
 
 /* ── Acceso a la flash: dos funciones y tres wrappers ───────────────────────
  * En la placa van a esp_partition_*; en el test, a un array en RAM del mismo
@@ -557,7 +560,21 @@ static bool diario_anota(const char *cuerpo, uint32_t id)
      * destino? Ese margen garantiza que la copia de la compactacion siempre
      * entra (los pendientes ocupan como mucho lo que la mitad activa). */
     if (s_cursor + total + CAB_TAM > s_base + s_half) {
-        if (!compacta()) return false;
+        /* NO SE COMPACTA AQUI (arbitraje 13-nov). Esta funcion la llama el
+         * GUARDAR de la pantalla, o sea la tarea de LVGL CON SU CERROJO TOMADO;
+         * compacta() hace un esp_partition_erase_range de 512 KB mas la
+         * reescritura de los pendientes, o sea varios segundos de pantalla
+         * congelada en el camino de dibujo. Se deja PEDIDA y la ejecuta la tarea
+         * del reparto, que no tiene el cerrojo de LVGL. El apunte no se pierde:
+         * devolver false hace que quien llama lo meta en la cola de envio. */
+        s_compactar_pendiente = true;
+        static int64_t s_ultimo_aviso_compactar;
+        int64_t ahora_c = esp_timer_get_time();
+        if (ahora_c - s_ultimo_aviso_compactar > 60 * 1000 * 1000) {
+            s_ultimo_aviso_compactar = ahora_c;
+            ESP_LOGW(TAG, "el diario necesita compactar: pedido a la tarea del reparto");
+        }
+        return false;
         if (s_cursor + total + CAB_TAM > s_base + s_half) {
             static int64_t s_ultimo_aviso;
             int64_t ahora = esp_timer_get_time();
@@ -666,6 +683,23 @@ static bool diario_siguiente(char *out, size_t n, uint32_t *id_out)
 /* ── Envoltorios con cerrojo (ver DIARIO_LOCK arriba) ──────────────────────
  * Los cuerpos van sin cerrojo porque se llaman entre ellos (anota y confirma
  * compactan) y porque el que decide cuanto dura el bloqueo es este, no ellos. */
+/* La llama la tarea del reparto (sin el cerrojo de LVGL): si anota() dejo
+ * pedida una compactacion, la hace AQUI. Devuelve true si compacto. */
+bool viaje_diario_compactar_si_toca(void)
+{
+    if (!s_compactar_pendiente) return false;
+    DIARIO_LOCK();
+    bool r = false;
+    if (s_compactar_pendiente) {
+        s_compactar_pendiente = false;
+        r = compacta();
+        if (r) ESP_LOGI(TAG, "diario compactado (pedido desde el guardado)");
+        else   ESP_LOGE(TAG, "no se pudo compactar el diario");
+    }
+    DIARIO_UNLOCK();
+    return r;
+}
+
 bool viaje_diario_anota(const char *cuerpo, uint32_t id)
 {
     DIARIO_LOCK();

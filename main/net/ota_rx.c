@@ -986,6 +986,13 @@ static void tarea_actualizar(void *arg)
         goto salir;
     }
 
+    /* LA PANTALLA SE PARA ANTES DEL BORRADO (arbitraje 13-nov): esp_ota_begin
+     * borra ~2,2 MB y en ese rato la flash se queda sin cache; si el bucle de
+     * LVGL sigue vivo, el refresco se descuadra -- que es justo lo que el
+     * comentario de la cabecera dice haber cerrado parando la pantalla. Antes el
+     * stop estaba DESPUES del borrado. */
+    if (lvgl_port_stop() == ESP_OK) ui_parada = true;
+
     /* esp_ota_begin borra la particion que NO se esta usando. Si falla, la
      * version que corre no se ha tocado. */
     /* La flash se queda sin cache varios segundos: ver ota_wdt_ventana(). */
@@ -1017,8 +1024,7 @@ static void tarea_actualizar(void *arg)
     }
 
     fijar_progreso(0);
-    /* Ver OTA_REFRESCO_PCT. Si el port no deja pararla, se sigue como antes. */
-    if (lvgl_port_stop() == ESP_OK) ui_parada = true;
+    /* (LVGL ya esta parado desde antes del borrado; ver arriba.) */
     for (;;) {
         int leido = esp_http_client_read(cli, (char *)buf, OTA_BUFFER);
         if (leido < 0) {

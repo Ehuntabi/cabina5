@@ -64,6 +64,11 @@ uint32_t viaje_diario_id_de(const char *cuerpo);
 /* Anota el apunte. true si queda guardado en la flash. */
 bool viaje_diario_anota(const char *cuerpo, uint32_t id);
 
+/* Hace la compactacion que anota() haya dejado PEDIDA (lo hace la tarea del
+ * reparto, no la de LVGL: compactar son varios segundos de flash). Devuelve true
+ * si compacto. */
+bool viaje_diario_compactar_si_toca(void);
+
 /* Marca el apunte como resuelto: entregado (200 de la P4) o descartado por el
  * usuario. true si habia algo que marcar. */
 bool viaje_diario_confirma(uint32_t id, bool descartado);

@@ -107,7 +107,18 @@ static void splash_create(void) {
     lv_obj_center(logo);
 
     lv_timer_t *t = lv_timer_create(splash_done_cb, SPLASH_MS, splash_bg);
-    lv_timer_set_repeat_count(t, 1);
+    /* COMPROBAR EL NULL ANTES DE USARLO (arbitraje 13-nov): con
+     * CONFIG_LV_USE_ASSERT_NULL el assert de LVGL hace while(1), o sea que un
+     * NULL aqui (sin memoria) colgaba la tarea de arranque CON EL CERROJO DE
+     * LVGL TOMADO, antes de crear lvgl_wdog_task y sin nadie alimentando el Task
+     * WDT: logo en pantalla para siempre y sin recuperacion. Si no hay
+     * temporizador, se quita el splash a mano. */
+    if (t) {
+        lv_timer_set_repeat_count(t, 1);
+    } else {
+        ESP_LOGE("SPLASH", "sin memoria para el temporizador: quito el splash ya");
+        if (splash_bg) lv_obj_del(splash_bg);
+    }
     ESP_LOGI("SPLASH", "puesto el splash (%d ms), temporizador %s",
              SPLASH_MS, t ? "creado" : "NO CREADO");
 }
@@ -169,7 +180,14 @@ static void lvgl_wdog_task(void *arg) {
              * rastro: los contadores siguen, el panel barre y no hay ni una
              * linea que decir DONDE se ha quedado. Decodificar con
              * xtensa-esp32s3-elf-addr2line -pfiaC -e build/cabina5.elf <dirs> */
-            esp_backtrace_print(40);
+            /* TODAS LAS TAREAS, no la de este vigilante (arbitraje 13-nov):
+             * esp_backtrace_print() imprime la pila de quien lo llama, que aqui
+             * es lvgl_wdog: siempre las mismas 2-3 lineas inutiles. Con
+             * all_tasks sale la de LVGL, que es la que esta atascada. Exige que
+             * nadie cree/borre tareas mientras corre (aqui no hay nadie mas
+             * creando) y gasta unos cientos de bytes de pila mas. */
+            esp_err_t bt = esp_backtrace_print_all_tasks(40);
+            if (bt != ESP_OK) esp_backtrace_print(40);   /* si falla, al menos lo de antes */
         }
     }
 }
