@@ -764,6 +764,12 @@ static void dhcp_timer_cb(void *arg)
         if (++s_dhcp_fallos >= 3) {
             ESP_LOGW(TAG, "la IP fija falla %d veces: suelto la asociacion", s_dhcp_fallos);
             s_dhcp_fallos = 0;
+            /* s_ip_fija=true para que la PROXIMA asociacion le de otra
+             * oportunidad al DHCP con la ventana corta (ver el manejador de
+             * STA_CONNECTED). Sin esto, tras 3 fallos de set_ip_info la cabina
+             * entraba en ciclo asociar/desasociar sin volver nunca al DHCP
+             * (arbitraje 13-nov). */
+            s_ip_fija = true;
             esp_wifi_disconnect();
         }
         if (s_dhcp_timer)
@@ -937,6 +943,7 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
                     }
                 }
                 xEventGroupClearBits(s_wifi_events, WIFI_BIT_CONNECTED | WIFI_BIT_GOT_IP);
+                s_dhcp_fallos = 0;   /* cada asociacion empieza a contar de cero */
                 esp_timer_stop(s_dhcp_timer);        /* sin IP que esperar */
                 esp_timer_stop(s_reconnect_timer);   /* no-op si no estaba armado */
                 /* Si la tarea esta escaneando, NO se arma: saltaria en mitad

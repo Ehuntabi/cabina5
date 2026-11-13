@@ -823,7 +823,12 @@ bool viaje_cola_ultima_es_op(const char *op)
  * en el diario para que no se reenvie nunca y para que se pueda auditar. */
 static void diario_descarta(const char *cuerpo)
 {
-    viaje_diario_confirma(viaje_diario_id_de(cuerpo), true);
+    /* Viene del descarte A MANO de la pantalla, o sea con el cerrojo de LVGL
+     * tomado: que no compacte aqui (arbitraje 13-nov). Si hace falta compactar,
+     * la deja pedida y devuelve false; el reparto la hara en su vuelta. */
+    if (!viaje_diario_confirma_desde_ui(viaje_diario_id_de(cuerpo), true)) {
+        ESP_LOGW(TAG, "el descarte tendra que reintentarse (compactacion pedida)");
+    }
 }
 
 bool viaje_cola_descartar_cabeza(void)

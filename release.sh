@@ -98,7 +98,7 @@ if [ ! -d "$XTENSA_BIN" ]; then
     exit 1
 fi
 
-# ── LA CLAVE DEL AP, ANTES DE COMPILAR NADA (correccion del 16-oct-2026) ─────
+# ── LA CLAVE DEL AP, ANTES DE COMPILAR NADA (16-oct-2026; cambiado 13-nov) ──
 #
 # Este fichero no esta versionado (ni debe: el repo es publico), y su plantilla lo
 # dice con todas las letras: "sin este fichero el build falla a proposito: no debe
@@ -130,18 +130,33 @@ fi
 LOCAL_CRED="main/wifi_credentials.h"
 CRED_TMP=""
 CRED_REALES=""
+CRED_HABIA=0        # 1 si la cabecera local existia al empezar
 restaurar_cred() {
     if [ -n "$CRED_TMP" ] && [ -f "$CRED_TMP" ]; then
-        mv -f "$CRED_TMP" "$LOCAL_CRED"
+        # CON mtime NUEVA (cp, no mv). Con `mv` el fichero volvia con la fecha de
+        # ANTES del build y ninja no recompilaba los .c que lo incluyen: paso en
+        # esta maquina el 13-nov y el binario local salio MEZCLADO (plantilla en
+        # p4_creds.c y clave real en udp_rx.c).
+        cp -f "$CRED_TMP" "$LOCAL_CRED" && rm -f "$CRED_TMP"
+    elif [ "${CRED_HABIA:-0}" = "0" ]; then
+        rm -f "$LOCAL_CRED"   # no habia ninguna: que el arbol quede como estaba
     fi
 }
 trap restaurar_cred EXIT INT TERM
 if [ -f "$LOCAL_CRED" ]; then
+    CRED_HABIA=1
     CRED_TMP="$(mktemp)"
     cp "$LOCAL_CRED" "$CRED_TMP"
-    # Lo que NO puede salir en el .bin: las claves reales de esa cabecera.
-    CRED_REALES="$(sed -n 's/^#define[[:space:]]\{1,\}\(WIFI_CRED_PASS\|PORTAL_CRED_PASS\)[[:space:]]\{1,\}"\(.*\)".*/\2/p' "$LOCAL_CRED")"
-    echo "[i] cabecera local apartada: la version se compila con la plantilla"
+    if cmp -s "$LOCAL_CRED" main/wifi_credentials.h.example; then
+        # Ya es la plantilla: no hay secreto que buscar (si no, el 4b se abortaba
+        # a si mismo buscando CAMBIAME, que es justo lo que lleva el binario).
+        CRED_REALES=""
+        echo "[i] la cabecera local YA es la plantilla: no hay credenciales que comprobar"
+    else
+        # Lo que NO puede salir en el .bin: las claves reales de esa cabecera.
+        CRED_REALES="$(sed -n 's/^#define[[:space:]]\{1,\}\(WIFI_CRED_PASS\|PORTAL_CRED_PASS\)[[:space:]]\{1,\}"\(.*\)".*/\2/p' "$LOCAL_CRED")"
+        echo "[i] cabecera local apartada: la version se compila con la plantilla"
+    fi
 fi
 cp main/wifi_credentials.h.example "$LOCAL_CRED"
 if cmp -s "$LOCAL_CRED" main/wifi_credentials.h.example; then

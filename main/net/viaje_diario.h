@@ -73,6 +73,11 @@ bool viaje_diario_compactar_si_toca(void);
  * usuario. true si habia algo que marcar. */
 bool viaje_diario_confirma(uint32_t id, bool descartado);
 
+/* Igual, pero para quien llama CON EL CERROJO DE LVGL TOMADO (la pantalla): no
+ * compacta (deja la compactacion pedida y devuelve false si hace falta), para no
+ * borrar medio megabite de flash en la tarea de dibujo. */
+bool viaje_diario_confirma_desde_ui(uint32_t id, bool descartado);
+
 /* Apuntes pendientes (ni entregados ni descartados). */
 size_t viaje_diario_pendientes(void);
 

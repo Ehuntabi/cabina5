@@ -477,10 +477,10 @@ bool tilt_get_heading(float *heading_deg, uint8_t *cal)
          * flash apagada y la tarea de dibujo parada. Ahora, como mucho uno cada
          * 30 s. */
         if (*cal == 3 && !s_cal_guardada) {
-            int64_t ahora_s = esp_timer_get_time();
+            int64_t ahora_us = esp_timer_get_time();
             if (s_ultimo_intento_cal_us == 0 ||
-                ahora_s - s_ultimo_intento_cal_us > 30LL * 1000 * 1000) {
-                s_ultimo_intento_cal_us = ahora_s;
+                ahora_us - s_ultimo_intento_cal_us > 30LL * 1000 * 1000) {
+                s_ultimo_intento_cal_us = ahora_us;
                 uint8_t prof[BNO_CALIB_PROF_LEN];
                 if (reg_read(BNO_CALIB_PROF, prof, sizeof prof) == ESP_OK &&
                     save_tilt_bno_calib(prof, sizeof prof) == ESP_OK) {

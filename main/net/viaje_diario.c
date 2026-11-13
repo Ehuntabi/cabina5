@@ -575,16 +575,6 @@ static bool diario_anota(const char *cuerpo, uint32_t id)
             ESP_LOGW(TAG, "el diario necesita compactar: pedido a la tarea del reparto");
         }
         return false;
-        if (s_cursor + total + CAB_TAM > s_base + s_half) {
-            static int64_t s_ultimo_aviso;
-            int64_t ahora = esp_timer_get_time();
-            if (ahora - s_ultimo_aviso > 60 * 1000 * 1000) {
-                s_ultimo_aviso = ahora;
-                ESP_LOGE(TAG, "el diario no tiene sitio ni compactado; los apuntes "
-                              "siguen solo en la cola");
-            }
-            return false;
-        }
     }
 
     /* Cuerpo PRIMERO y cabecera despues: si se va la corriente entre las dos,
@@ -609,7 +599,13 @@ static bool diario_anota(const char *cuerpo, uint32_t id)
     return true;
 }
 
-static bool diario_confirma(uint32_t id, bool descartado)
+/* permitir_compactar=false para quien llama CON EL CERROJO DE LVGL TOMADO (el
+ * descarte a mano de la pantalla, ver view_info.c): ahi no se puede borrar
+ * medio megabite de flash. En ese caso se deja la compactacion PEDIDA y se dice
+ * que no; el reparto la hace en su siguiente vuelta y el descarte se reintenta.
+ * El arbitraje del 13-nov vio que el commit solo habia arreglado el camino del
+ * GUARDAR y este seguia compactando en la tarea de dibujo. */
+static bool diario_confirma(uint32_t id, bool descartado, bool permitir_compactar)
 {
     if (!s_listo || id == 0) return false;
 
@@ -619,6 +615,12 @@ static bool diario_confirma(uint32_t id, bool descartado)
 
     uint32_t total = reg_tam_total(0);
     if (s_cursor + total + CAB_TAM > s_base + s_half) {
+        if (!permitir_compactar) {
+            s_compactar_pendiente = true;
+            ESP_LOGW(TAG, "confirma: hace falta compactar y quien llama no puede; "
+                          "queda pedida para la tarea del reparto");
+            return false;
+        }
         if (!compacta()) return false;
         for (i = 0; i < s_pend_n; i++) if (s_pend[i].id == id) break;
         if (i == s_pend_n) return false;
@@ -710,8 +712,19 @@ bool viaje_diario_anota(const char *cuerpo, uint32_t id)
 
 bool viaje_diario_confirma(uint32_t id, bool descartado)
 {
+    /* Camino del reparto: aqui SI se puede compactar (sin cerrojo de LVGL). */
     DIARIO_LOCK();
-    bool r = diario_confirma(id, descartado);
+    bool r = diario_confirma(id, descartado, true);
+    DIARIO_UNLOCK();
+    return r;
+}
+
+bool viaje_diario_confirma_desde_ui(uint32_t id, bool descartado)
+{
+    /* Camino de la pantalla (cerrojo de LVGL tomado): NO compacta, la deja
+     * pedida. Si devuelve false por eso, quien llama se reintenta. */
+    DIARIO_LOCK();
+    bool r = diario_confirma(id, descartado, false);
     DIARIO_UNLOCK();
     return r;
 }

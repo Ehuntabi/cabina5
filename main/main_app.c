@@ -107,12 +107,12 @@ static void splash_create(void) {
     lv_obj_center(logo);
 
     lv_timer_t *t = lv_timer_create(splash_done_cb, SPLASH_MS, splash_bg);
-    /* COMPROBAR EL NULL ANTES DE USARLO (arbitraje 13-nov): con
-     * CONFIG_LV_USE_ASSERT_NULL el assert de LVGL hace while(1), o sea que un
-     * NULL aqui (sin memoria) colgaba la tarea de arranque CON EL CERROJO DE
-     * LVGL TOMADO, antes de crear lvgl_wdog_task y sin nadie alimentando el Task
-     * WDT: logo en pantalla para siempre y sin recuperacion. Si no hay
-     * temporizador, se quita el splash a mano. */
+    /* La comprobacion del NULL es CINTURON, no el arreglo (arbitraje 13-nov):
+     * lv_timer_create() hace LV_ASSERT_MALLOC() y, con CONFIG_LV_USE_ASSERT_MALLOC
+     * y el handler por defecto (while(1)), un fallo de memoria cuelga DENTRO de
+     * LVGL, antes de llegar aqui: la rama else no se ejecutaria. Se deja por si
+     * algun dia se cambia el handler de asserts; el riesgo de OOM en el arranque
+     * se vigila desde el latido de heap. */
     if (t) {
         lv_timer_set_repeat_count(t, 1);
     } else {

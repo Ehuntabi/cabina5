@@ -32,6 +32,17 @@ static void cuerpo(char *out, size_t n, uint32_t id, const char *tipo)
              (unsigned long)id, tipo);
 }
 
+/* COMO LO HACE LA PLACA (arbitraje 13-nov-2026): desde que anota() no compacta
+ * (lo pide y la compactacion la ejecuta la tarea del reparto, fuera del cerrojo
+ * de LVGL), el arnes tiene que hacer el segundo paso para que estas pruebas
+ * sigan probando lo que dicen. */
+static bool anota_como_la_placa(char *b, uint32_t id)
+{
+    if (viaje_diario_anota(b, id)) return true;
+    (void)viaje_diario_compactar_si_toca();
+    return viaje_diario_anota(b, id);
+}
+
 int main(void)
 {
     char b[512], leido[512];
@@ -113,7 +124,7 @@ int main(void)
     int n = 0;
     for (uint32_t i = 0; i < 20; i++) {
         cuerpo(b, sizeof b, 300 + i, "repostaje");
-        if (viaje_diario_anota(b, 300 + i)) esperados[n++] = 300 + i;
+        if (anota_como_la_placa(b, 300 + i)) esperados[n++] = 300 + i;
     }
     ok(n > 0 && viaje_diario_pendientes() == (size_t)n,
        "las altas aceptadas cuadran con los pendientes (ni fantasmas ni perdidas)");
@@ -144,7 +155,7 @@ int main(void)
     for (uint32_t i = 0; i < 40; i++) {
         char bb[512];
         cuerpo(bb, sizeof bb, 400 + i, "peaje");
-        if (viaje_diario_anota(bb, 400 + i)) ids5[n5++] = 400 + i;
+        if (anota_como_la_placa(bb, 400 + i)) ids5[n5++] = 400 + i;
     }
     ok(n5 > 0 && viaje_diario_pendientes() == (size_t)n5,
        "las altas antes del corte cuadran con los pendientes");
@@ -154,9 +165,15 @@ int main(void)
     uint32_t base_antes = viaje_diario_test_base();
     char bb[512];
     cuerpo(bb, sizeof bb, 500, "repostaje");
-    viaje_diario_test_falla_tras(3);
+    /* Se fuerza la compactacion (anota() ya no compacta sola) e inyectando el
+     * fallo DENTRO de ella, que es lo que prueba que la copia no se da por
+     * buena a medias. */
     bool anotado = viaje_diario_anota(bb, 500);
+    ok(!anotado, "con el diario al borde, anota() pide compactar y NO da nada por guardado");
+    viaje_diario_test_falla_tras(3);
+    (void)viaje_diario_compactar_si_toca();
     viaje_diario_test_falla_tras(-1);
+    anotado = viaje_diario_anota(bb, 500);
     ok(!anotado, "si la compactacion no se puede completar, el apunte NO se da por guardado");
     /* La prueba de que la copia EMPEZO y no se quedo en la puerta: el codigo
      * sigue apuntando a la mitad vieja y con la misma generacion. Si compacta()
@@ -185,7 +202,7 @@ int main(void)
     for (int i = 0; i + 3 < n5; i++) viaje_diario_confirma(ids5[i], false);
     cuerpo(bb, sizeof bb, 501, "peaje");
     uint32_t gen_antes_final = viaje_diario_test_gen();
-    ok(viaje_diario_anota(bb, 501), "tras entregar unos cuantos, vuelve a haber sitio");
+    ok(anota_como_la_placa(bb, 501), "tras entregar unos cuantos, vuelve a haber sitio");
     /* ESTA es la prueba de que compacta() COPIA de verdad: si se rindiera sin
      * tocar nada (mutacion que el arbitraje del 10-nov-2026 encontro que pasaba
      * todas las demas), el alta anterior no habria podido entrar. */
@@ -250,7 +267,9 @@ int main(void)
     for (uint32_t i = 0; i < 40; i++) {
         char cc[512];
         cuerpo(cc, sizeof cc, 800 + i, "peaje");
-        viaje_diario_anota(cc, 800 + i);
+        /* Como la placa: anota y, si pide compactar, la compactacion la hace
+         * aparte (ver anota_como_la_placa). */
+        (void)anota_como_la_placa(cc, 800 + i);
     }
     uint32_t gen_bueno = viaje_diario_test_gen();
     uint32_t base_buena = viaje_diario_test_base();
