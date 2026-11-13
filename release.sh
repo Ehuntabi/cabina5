@@ -110,17 +110,42 @@ fi
 # fichero esta en .gitignore, asi que el arbol sigue limpio y el script publicaba
 # una Release con la clave de broma (WIFI_CRED_PASS "CAMBIAME") dentro. Ahora se
 # para aqui, que es lo que pide la plantilla.
-if [ ! -f main/wifi_credentials.h ]; then
-    echo "ERROR: falta main/wifi_credentials.h (no versionado, ver .gitignore)."
-    echo "       Copia la plantilla y pon los datos REALES del AP de la P4:"
-    echo "           cp main/wifi_credentials.h.example main/wifi_credentials.h"
-    echo "       NO se publica un binario con la clave de broma."
-    exit 1
+# LO CONTRARIO DESDE EL 13-NOV-2026: el binario publico NO LLEVA CREDENCIALES.
+#
+# Lo de arriba (exigir la cabecera con los datos reales) era peor que inutil: el
+# que compila y publica es ESTE script, en la maquina donde vive la cabecera con
+# la clave de verdad, asi que TODAS las Releases publicadas hasta la v1.87 (88
+# versiones) llevaban la clave del AP de la P4 dentro del .bin, y el repo es
+# PUBLICO: cualquiera que lo descargue y haga `strings` entra al AP de la
+# autocaravana y al portal (viajes, SD y OTA de la P4).
+#
+# Ahora la version se compila con la PLANTILLA (sin secretos) y, antes de subir
+# nada, se comprueba que el binario no contenga las credenciales reales. La
+# cabecera local se aparta y se restaura sola al terminar (trap), para que el
+# arbol de trabajo quede como estaba.
+#
+# Una placa nueva que se grabe con la version publicada arranca con los valores
+# de la plantilla y se configura desde su propia pantalla (Ajustes -> red), que
+# es como se cambian ya hoy; lo que no se puede es repartir la clave en un .bin.
+LOCAL_CRED="main/wifi_credentials.h"
+CRED_TMP=""
+CRED_REALES=""
+restaurar_cred() {
+    if [ -n "$CRED_TMP" ] && [ -f "$CRED_TMP" ]; then
+        mv -f "$CRED_TMP" "$LOCAL_CRED"
+    fi
+}
+trap restaurar_cred EXIT INT TERM
+if [ -f "$LOCAL_CRED" ]; then
+    CRED_TMP="$(mktemp)"
+    cp "$LOCAL_CRED" "$CRED_TMP"
+    # Lo que NO puede salir en el .bin: las claves reales de esa cabecera.
+    CRED_REALES="$(sed -n 's/^#define[[:space:]]\{1,\}\(WIFI_CRED_PASS\|PORTAL_CRED_PASS\)[[:space:]]\{1,\}"\(.*\)".*/\2/p' "$LOCAL_CRED")"
+    echo "[i] cabecera local apartada: la version se compila con la plantilla"
 fi
-if cmp -s main/wifi_credentials.h main/wifi_credentials.h.example; then
-    echo "ERROR: main/wifi_credentials.h es la PLANTILLA sin rellenar."
-    echo "       Pon los datos reales del AP antes de publicar una version."
-    exit 1
+cp main/wifi_credentials.h.example "$LOCAL_CRED"
+if cmp -s "$LOCAL_CRED" main/wifi_credentials.h.example; then
+    echo "[ok] compilando con la plantilla (sin credenciales dentro)"
 fi
 
 
@@ -178,6 +203,22 @@ if [ "$EMB" != "$TAG" ]; then
     exit 1
 fi
 echo "[ok] el binario dice '$EMB'"
+
+# ── 4b) el binario NO puede llevar credenciales reales (13-nov-2026) ────────
+if [ -n "$CRED_REALES" ]; then
+    while IFS= read -r clave; do
+        [ -n "$clave" ] || continue
+        if strings "$APP_BIN" | grep -qF -- "$clave"; then
+            echo "ABORTADO: el binario lleva una credencial real dentro."
+            echo "          Buscada: la clave de $LOCAL_CRED (WIFI_CRED_PASS/PORTAL_CRED_PASS)."
+            echo "          No se publica un firmware que reparte la clave del AP."
+            exit 1
+        fi
+    done <<EOF
+$CRED_REALES
+EOF
+    echo "[ok] el binario no lleva credenciales reales"
+fi
 
 # El binario que se sube a la Release se deja en build/ (gitignored) y NO se
 # toca ~/joint-releases todavía: esa carpeta es "lo que se lleva a la
