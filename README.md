@@ -38,7 +38,24 @@ Dos consecuencias prácticas de que el panel sea RGB:
 - No hay "tabla de comandos" del panel: si algo se ve mal (desplazado, colores
   cambiados), el problema es el **timing o los pines**, no la inicialización.
 
-## Estado (16-oct-2026)
+## Estado
+
+Última versión publicada: **v1.89 (13-nov-2026)**, con los arreglos de la
+auditoría del 13-nov. Lo que cambió desde las medidas de abajo:
+
+- **Auditoría de la 5" (13-nov)**: cola de viajes (cabecera sin inicializar y
+  descarte por cabecera rota), compactación del diario diferida fuera del camino
+  crítico, DHCP con tres fallos y vuelta a IP fija, la OTA para LVGL **antes** de
+  empezar a escribir el flash, guardas en el temporizador del arranque y
+  `esp_backtrace_print_all_tasks()` cuando la UI se cuelga, y la calibración del
+  tilt como mucho cada 30 s.
+- **`release.sh` ya no puede publicar una contraseña**: guarda tu
+  `main/wifi_credentials.h` local, compila con la plantilla, lo restaura al
+  terminar y **aborta** si el `.bin` contiene la clave de verdad.
+
+Las medidas de la tabla son de la **placa y del firmware del 16-oct-2026**; no se
+han vuelto a tomar con la v1.89, así que tómalas como referencia, no como estado
+actual:
 
 **Verificado en la placa**, con estos números medidos:
 
