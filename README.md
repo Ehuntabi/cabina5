@@ -38,6 +38,34 @@ Dos consecuencias prácticas de que el panel sea RGB:
 - No hay "tabla de comandos" del panel: si algo se ve mal (desplazado, colores
   cambiados), el problema es el **timing o los pines**, no la inicialización.
 
+## Qué hace
+
+Pantalla **táctil de 5"** que va en la cabina y trabaja contra la P4 por Wi-Fi. Tres pantallas
+en carrusel (deslizando) más Ajustes:
+
+- **Info / Datos** (la de arranque): la batería arriba a todo el ancho, la **tarjeta del viaje** en
+  medio (km recorridos y horas de conducción) y aguas y temperaturas abajo.
+- **Inclinación** (a la izquierda): nivel de la furgo —cabeceo y balanceo— y **brújula** con el
+  rumbo en grados. Detalle del sensor en *Inclinación y brújula (BNO055)*, más abajo.
+- **Registro** (a la derecha): el **cuaderno de viaje**. Abre y cierra viajes y apunta repostajes,
+  paradas y pernoctas.
+- **Ajustes**: brillo, **brillo mínimo**, red Wi-Fi (SSID y clave), **actualizar pantalla** y
+  *Acerca de* con el motivo del último reinicio.
+
+**Lo que la hace útil de verdad**
+
+- **Nada se pierde si se corta el Wi-Fi.** Los apuntes van a una **cola** que se reintenta: la P4
+  los recibe por `POST /api/viaje` y, si no hay red, se quedan esperando. Al final de la cola, la
+  P4 los cuenta y marca el viaje **INCOMPLETO** si falta alguno, en vez de darlo por bueno.
+- **Alarmas de la P4 en la pantalla**: agua limpia en reserva, aguas grises llenas, batería por
+  debajo del umbral y congelador por encima. Se **silencian** tocando la tarjeta que está en alarma.
+- **Auto-test al arrancar** de los dos canales (`CANAL DE VIAJES OK` y `CANAL DE ALARMAS OK`), para
+  no salir a la carretera con el enlace roto sin enterarse.
+- **Se actualiza sola**: pregunta a la P4 por `GET /api/pantalla/info` y, si hay versión nueva, se
+  baja el `.bin` y lo graba (OTA por Wi-Fi). Si el viaje está abierto, se niega y lo dice.
+- **Telemetría por UDP** (puerto **4242**, 1 Hz desde el AP de la P4) y **latido de vuelta** al
+  **4243**. El protocolo está en `main/net/mini_proto.h`, byte a byte igual que en la P4.
+
 ## Estado
 
 Última versión publicada: **v1.89 (13-nov-2026)**, con los arreglos de la
