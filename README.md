@@ -255,6 +255,27 @@ así una pantalla a oscuras nunca se queda grabada y siempre se sale
 desenchufando. El cambio de nivel se aplica con una rampa de 8 tramos de 15 ms
 (antes saltaba de golpe, y eso era el "no funciona bien").
 
+## Inclinación y brújula (BNO055)
+
+La 5" lleva un **IMU BNO055** en un bus I2C propio (`I2C_NUM_1`, **IO17 = SDA / IO18 = SCL**, los
+JST de 4 hilos, que traen además 3V3 y GND). No usa el bus del táctil (GPIO4/GPIO8) porque
+en este módulo ese va cableado por dentro de la pantalla y no tiene pad accesible.
+
+**Qué enseña** (`main/ui/view_inclinacion.c`): el nivel de la furgo —cabeceo y balanceo— y la
+**brújula** con la aguja al **rumbo** en grados, más el aviso de calibración. El rumbo sale
+de los ángulos de Euler del BNO055 (registro `0x1A`, 1/16 de grado) y la calidad del
+magnetómetro de `CALIB_STAT` (`0x35`).
+
+**Lo que hay que saber**
+
+- **Hay que calibrar el magnetómetro** con el botón *Calibrar*: bloquea ~0,5 s y hay que girar la
+  furgo en horizontal, despacio y completo. Sin calibrar, el rumbo se va decenas de grados.
+- El **acelerómetro solo** (el ADXL345 anterior) da el nivel, pero **no da rumbo**: si el
+  BNO055 no responde, la brújula se queda vacía y la inclinación sigue funcionando.
+- La lectura del BNO055 va **byte a byte**, con *clock stretching* del sensor (es lo que la hace
+  estable), así que cuesta unos milisegundos por refresco. Hoy corre en la tarea de LVGL: es un
+  resto de la auditoría (sacarlo a su propia tarea es trabajo pendiente, no urgente).
+
 ## Credenciales: hay que copiar la plantilla antes de compilar
 
 El repositorio es **público**, así que las claves de la P4 **no** se versionan.
