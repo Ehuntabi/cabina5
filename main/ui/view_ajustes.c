@@ -1083,17 +1083,24 @@ void view_ajustes_create(lv_obj_t *parent)
     /* Y el resto de la pantalla, la VERSION. GRANDE y centrada -- letra 40 para
      * el numero y 20 para el rotulo y el sello: sobra sitio y esto se mira de
      * lejos, con el aparato en su soporte y sin acercarse. Que es el
-     * primer dato que hace falta cuando algo va raro: sale del tag de git al
-     * compilar (esp_app_get_description), no hay ningun numero que mantener a
-     * mano.
+     * primer dato que hace falta cuando algo va raro. El numero sale de
+     * PROJECT_VER (CMakeLists.txt): el ultimo tag, o el SIGUIENTE (+0.1) si hay
+     * trabajo por encima -- es la version con la que se publicaria, y por eso no
+     * hay ningun numero que mantener a mano.
      *
      * DEBAJO VA EL SELLO (22-nov-2026), y ya NO es app->date/app->time: esa
      * fecha la rellena ESP-IDF al compilar ESE componente y no se regenera si
      * no cambia -- con codigo del 22 dentro la placa decia "14 NOV", y el dueno
      * lo leyo como "no esta en la ultima version". Un rotulo que miente es peor
-     * que no tenerlo. Ahora pone tag y commit de git y la fecha DEL COMMIT
+     * que no tenerlo. Ahora pone el COMMIT y la fecha DEL COMMIT
      * (scripts/gen_version_header.cmake, generado al configurar), que es lo que
-     * de verdad hay dentro; si el arbol tenia cambios sin commitear, se dice. */
+     * de verdad hay dentro.
+     *
+     * EL COMMIT Y NO EL "git describe" CRUDO: "v1.89-4-g63d8076" debajo de un
+     * "v1.90" grande se lee como dos versiones que se contradicen (auditoria del
+     * 22-nov). La regla del 13-sep sigue: en pantalla, numeros limpios; el
+     * describe con "-N-g" no sale nunca. Si el arbol tenia cambios sin
+     * commitear, se dice al lado. */
     lv_obj_t *vcard = lv_obj_create(s_menu);
     lv_obj_set_width(vcard, lv_pct(100));
     lv_obj_set_flex_grow(vcard, 1);
@@ -1133,7 +1140,7 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(s_ver_lbl, &lv_font_montserrat_48, 0);
 
     lv_obj_t *vfecha = lv_label_create(vcard);
-    lv_label_set_text_fmt(vfecha, "%s (%s%s)", JB_VERSION_TAG, JB_BUILD_STAMP,
+    lv_label_set_text_fmt(vfecha, "commit %s (%s%s)", JB_COMMIT, JB_BUILD_STAMP,
                           JB_BUILD_DIRTY ? ", sin commitear" : "");
     lv_obj_set_style_text_color(vfecha, UI_COLOR_TEXT_DIM, 0);
     lv_obj_set_style_text_font(vfecha, &FUENTE_PIE, 0);

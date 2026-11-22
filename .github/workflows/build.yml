@@ -262,4 +262,4 @@ jobs:
         run: |
           shellcheck -S warning \
             cabina5/scripts/grabar.sh cabina5/scripts/vigilar_panicos.sh cabina5/release.sh \
-            cabina5/test/estilo.sh
+            cabina5/test/estilo.sh cabina5/test/sello_version.sh

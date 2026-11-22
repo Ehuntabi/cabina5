@@ -219,6 +219,19 @@ if [ "$EMB" != "$TAG" ]; then
 fi
 echo "[ok] el binario dice '$EMB'"
 
+# ── 4a) y el SELLO tiene que ser el del tag (22-nov-2026) ───────────────────
+# El sello (build/version_build.h, lo que la pantalla pinta debajo del numero) se
+# genera al CONFIGURAR. Aqui se configura despues de crear el tag, asi que tiene
+# que decir el tag; si dijera otra cosa es que el reconfigure no corrio, y se
+# publicaria un .bin cuyo rotulo miente. Se corta ANTES de subir nada.
+if ! grep -qx "#define JB_VERSION_TAG  \"$TAG\"" build/version_build.h 2>/dev/null; then
+    echo "ABORTADO: el sello (build/version_build.h) no es del tag $TAG:"
+    grep 'JB_VERSION_TAG' build/version_build.h 2>/dev/null || echo "          (no existe build/version_build.h)"
+    echo "          No se publica un .bin cuyo rotulo dice otra cosa."
+    exit 1
+fi
+echo "[ok] el sello es el del tag ($TAG)"
+
 # ── 4b) el binario NO puede llevar credenciales reales (13-nov-2026) ────────
 if [ -n "$CRED_REALES" ]; then
     while IFS= read -r clave; do
