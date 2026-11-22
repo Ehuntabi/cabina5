@@ -224,7 +224,7 @@ echo "[ok] el binario dice '$EMB'"
 # genera al CONFIGURAR. Aqui se configura despues de crear el tag, asi que tiene
 # que decir el tag; si dijera otra cosa es que el reconfigure no corrio, y se
 # publicaria un .bin cuyo rotulo miente. Se corta ANTES de subir nada.
-if ! grep -qx "#define JB_VERSION_TAG  \"$TAG\"" build/version_build.h 2>/dev/null; then
+if ! grep -qxF -- "#define JB_VERSION_TAG  \"$TAG\"" build/version_build.h 2>/dev/null; then
     echo "ABORTADO: el sello (build/version_build.h) no es del tag $TAG:"
     grep 'JB_VERSION_TAG' build/version_build.h 2>/dev/null || echo "          (no existe build/version_build.h)"
     echo "          No se publica un .bin cuyo rotulo dice otra cosa."
