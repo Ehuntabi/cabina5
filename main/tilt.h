@@ -38,6 +38,12 @@ bool tilt_get(float *pitch_deg, float *roll_deg);
  * calibrado) y sirve para avisar de que hay que girar el sensor. */
 bool tilt_get_heading(float *heading_deg, uint8_t *cal);
 
+/* Estado de calibracion del BNO055, sensor por sensor (cada uno 0-3; 3 =
+ * calibrado). Del acelerometro sale el NIVEL y del magnetometro la BRUJULA; el
+ * giroscopio y el sistema dicen cuanto falta para que la fusion sea de fiar.
+ * Devuelve false si el sensor no es un BNO055. */
+bool tilt_cal_get(uint8_t *mag, uint8_t *acc, uint8_t *gyr, uint8_t *sys);
+
 /* Promedia ~20 lecturas del angulo ACTUAL y las guarda como nuevo "cero"
  * en NVS (config_storage.c, namespace "tilt"). Llamar con la autocaravana
  * parada sobre una referencia de nivel real (nivel de burbuja fisico o

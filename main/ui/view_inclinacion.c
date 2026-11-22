@@ -409,6 +409,27 @@ static void refresh_cb(lv_timer_t *t)
     }
     lv_obj_clear_flag(s_bubble, LV_OBJ_FLAG_HIDDEN);
 
+    /* MEDIDA EN EL BANCO (22-nov-2026). "El nivel no va fino" es una queja que
+     * no se puede arreglar a ciegas: hace falta saber si tiembla, si esta
+     * desviado o si el que no esta calibrado es el acelerometro. Una linea cada
+     * 2 s, y SOLO mientras esta pantalla esta delante (la pinta su temporizador,
+     * que se salta si no lo esta): en marcha no ensucia el log. */
+    {
+        static uint32_t s_log_tick;
+        uint32_t ahora = lv_tick_get();
+        if (s_log_tick == 0 || (ahora - s_log_tick) >= 2000) {
+            s_log_tick = ahora ? ahora : 1;
+            float hd = 0;
+            uint8_t cal = 0, m = 0, a = 0, g = 0, sy = 0;
+            bool h_ok = tilt_get_heading(&hd, &cal);
+            bool c_ok = tilt_cal_get(&m, &a, &g, &sy);
+            ESP_LOGI("diag", "nivel: pitch=%+.2f roll=%+.2f | rumbo=%.1f (%d, "
+                             "cal=%u) | calib m=%u a=%u g=%u s=%u (%d)",
+                     pitch, roll, hd, (int)h_ok, (unsigned)cal,
+                     (unsigned)m, (unsigned)a, (unsigned)g, (unsigned)sy, (int)c_ok);
+        }
+    }
+
     float cr = roll  >  MAX_DEG_SHOWN ?  MAX_DEG_SHOWN : (roll  < -MAX_DEG_SHOWN ? -MAX_DEG_SHOWN : roll);
     float cp = pitch >  MAX_DEG_SHOWN ?  MAX_DEG_SHOWN : (pitch < -MAX_DEG_SHOWN ? -MAX_DEG_SHOWN : pitch);
     /* La bola rueda al lado BAJO, como una canica: donde este la bola, ahi va la

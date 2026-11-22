@@ -98,6 +98,12 @@ static const char *TAG = "tilt";
 #define BNO_CALIB_PROF          0x55   /* 22 bytes de perfil de calibracion */
 #define BNO_CALIB_PROF_LEN      22
 
+/* Perfil que hay ahora mismo en la NVS, para no reescribirlo igual en cada
+ * arranque (ver tilt_get_heading, 22-nov-2026). Se rellena al restaurarlo. */
+static uint8_t s_prof_guardado[BNO_CALIB_PROF_LEN];
+static bool    s_prof_guardado_valido;
+static int64_t s_ultimo_intento_cal_us;
+
 typedef enum { SENSOR_NINGUNO = 0, SENSOR_ADXL345, SENSOR_BNO055 } tilt_chip_t;
 static tilt_chip_t s_chip = SENSOR_NINGUNO;
 
@@ -124,6 +130,30 @@ static esp_err_t reg_write(uint8_t reg, uint8_t val)
 static esp_err_t reg_read(uint8_t reg, uint8_t *buf, size_t len)
 {
     return i2c_master_transmit_receive(s_dev, &reg, 1, buf, len, 100);
+}
+
+/* ── CALIDAD DE LA CALIBRACION, POR SENSOR (22-nov-2026) ────────────────────
+ *
+ * CALIB_STAT (0x35) trae cuatro notas de 0 a 3, una por cosa:
+ *     bits 1:0 magnetometro | 3:2 acelerometro | 5:4 giroscopio | 7:6 sistema
+ * Hasta hoy solo se miraba el magnetometro (y solo para decidir si guardar el
+ * perfil). Faltaba el resto: el ACELEROMETRO es de donde sale el NIVEL, y el
+ * perfil que se guarda vale lo que valga el peor de los cuatro. Guardarlo con
+ * el acelerometro a medias es guardar un nivel torcido que se restaura en cada
+ * arranque; y como el perfil restaurado ya devuelve 3, se volvia a guardar lo
+ * mismo en cada arranque sin aportar nada. */
+typedef struct { uint8_t mag, acc, gyr, sys; } bno_cal_t;
+
+static bno_cal_t bno_cal_leer(void)
+{
+    bno_cal_t c = { 0, 0, 0, 0 };
+    uint8_t st = 0;
+    if (reg_read(BNO_CALIB_STAT, &st, 1) != ESP_OK) return c;
+    c.mag = (uint8_t)(st & 0x03);
+    c.acc = (uint8_t)((st >> 2) & 0x03);
+    c.gyr = (uint8_t)((st >> 4) & 0x03);
+    c.sys = (uint8_t)((st >> 6) & 0x03);
+    return c;
 }
 
 /* Lee el vector de gravedad del BNO055 y lo deja en "g" y con el signo del
@@ -336,13 +366,40 @@ static esp_err_t bno_probar(uint8_t addr)
     {
         uint8_t prof[BNO_CALIB_PROF_LEN];
         if (load_tilt_bno_calib(prof, sizeof prof) == ESP_OK) {
-            uint8_t buf[1 + BNO_CALIB_PROF_LEN];
-            buf[0] = BNO_CALIB_PROF;
-            memcpy(&buf[1], prof, sizeof prof);
-            if (i2c_master_transmit(dev, buf, sizeof buf, 200) == ESP_OK) {
-                vTaskDelay(pdMS_TO_TICKS(20));
-                ESP_LOGI(TAG, "perfil de calibracion del magnetometro restaurado");
+            /* ¿ES UN PERFIL DE VERDAD? (22-nov-2026). Medido en la placa: con el
+             * perfil "restaurado" el magnetometro seguia a 0/3 y el sistema a
+             * 0/3, o sea que la brujula no estaba calibrada. Un blob de ceros
+             * (o todo 0xFF) no calibra nada, pero se escribia igual, el chip
+             * contestaba "de acuerdo" y el log decia "perfil restaurado": media
+             * docena de arranques diciendo que si a algo que era mentira. Se
+             * comprueba ANTES de escribir y se dice lo que hay. */
+            bool uniforme = true;
+            for (size_t i = 1; i < sizeof prof; i++) {
+                if (prof[i] != prof[0]) { uniforme = false; break; }
             }
+            if (uniforme) {
+                ESP_LOGW(TAG, "perfil de calibracion guardado entero a 0x%02X: NO "
+                              "lo restauro (no calibra nada). Hay que calibrar la "
+                              "brujula girando el sensor", prof[0]);
+            } else {
+                uint8_t buf[1 + BNO_CALIB_PROF_LEN];
+                buf[0] = BNO_CALIB_PROF;
+                memcpy(&buf[1], prof, sizeof prof);
+                if (i2c_master_transmit(dev, buf, sizeof buf, 200) == ESP_OK) {
+                    vTaskDelay(pdMS_TO_TICKS(20));
+                    ESP_LOGI(TAG, "perfil restaurado (%02X%02X%02X%02X%02X%02X...)",
+                             prof[0], prof[1], prof[2], prof[3], prof[4], prof[5]);
+                    /* Se apunta lo que hay guardado: si al volver a leer el
+                     * perfil del chip sale igual, tilt_get_heading() no
+                     * reescribe la NVS (antes se escribia una vez por arranque,
+                     * sin aportar nada). */
+                    memcpy(s_prof_guardado, prof, sizeof prof);
+                    s_prof_guardado_valido = true;
+                }
+            }
+        } else {
+            ESP_LOGW(TAG, "no hay perfil de calibracion guardado: la brujula "
+                          "arranca sin calibrar (girar el sensor hasta 3/3)");
         }
     }
 
@@ -359,6 +416,10 @@ static esp_err_t bno_probar(uint8_t addr)
     ESP_LOGI(TAG, "BNO055 OK en 0x%02X (fusion NDOF, brujula)", addr);
     return ESP_OK;
 }
+
+/* Seis lecturas al arrancar para poder medir el nivel sin la pantalla delante
+ * (ver el final de tilt_init y el cuerpo de la tarea). */
+static void tilt_diag_task(void *arg);
 
 esp_err_t tilt_init(void)
 {
@@ -415,11 +476,22 @@ esp_err_t tilt_init(void)
     {
         float p = 0, r = 0, hd = 0;
         uint8_t cal = 0;
-        vTaskDelay(pdMS_TO_TICKS(300));
+        /* 1.5 s y no 300 ms: la fusion del BNO055 tarda en asentar, y a 300 ms
+         * la primera lectura sale con el rumbo de fabrica y con el vector de
+         * gravedad todavia sin filtrar. Se apuntan los CUATRO estados de
+         * calibracion (22-nov-2026): son los que dicen si el nivel y el rumbo
+         * valen algo, y antes solo se veia el del magnetometro. */
+        vTaskDelay(pdMS_TO_TICKS(1500));
         bool a1 = tilt_get(&p, &r);
         bool a2 = tilt_get_heading(&hd, &cal);
-        ESP_LOGI(TAG, "lectura: pitch=%.2f roll=%.2f (%d) rumbo=%.1f cal=%u (%d)",
-                 p, r, (int)a1, hd, (unsigned)cal, (int)a2);
+        bno_cal_t c = bno_cal_leer();
+        float gx = 0, gy = 0, gz = 0;
+        bool g_ok = (s_chip == SENSOR_BNO055) && bno_leer_g(&gx, &gy, &gz);
+        ESP_LOGI(TAG, "lectura: pitch=%.2f roll=%.2f (%d) rumbo=%.1f cal=%u (%d) | "
+                      "calib mag=%u acc=%u gyr=%u sys=%u | gravedad %.3f %.3f %.3f (%d)",
+                 p, r, (int)a1, hd, (unsigned)cal, (int)a2,
+                 (unsigned)c.mag, (unsigned)c.acc, (unsigned)c.gyr, (unsigned)c.sys,
+                 gx, gy, gz, (int)g_ok);
     }
 
     /* SI CAMBIO EL SENSOR, el "cero" guardado no vale: los ejes y el signo de
@@ -444,16 +516,36 @@ esp_err_t tilt_init(void)
     s_roll_offset_deg  = r_centi / 100.0f;
     ESP_LOGI(TAG, "Calibracion: pitch_off=%.2f roll_off=%.2f",
              s_pitch_offset_deg, s_roll_offset_deg);
+    /* SEIS LECTURAS EN LOS PRIMEROS 12 s (22-nov-2026): es la unica forma de
+     * medir el nivel sin tener la pantalla delante. Con la autocaravana quieta
+     * y en un sitio llano, la diferencia entre estas seis lineas dice si
+     * tiembla (ruido), si se va (deriva) o si esta desviado (sesgo). Despues la
+     * tarea se muere y no queda nada en el log de un viaje. */
+    if (s_present) xTaskCreate(tilt_diag_task, "tilt_diag", 4096, NULL, 2, NULL);
     return ESP_OK;
 }
 
-/* RUMBO (brujula). Devuelve false si no hay BNO055: el ADXL345 no la tiene.
- * 'cal' es la calidad del magnetometro (0-3; 3 = calibrado). Cuando llega a 3
- * se guarda el perfil en NVS UNA vez, para no repetir la calibracion en cada
- * arranque. */
-static bool s_cal_guardada = false;
-static int64_t s_ultimo_intento_cal_us;   /* ultimo intento de guardar el perfil (ver arriba) */
+/* Ver el comentario del final de tilt_init(). */
+static void tilt_diag_task(void *arg)
+{
+    (void)arg;
+    for (int i = 0; i < 6; i++) {
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        float p = 0, r = 0, hd = 0;
+        uint8_t cal = 0, m = 0, a = 0, g = 0, sy = 0;
+        bool ok1 = tilt_get(&p, &r);
+        bool ok2 = tilt_get_heading(&hd, &cal);
+        bool ok3 = tilt_cal_get(&m, &a, &g, &sy);
+        ESP_LOGI(TAG, "nivel[%d]: pitch=%+.2f roll=%+.2f (%d) | rumbo=%.1f cal=%u "
+                      "(%d) | calib m=%u a=%u g=%u s=%u (%d)",
+                 i, p, r, (int)ok1, hd, (unsigned)cal, (int)ok2,
+                 (unsigned)m, (unsigned)a, (unsigned)g, (unsigned)sy, (int)ok3);
+    }
+    vTaskDelete(NULL);
+}
 
+/* RUMBO (brujula). Devuelve false si no hay BNO055: el ADXL345 no la tiene.
+ * 'cal' es la calidad del MAGNETOMETRO (0-3; 3 = calibrado). */
 bool tilt_get_heading(float *heading_deg, uint8_t *cal)
 {
     if (!s_present || s_chip != SENSOR_BNO055) return false;
@@ -465,31 +557,50 @@ bool tilt_get_heading(float *heading_deg, uint8_t *cal)
     while (deg >= 360.0f) deg -= 360.0f;
     if (heading_deg) *heading_deg = deg;
 
-    uint8_t st = 0;
     if (cal) {
-        if (reg_read(BNO_CALIB_STAT, &st, 1) == ESP_OK) *cal = st & 0x03;
-        else *cal = 0;
-        /* Calibrado y aun sin guardar: se guarda el perfil de una vez.
+        bno_cal_t c = bno_cal_leer();
+        *cal = c.mag;
+        /* SE GUARDA EL PERFIL SOLO CUANDO ESTA CALIBRADO LO QUE HAY QUE CALIBRAR
+         * A MANO, Y SOLO SI ES DISTINTO DEL GUARDADO (22-nov-2026).
+         *
+         * Antes bastaba con el magnetometro a 3. Dos consecuencias malas:
+         *  - el perfil se guardaba aunque el giroscopio o el acelerometro
+         *    estuvieran a medias (el acelerometro es de donde sale el NIVEL);
+         *  - como el perfil restaurado ya devuelve 3, en cada arranque se
+         *    volvia a escribir la NVS con lo mismo (se veia en el log: "perfil
+         *    guardado" 2.4 s despues de arrancar, sin haber calibrado nada).
+         * Ahora: giroscopio y magnetometro a 3, y bytes distintos de los que ya
+         * hay guardados. El acelerometro se puede quedar a 2 sin problema:
+         * acaba de ajustarse solo en cuanto el vehiculo se mueve, y bloquear el
+         * guardado por el seria no guardar nunca la brujula.
          *
          * CON ESPERA SI FALLA (arbitraje 13-nov): esto corre en la tarea de LVGL
          * cada 200 ms, asi que mientras save_tilt_bno_calib() fallara se
          * intentaba un nvs_set_blob CINCO VECES POR SEGUNDO, con la cache de
          * flash apagada y la tarea de dibujo parada. Ahora, como mucho uno cada
          * 30 s. */
-        if (*cal == 3 && !s_cal_guardada) {
-            int64_t ahora_us = esp_timer_get_time();
-            if (s_ultimo_intento_cal_us == 0 ||
-                ahora_us - s_ultimo_intento_cal_us > 30LL * 1000 * 1000) {
-                s_ultimo_intento_cal_us = ahora_us;
-                uint8_t prof[BNO_CALIB_PROF_LEN];
-                if (reg_read(BNO_CALIB_PROF, prof, sizeof prof) == ESP_OK &&
-                    save_tilt_bno_calib(prof, sizeof prof) == ESP_OK) {
-                    s_cal_guardada = true;
-                    ESP_LOGI(TAG, "brujula calibrada: perfil guardado en NVS");
-                } else {
-                    ESP_LOGW(TAG, "no pude guardar el perfil de calibracion; "
-                                  "lo reintento en 30 s");
-                }
+        int64_t ahora_us = esp_timer_get_time();
+        bool toca = (s_ultimo_intento_cal_us == 0 ||
+                     ahora_us - s_ultimo_intento_cal_us > 30LL * 1000 * 1000);
+        if (c.mag == 3 && c.gyr == 3 && toca) {
+            s_ultimo_intento_cal_us = ahora_us;
+            uint8_t prof[BNO_CALIB_PROF_LEN];
+            if (reg_read(BNO_CALIB_PROF, prof, sizeof prof) != ESP_OK) {
+                ESP_LOGW(TAG, "no pude leer el perfil de calibracion del chip");
+            } else if (s_prof_guardado_valido &&
+                       memcmp(prof, s_prof_guardado, sizeof prof) == 0) {
+                /* Ya esta en NVS: no se toca (esto es lo que pasa en cada
+                 * arranque con un perfil restaurado y bueno). */
+            } else if (save_tilt_bno_calib(prof, sizeof prof) == ESP_OK) {
+                memcpy(s_prof_guardado, prof, sizeof prof);
+                s_prof_guardado_valido = true;
+                ESP_LOGI(TAG, "perfil de calibracion guardado (mag=%u gyr=%u "
+                              "acc=%u sys=%u)",
+                         (unsigned)c.mag, (unsigned)c.gyr,
+                         (unsigned)c.acc, (unsigned)c.sys);
+            } else {
+                ESP_LOGW(TAG, "no pude guardar el perfil de calibracion; "
+                              "lo reintento en 30 s");
             }
         }
     }
@@ -499,6 +610,17 @@ bool tilt_get_heading(float *heading_deg, uint8_t *cal)
 bool tilt_is_present(void)
 {
     return s_present;
+}
+
+bool tilt_cal_get(uint8_t *mag, uint8_t *acc, uint8_t *gyr, uint8_t *sys)
+{
+    if (!s_present || s_chip != SENSOR_BNO055) return false;
+    bno_cal_t c = bno_cal_leer();
+    if (mag) *mag = c.mag;
+    if (acc) *acc = c.acc;
+    if (gyr) *gyr = c.gyr;
+    if (sys) *sys = c.sys;
+    return true;
 }
 
 bool tilt_get(float *pitch_deg, float *roll_deg)
