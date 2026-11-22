@@ -95,6 +95,15 @@ jobs:
           [ -n "$propio" ] && [ -n "$body" ] || exit 1
           [ "$propio" -lt "$body" ] || { echo "CUERPO_MAX no cabe en la P4"; exit 1; }
 
+      # EL SELLO DE VERSION NO PUEDE MENTIR (22-nov-2026). La pantalla ensenaba la
+      # fecha de compilacion de app_desc, que se congela: decia "14 NOV" con codigo
+      # del 22 dentro. Ahora el tag/commit/fecha salen de git al configurar
+      # (scripts/gen_version_header.cmake, uno en cada repo). Este paso prueba el
+      # generador caso por caso (tag, commits por encima, sucio, copia sin .git) y
+      # que las DOS copias son identicas: aqui estan los dos repos a mano.
+      - name: El sello de version no puede mentir
+        run: bash cabina5/test/sello_version.sh
+
       # LOS FICHEROS DEL VIAJE YA NO SE COMPARAN CON LA 3,5": su repo quedo
       # congelado el 09-nov-2026 y portarle cada cambio no tenia sentido. Lo que
       # SI se sigue probando aqui es el comportamiento del ciclo del viaje (los

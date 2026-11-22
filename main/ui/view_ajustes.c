@@ -25,6 +25,7 @@
 #include "entry_screen.h"
 #include "nav.h"
 #include "esp_app_desc.h"
+#include "version_build.h"   /* el sello: tag/commit y fecha DEL COMMIT (22-nov-2026) */
 #include "esp_log.h"
 #include <stdio.h>
 #include <string.h>
@@ -1080,11 +1081,19 @@ void view_ajustes_create(lv_obj_t *parent)
     }
 
     /* Y el resto de la pantalla, la VERSION. GRANDE y centrada -- letra 40 para
-     * el numero y 20 para el rotulo y la fecha: sobra sitio y esto se mira de
+     * el numero y 20 para el rotulo y el sello: sobra sitio y esto se mira de
      * lejos, con el aparato en su soporte y sin acercarse. Que es el
      * primer dato que hace falta cuando algo va raro: sale del tag de git al
      * compilar (esp_app_get_description), no hay ningun numero que mantener a
-     * mano. Con la fecha debajo, que distingue dos builds de la misma. */
+     * mano.
+     *
+     * DEBAJO VA EL SELLO (22-nov-2026), y ya NO es app->date/app->time: esa
+     * fecha la rellena ESP-IDF al compilar ESE componente y no se regenera si
+     * no cambia -- con codigo del 22 dentro la placa decia "14 NOV", y el dueno
+     * lo leyo como "no esta en la ultima version". Un rotulo que miente es peor
+     * que no tenerlo. Ahora pone tag y commit de git y la fecha DEL COMMIT
+     * (scripts/gen_version_header.cmake, generado al configurar), que es lo que
+     * de verdad hay dentro; si el arbol tenia cambios sin commitear, se dice. */
     lv_obj_t *vcard = lv_obj_create(s_menu);
     lv_obj_set_width(vcard, lv_pct(100));
     lv_obj_set_flex_grow(vcard, 1);
@@ -1124,8 +1133,8 @@ void view_ajustes_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(s_ver_lbl, &lv_font_montserrat_48, 0);
 
     lv_obj_t *vfecha = lv_label_create(vcard);
-    if (app) lv_label_set_text_fmt(vfecha, "%s  %s", app->date, app->time);
-    else     lv_label_set_text(vfecha, "");
+    lv_label_set_text_fmt(vfecha, "%s (%s%s)", JB_VERSION_TAG, JB_BUILD_STAMP,
+                          JB_BUILD_DIRTY ? ", sin commitear" : "");
     lv_obj_set_style_text_color(vfecha, UI_COLOR_TEXT_DIM, 0);
     lv_obj_set_style_text_font(vfecha, &FUENTE_PIE, 0);
 

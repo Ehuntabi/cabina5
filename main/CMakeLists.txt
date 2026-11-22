@@ -4,7 +4,9 @@ file(GLOB SOURCES "*.c" "ui/*.c" "icons/*.c" "fonts/*.c" "net/*.c")
 
 idf_component_register(
     SRCS       ${SOURCES}
-    INCLUDE_DIRS "." "ui" "net" "icons" "fonts"
+    # ${CMAKE_BINARY_DIR}: ahi deja el configure el version_build.h que genera
+    # scripts/gen_version_header.cmake (el sello de version de Ajustes).
+    INCLUDE_DIRS "." "ui" "net" "icons" "fonts" "${CMAKE_BINARY_DIR}"
     PRIV_REQUIRES
         config_storage    # <-- almacen NVS de la app (brillo, ajustes, viajes)
         lvgl

@@ -68,21 +68,31 @@ en carrusel (deslizando) más Ajustes:
 
 ## Estado
 
-Última versión publicada: **v1.89 (13-nov-2026)**, con los arreglos de la
-auditoría del 13-nov. Lo que cambió desde las medidas de abajo:
+Última versión publicada: **v1.90 (22-nov-2026)**. Lo que cambió desde las
+medidas de abajo:
 
-- **Auditoría de la 5" (13-nov)**: cola de viajes (cabecera sin inicializar y
+- **El sello de versión (22-nov)**: debajo del número, la pantalla ya **no**
+  enseña la fecha de compilación de `esp_app_get_description()` —se quedaba
+  congelada y llegó a decir *14 NOV* con código del 22 dentro— sino el
+  **tag/commit de git y la fecha del commit** que lleva dentro, con aviso al lado
+  si se grabó con cambios sin commitear. Lo genera
+  `scripts/gen_version_header.cmake` al configurar (`build/version_build.h`); el
+  script es **el mismo** en la P4, y `test/sello_version.sh` comprueba que las
+  dos copias son idénticas y que el sello cambia con el commit.
+- **Brújula y nivel (BNO055)**: no se guarda un perfil que no calibra nada, y se
+  puede medir el nivel.
+- **Auditoría de la 5" (13-nov, v1.89)**: cola de viajes (cabecera sin inicializar y
   descarte por cabecera rota), compactación del diario diferida fuera del camino
   crítico, DHCP con tres fallos y vuelta a IP fija, la OTA para LVGL **antes** de
   empezar a escribir el flash, guardas en el temporizador del arranque y
   `esp_backtrace_print_all_tasks()` cuando la UI se cuelga, y la calibración del
   tilt como mucho cada 30 s.
-- **`release.sh` ya no puede publicar una contraseña**: guarda tu
+- **`release.sh` ya no puede publicar una contraseña** (v1.88-v1.89): guarda tu
   `main/wifi_credentials.h` local, compila con la plantilla, lo restaura al
   terminar y **aborta** si el `.bin` contiene la clave de verdad.
 
 Las medidas de la tabla son de la **placa y del firmware del 16-oct-2026**; no se
-han vuelto a tomar con la v1.89, así que tómalas como referencia, no como estado
+han vuelto a tomar con la v1.90, así que tómalas como referencia, no como estado
 actual:
 
 **Verificado en la placa**, con estos números medidos:
