@@ -245,6 +245,18 @@ esp_err_t save_tilt_bno_calib(const uint8_t *calib, size_t len)
     return err;
 }
 
+esp_err_t erase_tilt_bno_calib(void)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TILT_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_erase_key(h, "bno_cal");
+    if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;   /* ya no estaba: vale igual */
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
 esp_err_t load_tilt_sensor(uint8_t *tipo)
 {
     if (!tipo) return ESP_ERR_INVALID_ARG;

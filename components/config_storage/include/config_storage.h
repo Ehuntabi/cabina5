@@ -189,6 +189,11 @@ esp_err_t save_tilt_calibration(int16_t pitch_offset_centi,
  * arrancar. 0 = no hay perfil guardado. */
 esp_err_t load_tilt_bno_calib(uint8_t *calib, size_t len);
 esp_err_t save_tilt_bno_calib(const uint8_t *calib, size_t len);
+/* Borra el perfil guardado. Se usa cuando el perfil NO calibra nada (p. ej. el
+ * 20x00+FFFF que dejaban las versiones que leian el perfil en modo fusion): si
+ * se deja, cada arranque lo reescribe encima de la calibracion del chip y la
+ * brujula se descalibra sola (22-nov-2026). */
+esp_err_t erase_tilt_bno_calib(void);
 
 /* Que sensor hay montado (0 = ninguno, 1 = ADXL345, 2 = BNO055). Sirve para
  * descartar el "cero" de nivel guardado cuando se cambia de sensor: los ejes y

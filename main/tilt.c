@@ -102,7 +102,9 @@ static const char *TAG = "tilt";
  * arranque (ver tilt_get_heading, 22-nov-2026). Se rellena al restaurarlo. */
 static uint8_t s_prof_guardado[BNO_CALIB_PROF_LEN];
 static bool    s_prof_guardado_valido;
-static int64_t s_ultimo_intento_cal_us;
+/* Se puso un perfil en el chip al arrancar: sirve para avisar si luego resulta
+ * que el magnetometro sigue sin calibrar (ver tilt_diag_task, 22-nov-2026). */
+static bool    s_prof_restaurado;
 
 typedef enum { SENSOR_NINGUNO = 0, SENSOR_ADXL345, SENSOR_BNO055 } tilt_chip_t;
 static tilt_chip_t s_chip = SENSOR_NINGUNO;
@@ -130,6 +132,42 @@ static esp_err_t reg_write(uint8_t reg, uint8_t val)
 static esp_err_t reg_read(uint8_t reg, uint8_t *buf, size_t len)
 {
     return i2c_master_transmit_receive(s_dev, &reg, 1, buf, len, 100);
+}
+
+/* ¿ES UN PERFIL DE CALIBRACION DE VERDAD? (22-nov-2026)
+ *
+ * Un perfil real del BNO055 trae coeficientes (offsets y radios); todo a 0x00
+ * -o 20 bytes a 0x00 y dos a 0xFF, que es justo lo que devolvia el chip al
+ * leerlo en modo fusion- NO CALIBRA NADA. Ese blob se guardaba en la NVS y se
+ * restauraba en cada arranque, borrando la calibracion del chip: la brujula se
+ * descalibraba sola ("otra vez se ha borrado la calibracion"). Se exigen unos
+ * cuantos bytes utiles para no descartar un perfil bueno con ceros sueltos. */
+static bool perfil_valido(const uint8_t *prof)
+{
+    int utiles = 0;
+    for (size_t i = 0; i < BNO_CALIB_PROF_LEN; i++) {
+        if (prof[i] != 0x00 && prof[i] != 0xFF) utiles++;
+    }
+    return utiles >= 4;
+}
+
+/* Lee los 22 bytes del perfil de calibracion DEL CHIP. HAY QUE HACERLO EN MODO
+ * CONFIG: en los modos de fusion (NDOF) esos registros devuelven 0x00, y eso es
+ * lo que se estaba guardando (ver perfil_valido). Despues de leer se vuelve a
+ * NDOF, que es lo que necesita la brujula. */
+static esp_err_t bno_leer_perfil(uint8_t *prof)
+{
+    uint8_t modo[2] = { BNO_OPR_MODE, BNO_OPR_CONFIG };
+    esp_err_t err = i2c_master_transmit(s_dev, modo, 2, 100);
+    if (err != ESP_OK) return err;
+    vTaskDelay(pdMS_TO_TICKS(30));          /* cambio de modo: ~7 ms tipicos */
+    err = reg_read(BNO_CALIB_PROF, prof, BNO_CALIB_PROF_LEN);
+    modo[1] = BNO_OPR_NDOF;
+    if (i2c_master_transmit(s_dev, modo, 2, 100) != ESP_OK && err == ESP_OK) {
+        err = ESP_FAIL;
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+    return err;
 }
 
 /* ── CALIDAD DE LA CALIBRACION, POR SENSOR (22-nov-2026) ────────────────────
@@ -366,21 +404,18 @@ static esp_err_t bno_probar(uint8_t addr)
     {
         uint8_t prof[BNO_CALIB_PROF_LEN];
         if (load_tilt_bno_calib(prof, sizeof prof) == ESP_OK) {
-            /* ¿ES UN PERFIL DE VERDAD? (22-nov-2026). Medido en la placa: con el
-             * perfil "restaurado" el magnetometro seguia a 0/3 y el sistema a
-             * 0/3, o sea que la brujula no estaba calibrada. Un blob de ceros
-             * (o todo 0xFF) no calibra nada, pero se escribia igual, el chip
-             * contestaba "de acuerdo" y el log decia "perfil restaurado": media
-             * docena de arranques diciendo que si a algo que era mentira. Se
-             * comprueba ANTES de escribir y se dice lo que hay. */
-            bool uniforme = true;
-            for (size_t i = 1; i < sizeof prof; i++) {
-                if (prof[i] != prof[0]) { uniforme = false; break; }
-            }
-            if (uniforme) {
-                ESP_LOGW(TAG, "perfil de calibracion guardado entero a 0x%02X: NO "
-                              "lo restauro (no calibra nada). Hay que calibrar la "
-                              "brujula girando el sensor", prof[0]);
+            /* ¿ES UN PERFIL DE VERDAD? (22-nov-2026). Medido en la placa: el
+             * blob guardado era 20x00 + FFFF (el chip devuelve ceros al leer los
+             * registros en modo fusion), el magnetometro seguia a 0/3 y el
+             * sistema a 0/3: la brujula NO estaba calibrada. Un perfil asi no se
+             * restaura y ademas se BORRA, porque si se queda cada arranque
+             * reescribe basura encima de la calibracion y la brujula se
+             * descalibra sola (el "otra vez se ha borrado" del 22-nov-2026). */
+            if (!perfil_valido(prof)) {
+                ESP_LOGW(TAG, "perfil de calibracion guardado sin coeficientes (no "
+                              "calibra nada): lo BORRO y la brujula arranca sin "
+                              "calibrar. Girar el sensor hasta 3/3");
+                erase_tilt_bno_calib();
             } else {
                 uint8_t buf[1 + BNO_CALIB_PROF_LEN];
                 buf[0] = BNO_CALIB_PROF;
@@ -395,6 +430,10 @@ static esp_err_t bno_probar(uint8_t addr)
                      * sin aportar nada). */
                     memcpy(s_prof_guardado, prof, sizeof prof);
                     s_prof_guardado_valido = true;
+                    s_prof_restaurado = true;
+                } else {
+                    ESP_LOGW(TAG, "no pude escribir el perfil de calibracion en el "
+                                  "chip; la brujula arranca sin calibrar");
                 }
             }
         } else {
@@ -420,6 +459,9 @@ static esp_err_t bno_probar(uint8_t addr)
 /* Seis lecturas al arrancar para poder medir el nivel sin la pantalla delante
  * (ver el final de tilt_init y el cuerpo de la tarea). */
 static void tilt_diag_task(void *arg);
+/* Guarda el perfil de la brujula en cuanto esta calibrada, mire o no la
+ * pantalla (ver el cuerpo de la tarea). */
+static void tilt_guardar_cal_task(void *arg);
 
 esp_err_t tilt_init(void)
 {
@@ -522,6 +564,11 @@ esp_err_t tilt_init(void)
      * tiembla (ruido), si se va (deriva) o si esta desviado (sesgo). Despues la
      * tarea se muere y no queda nada en el log de un viaje. */
     if (s_present) xTaskCreate(tilt_diag_task, "tilt_diag", 4096, NULL, 2, NULL);
+    /* Y la tarea que guarda la calibracion de la brujula en cuanto esta a 3/3,
+     * mire o no la pantalla de inclinacion (22-nov-2026). */
+    if (s_present && s_chip == SENSOR_BNO055) {
+        xTaskCreate(tilt_guardar_cal_task, "tilt_cal", 3072, NULL, 2, NULL);
+    }
     return ESP_OK;
 }
 
@@ -540,12 +587,78 @@ static void tilt_diag_task(void *arg)
                       "(%d) | calib m=%u a=%u g=%u s=%u (%d)",
                  i, p, r, (int)ok1, hd, (unsigned)cal, (int)ok2,
                  (unsigned)m, (unsigned)a, (unsigned)g, (unsigned)sy, (int)ok3);
+        /* ¿EL PERFIL RESTAURADO CALIBRA DE VERDAD? (22-nov-2026). Si tras
+         * restaurarlo el magnetometro sigue a 0 y el sistema a 0 (y la lectura
+         * del estado es valida), el perfil guardado no vale: se borra para no
+         * seguir reescribiendo basura en cada arranque. Se mira en la ULTIMA
+         * lectura (unos 12 s despues de arrancar), que da tiempo de sobra al
+         * chip a aplicar el perfil. */
+        if (i == 5 && s_prof_restaurado && ok3 && m == 0 && sy == 0) {
+            ESP_LOGW(TAG, "el perfil restaurado NO calibra el magnetometro (m=0 s=0): "
+                          "lo BORRO. Hay que calibrar la brujula girando el sensor");
+            erase_tilt_bno_calib();
+            s_prof_guardado_valido = false;
+            s_prof_restaurado = false;
+        }
     }
     vTaskDelete(NULL);
 }
 
+/* GUARDAR LA CALIBRACION SIN DEPENDER DE LA PANTALLA (22-nov-2026).
+ *
+ * Antes se intentaba solo desde tilt_get_heading(), o sea con la pantalla de
+ * inclinacion delante. Si la brujula se calibraba mirando otra pantalla (o de
+ * viaje, sin mirar), el perfil no se guardaba y al apagar se perdia: "otra vez
+ * se ha borrado la calibracion".
+ *
+ * Esta tarea mira el estado cada 2 s (una lectura de CALIB_STAT, barata) y
+ * cuando el magnetometro y el giroscopio estan a 3 lee el perfil -EN MODO
+ * CONFIG, ver bno_leer_perfil- y lo guarda si es distinto del que ya hay. Se
+ * "arma" cuando baja de 3, para poder guardar una recalibracion; mientras todo
+ * siga a 3 y ya este guardado, no vuelve a tocar el chip. */
+static void tilt_guardar_cal_task(void *arg)
+{
+    (void)arg;
+    bool armado = true;
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        if (!s_present || s_chip != SENSOR_BNO055) continue;
+        bno_cal_t c = bno_cal_leer();
+        if (c.mag < 3 || c.gyr < 3) { armado = true; continue; }
+        if (!armado) continue;
+        uint8_t prof[BNO_CALIB_PROF_LEN];
+        if (bno_leer_perfil(prof) != ESP_OK) {
+            ESP_LOGW(TAG, "no pude leer el perfil de calibracion del chip");
+            continue;
+        }
+        if (!perfil_valido(prof)) {
+            ESP_LOGW(TAG, "el perfil leido del chip no tiene coeficientes: no lo guardo");
+            continue;
+        }
+        if (s_prof_guardado_valido && memcmp(prof, s_prof_guardado, sizeof prof) == 0) {
+            armado = false;   /* ya esta guardado: no se vuelve a leer */
+            continue;
+        }
+        if (save_tilt_bno_calib(prof, sizeof prof) == ESP_OK) {
+            memcpy(s_prof_guardado, prof, sizeof prof);
+            s_prof_guardado_valido = true;
+            armado = false;
+            ESP_LOGI(TAG, "perfil de calibracion guardado (m=%u a=%u g=%u s=%u)",
+                     (unsigned)c.mag, (unsigned)c.acc,
+                     (unsigned)c.gyr, (unsigned)c.sys);
+        } else {
+            ESP_LOGW(TAG, "no pude guardar el perfil de calibracion; reintento en 2 s");
+        }
+    }
+}
+
 /* RUMBO (brujula). Devuelve false si no hay BNO055: el ADXL345 no la tiene.
- * 'cal' es la calidad del MAGNETOMETRO (0-3; 3 = calibrado). */
+ * 'cal' es la calidad del MAGNETOMETRO (0-3; 3 = calibrado).
+ *
+ * AQUI YA NO SE GUARDA EL PERFIL: eso lo hace tilt_guardar_cal_task, que corre
+ * siempre (no solo con la pantalla de inclinacion delante). Asi, si el que
+ * calibra la brujula esta en otra pantalla, la calibracion se guarda igual y no
+ * se pierde al apagar (22-nov-2026). */
 bool tilt_get_heading(float *heading_deg, uint8_t *cal)
 {
     if (!s_present || s_chip != SENSOR_BNO055) return false;
@@ -560,49 +673,6 @@ bool tilt_get_heading(float *heading_deg, uint8_t *cal)
     if (cal) {
         bno_cal_t c = bno_cal_leer();
         *cal = c.mag;
-        /* SE GUARDA EL PERFIL SOLO CUANDO ESTA CALIBRADO LO QUE HAY QUE CALIBRAR
-         * A MANO, Y SOLO SI ES DISTINTO DEL GUARDADO (22-nov-2026).
-         *
-         * Antes bastaba con el magnetometro a 3. Dos consecuencias malas:
-         *  - el perfil se guardaba aunque el giroscopio o el acelerometro
-         *    estuvieran a medias (el acelerometro es de donde sale el NIVEL);
-         *  - como el perfil restaurado ya devuelve 3, en cada arranque se
-         *    volvia a escribir la NVS con lo mismo (se veia en el log: "perfil
-         *    guardado" 2.4 s despues de arrancar, sin haber calibrado nada).
-         * Ahora: giroscopio y magnetometro a 3, y bytes distintos de los que ya
-         * hay guardados. El acelerometro se puede quedar a 2 sin problema:
-         * acaba de ajustarse solo en cuanto el vehiculo se mueve, y bloquear el
-         * guardado por el seria no guardar nunca la brujula.
-         *
-         * CON ESPERA SI FALLA (arbitraje 13-nov): esto corre en la tarea de LVGL
-         * cada 200 ms, asi que mientras save_tilt_bno_calib() fallara se
-         * intentaba un nvs_set_blob CINCO VECES POR SEGUNDO, con la cache de
-         * flash apagada y la tarea de dibujo parada. Ahora, como mucho uno cada
-         * 30 s. */
-        int64_t ahora_us = esp_timer_get_time();
-        bool toca = (s_ultimo_intento_cal_us == 0 ||
-                     ahora_us - s_ultimo_intento_cal_us > 30LL * 1000 * 1000);
-        if (c.mag == 3 && c.gyr == 3 && toca) {
-            s_ultimo_intento_cal_us = ahora_us;
-            uint8_t prof[BNO_CALIB_PROF_LEN];
-            if (reg_read(BNO_CALIB_PROF, prof, sizeof prof) != ESP_OK) {
-                ESP_LOGW(TAG, "no pude leer el perfil de calibracion del chip");
-            } else if (s_prof_guardado_valido &&
-                       memcmp(prof, s_prof_guardado, sizeof prof) == 0) {
-                /* Ya esta en NVS: no se toca (esto es lo que pasa en cada
-                 * arranque con un perfil restaurado y bueno). */
-            } else if (save_tilt_bno_calib(prof, sizeof prof) == ESP_OK) {
-                memcpy(s_prof_guardado, prof, sizeof prof);
-                s_prof_guardado_valido = true;
-                ESP_LOGI(TAG, "perfil de calibracion guardado (mag=%u gyr=%u "
-                              "acc=%u sys=%u)",
-                         (unsigned)c.mag, (unsigned)c.gyr,
-                         (unsigned)c.acc, (unsigned)c.sys);
-            } else {
-                ESP_LOGW(TAG, "no pude guardar el perfil de calibracion; "
-                              "lo reintento en 30 s");
-            }
-        }
     }
     return true;
 }
