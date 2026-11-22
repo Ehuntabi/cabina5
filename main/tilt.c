@@ -144,11 +144,17 @@ static esp_err_t reg_read(uint8_t reg, uint8_t *buf, size_t len)
  * cuantos bytes utiles para no descartar un perfil bueno con ceros sueltos. */
 static bool perfil_valido(const uint8_t *prof)
 {
-    int utiles = 0;
+    int utiles = 0, mag_utiles = 0;
     for (size_t i = 0; i < BNO_CALIB_PROF_LEN; i++) {
-        if (prof[i] != 0x00 && prof[i] != 0xFF) utiles++;
+        if (prof[i] != 0x00 && prof[i] != 0xFF) {
+            utiles++;
+            if (i >= 8 && i < 16) mag_utiles++;   /* 0x5D..0x64: offsets y radio del magnetometro */
+        }
     }
-    return utiles >= 4;
+    /* Con el magnetometro a 3 (que es cuando se guarda), sus offsets y radio
+     * tienen coeficientes. Si esa parte viniera a cero, el perfil no serviria
+     * para la brujula: mejor no guardarlo. */
+    return utiles >= 4 && mag_utiles >= 2;
 }
 
 /* Lee los 22 bytes del perfil de calibracion DEL CHIP. HAY QUE HACERLO EN MODO
@@ -587,18 +593,16 @@ static void tilt_diag_task(void *arg)
                       "(%d) | calib m=%u a=%u g=%u s=%u (%d)",
                  i, p, r, (int)ok1, hd, (unsigned)cal, (int)ok2,
                  (unsigned)m, (unsigned)a, (unsigned)g, (unsigned)sy, (int)ok3);
-        /* ¿EL PERFIL RESTAURADO CALIBRA DE VERDAD? (22-nov-2026). Si tras
-         * restaurarlo el magnetometro sigue a 0 y el sistema a 0 (y la lectura
-         * del estado es valida), el perfil guardado no vale: se borra para no
-         * seguir reescribiendo basura en cada arranque. Se mira en la ULTIMA
-         * lectura (unos 12 s despues de arrancar), que da tiempo de sobra al
-         * chip a aplicar el perfil. */
-        if (i == 5 && s_prof_restaurado && ok3 && m == 0 && sy == 0) {
-            ESP_LOGW(TAG, "el perfil restaurado NO calibra el magnetometro (m=0 s=0): "
-                          "lo BORRO. Hay que calibrar la brujula girando el sensor");
-            erase_tilt_bno_calib();
-            s_prof_guardado_valido = false;
-            s_prof_restaurado = false;
+        /* OJO CON BORRAR AQUI (aprendido el 22-nov-2026, buscado en las fuentes):
+         * Adafruit lo dice en su propio ejemplo de restore_offsets: "siempre hay
+         * que recalibrar el magnetometro, se descalibra muy a menudo" y despues
+         * de cargar los offsets el estado NO vuelve a 3 hasta que el sensor se
+         * mueve. O sea: que m siga a 0 unos segundos despues de arrancar es
+         * NORMAL, y borrar el perfil por eso es tirar la calibracion buena (fue
+         * justo lo que paso). Aqui solo se avisa, sin tocar nada. */
+        if (i == 5 && s_prof_restaurado && ok3 && m == 0) {
+            ESP_LOGI(TAG, "perfil cargado; el magnetometro marca %u/3: se pondra a 3 "
+                          "en cuanto el vehiculo se mueva (es lo normal)", (unsigned)m);
         }
     }
     vTaskDelete(NULL);
@@ -626,6 +630,14 @@ static void tilt_guardar_cal_task(void *arg)
         bno_cal_t c = bno_cal_leer();
         if (c.mag < 3 || c.gyr < 3) { armado = true; continue; }
         if (!armado) continue;
+        /* Primera vez que llega a 3/3 desde el arranque. Si habia un perfil
+         * restaurado, esto demuestra que el perfil SIRVE: nada mas arrancar el
+         * magnetometro puede marcar 0 aunque el perfil sea bueno, y vuelve a 3
+         * con el movimiento (ver el comentario de tilt_diag_task). */
+        if (s_prof_restaurado) {
+            ESP_LOGI(TAG, "brujula a 3/3 con el perfil cargado (m=3 g=3)");
+            s_prof_restaurado = false;
+        }
         uint8_t prof[BNO_CALIB_PROF_LEN];
         if (bno_leer_perfil(prof) != ESP_OK) {
             ESP_LOGW(TAG, "no pude leer el perfil de calibracion del chip");
@@ -643,9 +655,15 @@ static void tilt_guardar_cal_task(void *arg)
             memcpy(s_prof_guardado, prof, sizeof prof);
             s_prof_guardado_valido = true;
             armado = false;
-            ESP_LOGI(TAG, "perfil de calibracion guardado (m=%u a=%u g=%u s=%u)",
+            ESP_LOGI(TAG, "perfil de calibracion guardado (m=%u a=%u g=%u s=%u): "
+                          "%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X "
+                          "%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X",
                      (unsigned)c.mag, (unsigned)c.acc,
-                     (unsigned)c.gyr, (unsigned)c.sys);
+                     (unsigned)c.gyr, (unsigned)c.sys,
+                     prof[0], prof[1], prof[2], prof[3], prof[4], prof[5],
+                     prof[6], prof[7], prof[8], prof[9], prof[10], prof[11],
+                     prof[12], prof[13], prof[14], prof[15], prof[16], prof[17],
+                     prof[18], prof[19], prof[20], prof[21]);
         } else {
             ESP_LOGW(TAG, "no pude guardar el perfil de calibracion; reintento en 2 s");
         }
