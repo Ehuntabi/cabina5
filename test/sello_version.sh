@@ -39,8 +39,11 @@ ok()  { printf '  ok    %s\n' "$1"; }
 mal() { printf '  FALLO %s\n' "$1"; fallos=$((fallos+1)); }
 
 # Quita las lineas que son COMENTARIO: un `app->date` dentro de un comentario no
-# pinta nada, y un `JB_BUILD_STAMP` comentado tampoco sirve de nada.
-solo_codigo() { grep -vE ':[0-9]+: *(\*|/\*|//)'; }
+# pinta nada, y un `JB_BUILD_STAMP` comentado tampoco sirve de nada. Vale para
+# `grep -rn` (prefijo "fichero:linea:") y para `grep -n` de un solo fichero
+# (prefijo "linea:"): el filtro de antes solo entendia el primero y dejaba pasar
+# comentarios al comprobar el About (lo cazo el arbitro, 22-nov-2026).
+solo_codigo() { grep -vE '(^|:)[0-9]+: *(\*|/\*|//)'; }
 
 command -v cmake >/dev/null || { echo "no hay cmake: no puedo probar el sello"; exit 1; }
 [ -f "$GEN" ] || { echo "no encuentro $GEN"; exit 1; }
@@ -237,11 +240,27 @@ else
     printf '%s\n' "$CONGELADA" | head -5 | sed 's/^/          /'
 fi
 
+# ── 8b) y ninguna fecha escrita A MANO en la UI ─────────────────────────────
+# El arbitro (22-nov-2026) probo a comentar el sello y pintar el literal
+# "v1.89  14 NOV 2026 12:34": compilaba y el test no lo veia. Una fecha de
+# verdad se pinta con JB_BUILD_STAMP, nunca escrita en el codigo. Se buscan
+# fechas DENTRO DE UNA CADENA (entre comillas): los comentarios del codigo
+# llevan fechas sueltas ("10-nov-2026") y esas no se pintan.
+FECHAS_A_MANO="$(grep -rniE '"[^"]*([0-9]{1,2}[-/ ](ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic|jan|apr|aug|dec)[-/ ][0-9]{4}|(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic|jan|apr|aug|dec)[ ]+[0-9]{1,2},?[ ]+[0-9]{4})[^"]*"' \
+                     "${FUENTES[@]}" 2>/dev/null | solo_codigo || true)"
+if [ -z "$FECHAS_A_MANO" ]; then
+    ok "no hay fechas escritas a mano en la UI (solo sale JB_BUILD_STAMP)"
+else
+    mal "hay una fecha escrita a mano en la UI (la del fallo original):"
+    printf '%s\n' "$FECHAS_A_MANO" | head -5 | sed 's/^/          /'
+fi
+
 # ── 9) las pantallas ENSENAN el sello, y sin "-N-g" ─────────────────────────
 # Sin esto, borrar la linea del sello compilaria igual y el test seguiria verde:
 # el rotulo volveria a quedarse sin la verdad que hacia falta. Y la regla del
 # 13-sep sigue: el describe con "-N-g" no sale en pantalla (se lee como una
-# version que se contradice con el numero grande).
+# version que se contradice con el numero grande). -Hn para que cada linea lleve
+# "fichero:linea:" y el filtro de comentarios valga tambien con un solo fichero.
 for pareja in "$AQUI/main/ui/view_ajustes.c:cabina5 (Ajustes)" \
               "$P4/main/ui/settings/settings_about.c:P4 (Acerca de)" \
               "$P4/main/portal/ota_update.c:P4 (portal /ota)" \
@@ -249,12 +268,12 @@ for pareja in "$AQUI/main/ui/view_ajustes.c:cabina5 (Ajustes)" \
     FICHERO="${pareja%:*}"
     NOMBRE="${pareja#*:}"
     [ -f "$FICHERO" ] || continue
-    if grep -n 'JB_BUILD_STAMP' "$FICHERO" 2>/dev/null | solo_codigo | grep -q .; then
+    if grep -Hn 'JB_BUILD_STAMP' "$FICHERO" 2>/dev/null | solo_codigo | grep -q .; then
         ok "$NOMBRE ensena el sello (JB_BUILD_STAMP)"
     else
         mal "$NOMBRE NO ensena el sello: el rotulo se quedaria sin la fecha del commit"
     fi
-    if grep -n 'JB_VERSION_TAG' "$FICHERO" 2>/dev/null | solo_codigo | grep -q .; then
+    if grep -Hn 'JB_VERSION_TAG' "$FICHERO" 2>/dev/null | solo_codigo | grep -q .; then
         mal "$NOMBRE pinta JB_VERSION_TAG (el describe 'vX.Y-N-g...'): se lee como dos versiones que se contradicen"
     fi
 done
@@ -286,9 +305,11 @@ for repo in "$AQUI" "$P4"; do
 done
 
 # ── 11) un tag RECONFIGURA solo (el tag no toca HEAD ni el indice) ─────────
-# Esto prueba el CONFIGURE_DEPENDS de verdad, con CMake: se configura, se crea
-# un tag (y un commit) y se compila; el sello tiene que cambiar. Sin vigilar
-# .git/refs/tags, el sello se quedaba con el tag de antes para siempre.
+# Esto prueba el CONFIGURE_DEPENDS de verdad, con CMake. Se configura con un
+# commit POR ENCIMA del tag (describe "v3.1-1-g..."), y despues se crea el tag
+# v3.2 SOBRE ESE MISMO COMMIT (sin commit nuevo: asi lo que dispara el
+# reconfigure solo puede ser la ref del tag) y se compila. Sin vigilar
+# .git/refs/tags, el sello se quedaba con "v3.1-1-g..." para siempre.
 MINI="$T/mini"
 mkdir -p "$MINI"
 (
@@ -300,6 +321,9 @@ mkdir -p "$MINI"
     git add a.txt
     git commit -q -m uno
     git tag v3.1
+    printf 'y\n' >> a.txt
+    git add a.txt
+    git commit -q -m dos
     cat > gen.cmake <<'CM'
 execute_process(COMMAND git -C "${REPO}" describe --tags --always --match "v*.*"
                 OUTPUT_VARIABLE TAG OUTPUT_STRIP_TRAILING_WHITESPACE)
@@ -321,16 +345,17 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 add_custom_target(todos ALL)
 CM
     cmake -S . -B build >/dev/null 2>&1 || exit 1
-    [ "$(cat build/sello.txt 2>/dev/null)" = "v3.1" ] || exit 1
-    printf 'y\n' >> a.txt
-    git add a.txt
-    git commit -q -m dos
+    case "$(cat build/sello.txt 2>/dev/null)" in
+        v3.1-1-g*) ;;
+        *) exit 1 ;;
+    esac
+    # SOLO el tag (mismo commit): tiene que reconfigurar y pasar a v3.2.
     git tag v3.2
     cmake --build build >/dev/null 2>&1 || exit 1
     [ "$(cat build/sello.txt 2>/dev/null)" = "v3.2" ] || exit 1
 )
 if [ $? -eq 0 ]; then
-    ok "crear un tag dispara el reconfigure y el sello pasa a v3.2"
+    ok "crear un tag (sin commit) dispara el reconfigure y el sello pasa a v3.2"
 else
     mal "crear un tag NO actualiza el sello: faltan .git/refs/tags/.git/refs/heads en CONFIGURE_DEPENDS"
 fi
