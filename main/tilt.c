@@ -157,6 +157,10 @@ static bool perfil_valido(const uint8_t *prof)
     return utiles >= 4 && mag_utiles >= 2;
 }
 
+/* Lee 'len' bytes del BNO055 byte a byte (definido mas abajo; ver alli el
+ * porque). */
+static esp_err_t bno_leer_bytes(uint8_t reg, uint8_t *buf, size_t len);
+
 /* Lee los 22 bytes del perfil de calibracion DEL CHIP. HAY QUE HACERLO EN MODO
  * CONFIG: en los modos de fusion (NDOF) esos registros devuelven 0x00, y eso es
  * lo que se estaba guardando (ver perfil_valido). Despues de leer se vuelve a
@@ -167,7 +171,10 @@ static esp_err_t bno_leer_perfil(uint8_t *prof)
     esp_err_t err = i2c_master_transmit(s_dev, modo, 2, 100);
     if (err != ESP_OK) return err;
     vTaskDelay(pdMS_TO_TICKS(30));          /* cambio de modo: ~7 ms tipicos */
-    err = reg_read(BNO_CALIB_PROF, prof, BNO_CALIB_PROF_LEN);
+    /* BYTE A BYTE, por lo mismo que la gravedad (09-nov-2026): en bloque este
+     * chip devuelve corruptas las ultimas posiciones. Con 22 bytes salia basura
+     * (el perfil que se guardaba era 20x00+FFFF). */
+    err = bno_leer_bytes(BNO_CALIB_PROF, prof, BNO_CALIB_PROF_LEN);
     modo[1] = BNO_OPR_NDOF;
     if (i2c_master_transmit(s_dev, modo, 2, 100) != ESP_OK && err == ESP_OK) {
         err = ESP_FAIL;
@@ -208,14 +215,35 @@ static bno_cal_t bno_cal_leer(void)
  * de 6 bytes, este chip devuelve las ultimas posiciones corruptas (el Z_MSB
  * llegaba como 0xFF y la gravedad salia 0,01 en vez de 9,6 m/s2). Leyendo byte
  * a byte, estable. Es el clock stretching del BNO055: alargar la lectura le da
- * tiempo entre bytes. Cuesta ~6 lecturas de 1 byte cada 200 ms, nada. */
-static esp_err_t bno_leer_bytes(uint8_t reg, uint8_t *buf, size_t len)
+ * tiempo entre bytes. Cuesta ~6 lecturas de 1 byte cada 200 ms, nada.
+ *
+ * 22-nov-2026: LO MISMO VALE PARA EL PERFIL DE CALIBRACION. Se leia y escribia
+ * en bloque de 22 bytes y volvian ceros/basura, asi que nunca se guardo una
+ * calibracion de verdad y la brujula se "descalibraba" sola en cada arranque. */
+static esp_err_t bno_leer_bytes_en(i2c_master_dev_handle_t dev, uint8_t reg,
+                                   uint8_t *buf, size_t len)
 {
     for (size_t i = 0; i < len; i++) {
         uint8_t r = (uint8_t)(reg + i);
-        if (i2c_master_transmit_receive(s_dev, &r, 1, &buf[i], 1, 100) != ESP_OK) {
+        if (i2c_master_transmit_receive(dev, &r, 1, &buf[i], 1, 100) != ESP_OK) {
             return ESP_FAIL;
         }
+    }
+    return ESP_OK;
+}
+
+static esp_err_t bno_leer_bytes(uint8_t reg, uint8_t *buf, size_t len)
+{
+    return bno_leer_bytes_en(s_dev, reg, buf, len);
+}
+
+/* Escribe el perfil de calibracion BYTE A BYTE (mismo motivo que la lectura en
+ * bloque: el chip corrompe las escrituras largas). Tiene que estar en CONFIG. */
+static esp_err_t bno_escribir_perfil_en(i2c_master_dev_handle_t dev, const uint8_t *prof)
+{
+    for (size_t i = 0; i < BNO_CALIB_PROF_LEN; i++) {
+        uint8_t b[2] = { (uint8_t)(BNO_CALIB_PROF + i), prof[i] };
+        if (i2c_master_transmit(dev, b, sizeof b, 100) != ESP_OK) return ESP_FAIL;
     }
     return ESP_OK;
 }
@@ -384,6 +412,45 @@ static esp_err_t bno_probar(uint8_t addr)
         return ESP_ERR_NOT_FOUND;
     }
 
+    /* ADOPTAR LA CALIBRACION QUE YA TIENE EL CHIP (22-nov-2026).
+     *
+     * El BNO055 NO se apaga cuando solo se reinicia el ESP32 (OTA, reinicio de
+     * software o una grabacion por cable): su calibracion sigue viva en los
+     * registros. Antes de tocar nada, si el chip dice estar calibrado (mag y
+     * giroscopio a 3) se lee su perfil BYTE A BYTE y se guarda en la NVS. Asi
+     * una actualizacion no obliga a recalibrar, y una calibracion recien hecha
+     * no se pierde si el guardado automatico no llego a tiempo. */
+    {
+        uint8_t st = 0;
+        if (i2c_master_transmit_receive(dev, (uint8_t[]){BNO_CALIB_STAT}, 1, &st, 1, 100) == ESP_OK) {
+            uint8_t mag = st & 0x03, gyr = (st >> 4) & 0x03;
+            if (mag == 3 && gyr == 3) {
+                uint8_t prof[BNO_CALIB_PROF_LEN];
+                uint8_t a_cfg[2] = { BNO_OPR_MODE, BNO_OPR_CONFIG };
+                if (i2c_master_transmit(dev, a_cfg, 2, 100) == ESP_OK) {
+                    vTaskDelay(pdMS_TO_TICKS(30));
+                    if (bno_leer_bytes_en(dev, BNO_CALIB_PROF, prof, sizeof prof) == ESP_OK &&
+                        perfil_valido(prof)) {
+                        if (save_tilt_bno_calib(prof, sizeof prof) == ESP_OK) {
+                            memcpy(s_prof_guardado, prof, sizeof prof);
+                            s_prof_guardado_valido = true;
+                            ESP_LOGI(TAG, "calibracion ADOPTADA del chip y guardada "
+                                          "(m=3 g=3): %02X%02X%02X%02X %02X%02X%02X%02X ...",
+                                     prof[0], prof[1], prof[2], prof[3],
+                                     prof[4], prof[5], prof[6], prof[7]);
+                        } else {
+                            ESP_LOGW(TAG, "calibracion del chip leida pero no se pudo "
+                                          "guardar en la NVS");
+                        }
+                    } else {
+                        ESP_LOGW(TAG, "el chip dice estar calibrado pero su perfil no se "
+                                      "pudo leer; se usara el de la NVS si vale");
+                    }
+                }
+            }
+        }
+    }
+
     /* CONFIG -> valores por defecto -> IMU (fusion sin magnetometro). El
      * BNO055 pide ~20 ms entre cambios de modo. */
     uint8_t cfg[3][2] = {
@@ -422,25 +489,20 @@ static esp_err_t bno_probar(uint8_t addr)
                               "calibra nada): lo BORRO y la brujula arranca sin "
                               "calibrar. Girar el sensor hasta 3/3");
                 erase_tilt_bno_calib();
+            } else if (bno_escribir_perfil_en(dev, prof) == ESP_OK) {
+                vTaskDelay(pdMS_TO_TICKS(20));
+                ESP_LOGI(TAG, "perfil restaurado (%02X%02X%02X%02X%02X%02X...)",
+                         prof[0], prof[1], prof[2], prof[3], prof[4], prof[5]);
+                /* Se apunta lo que hay guardado: si al volver a leer el
+                 * perfil del chip sale igual, la tarea de guardado no
+                 * reescribe la NVS (antes se escribia una vez por arranque,
+                 * sin aportar nada). */
+                memcpy(s_prof_guardado, prof, sizeof prof);
+                s_prof_guardado_valido = true;
+                s_prof_restaurado = true;
             } else {
-                uint8_t buf[1 + BNO_CALIB_PROF_LEN];
-                buf[0] = BNO_CALIB_PROF;
-                memcpy(&buf[1], prof, sizeof prof);
-                if (i2c_master_transmit(dev, buf, sizeof buf, 200) == ESP_OK) {
-                    vTaskDelay(pdMS_TO_TICKS(20));
-                    ESP_LOGI(TAG, "perfil restaurado (%02X%02X%02X%02X%02X%02X...)",
-                             prof[0], prof[1], prof[2], prof[3], prof[4], prof[5]);
-                    /* Se apunta lo que hay guardado: si al volver a leer el
-                     * perfil del chip sale igual, tilt_get_heading() no
-                     * reescribe la NVS (antes se escribia una vez por arranque,
-                     * sin aportar nada). */
-                    memcpy(s_prof_guardado, prof, sizeof prof);
-                    s_prof_guardado_valido = true;
-                    s_prof_restaurado = true;
-                } else {
-                    ESP_LOGW(TAG, "no pude escribir el perfil de calibracion en el "
-                                  "chip; la brujula arranca sin calibrar");
-                }
+                ESP_LOGW(TAG, "no pude escribir el perfil de calibracion en el "
+                              "chip; la brujula arranca sin calibrar");
             }
         } else {
             ESP_LOGW(TAG, "no hay perfil de calibracion guardado: la brujula "
