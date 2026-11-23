@@ -80,20 +80,20 @@ static lv_timer_t *s_enlace_timer;
 static int s_ticks_cartel;   /* segundos que lleva puesto el cartel de la OTA */
 static lv_obj_t *s_pass_ta;
 static lv_obj_t *s_status_lbl;
-/* Usuario y clave del PORTAL de la P4 -- NO son los del Wi-Fi. Hacen falta
- * desde que el portal exige Basic Auth tambien en el nivel abierto (21-ago-2026)
- * y la 3.5" le escribe apuntes de viaje. Se ven en la P4, en Ajustes -> Wi-Fi. */
-static lv_obj_t *s_http_user_ta;
-static lv_obj_t *s_http_pass_ta;
-
-/* LO QUE HABIA AL ABRIR LA PANTALLA, tambien de las del portal (05-nov-2026).
- * Hasta hoy solo se guardaban las de la red, asi que el boton de guardar estaba
- * SIEMPRE puesto -- aunque no hubieras tocado nada -- y las del portal se
- * grababan sin que nadie te preguntara. Ahora la fila Guardar/Cancelar sale
- * SOLO cuando alguna de las DOS claves ha cambiado (la de la red o la del
- * portal) y Cancelar devuelve los campos a lo que habia. */
-static char s_http_user_orig[33];
-static char s_http_pass_orig[65];
+/* LO QUE SE MANDA A LA P4 COMO CREDENCIALES DEL PORTAL: el usuario (de
+ * fabrica "p4") y LA MISMA CLAVE DEL WI-FI. No son campos: no hay nada que
+ * teclear, porque en la P4 son una sola clave (ver net/p4_creds.c) y la del
+ * portal se deriva de la de la red.
+ *
+ * ANTES ERAN DOS CAMPOS DE SOLO LECTURA, y estaban mal de raiz (quitados el
+ * 23-nov-2026): parecian campos normales, con sus puntitos y su sitio, pero al
+ * tocarlos no pasaba nada -- y el dueño los tomo por un fallo de la pantalla
+ * ("no puedo meter la clave del portal a la cabina"). Un control que no hace
+ * nada es peor que no tenerlo: aqui se EXPLICA de donde sale la clave y se
+ * enseñan las credenciales que de verdad se mandan, para poder diagnosticar un
+ * 401 sin adivinar. */
+static char s_portal_user[33] = "p4";
+static lv_obj_t *s_portal_nota;   /* la nota que sustituye a los dos campos */
 /* La fila con Guardar y Cancelar, oculta mientras no haya cambios. */
 static lv_obj_t *s_fila_botones;
 /* Cierto mientras se rellenan los campos desde la NVS: los VALUE_CHANGED que
@@ -105,6 +105,9 @@ static bool s_cargando;
  * algo. Mismos tamanos que en udp_rx_get_credentials(). */
 static char s_ssid_orig[33];
 static char s_pass_orig[65];
+
+/* La nota del bloque del portal (se define mas abajo, junto a refresh). */
+static void view_ajustes_pinta_nota(void);
 
 /* Tocar un campo abre el editor a PANTALLA COMPLETA (entry_screen.c), el mismo
  * que usan los formularios de registros.
@@ -132,9 +135,10 @@ static void ta_click_cb(lv_event_t *e)
  * asi que el editor a pantalla completa hereda el tope sin tocar nada mas
  * alli. Detectado por el usuario el 09-sep-2026. */
 /* 'oculto': el campo se enseña con puntitos y solo se ve al abrirlo en el
- * editor. Lo llevan las DOS claves (la del Wi-Fi y la del portal) desde la
- * auditoria de seguridad del 13-oct-2026: estaban a la vista, y de pie junto a
- * la pantalla se leian de un vistazo. En el P4 ya se hacia asi. */
+ * editor. Lo lleva la clave del Wi-Fi desde la auditoria de seguridad del
+ * 13-oct-2026: estaba a la vista, y de pie junto a la pantalla se leia de un
+ * vistazo. En el P4 ya se hacia asi. (Era tambien la del portal, pero esos dos
+ * campos ya no existen: ver el bloque del portal mas abajo.) */
 /* EL CAMPO ES UNA FILA: ROTULO A LA IZQUIERDA, VALOR A LA DERECHA.
  *
  * Lo pidio el usuario el 16-oct-2026 con la foto delante: "los campos de SSID,
@@ -159,10 +163,10 @@ static void ta_click_cb(lv_event_t *e)
 
 /* REPARTO VERTICAL DE LA PANTALLA (16-oct-2026), en un solo sitio y con las
  * cuentas hechas: cada fila se coloca en su y, sin layout automatico. De arriba
- * abajo: fila del titulo, cabecera y campos de la red de la P4, cabecera y
- * campos del portal, y la fila del boton con el estado a su derecha. La ultima
- * acaba en 438 de los 448 utiles (16 de margen arriba y abajo), asi que NO hay
- * que deslizar nada. */
+ * abajo: fila del titulo, cabecera y campos de la red de la P4, cabecera del
+ * portal con la nota que explica de donde sale su clave, y la fila del boton
+ * con el estado a su derecha. La ultima acaba en 438 de los 448 utiles (16 de
+ * margen arriba y abajo), asi que NO hay que deslizar nada. */
 #define FILA_W          768
 #define FILA_TITULO_H    60
 #define FILA_TITULO_Y     0
@@ -239,21 +243,6 @@ static lv_obj_t *make_field_en(lv_obj_t *parent, const char *label_text, uint32_
     return ta;
 }
 
-/* Un campo que solo se LEE: mismo sitio y mismo tamaño, pero sin editor a
- * pantalla completa al tocarlo. Se usa para las credenciales del PORTAL de la
- * P4, que desde el 08-nov-2026 no se teclean: se derivan de la clave del Wi-Fi
- * (ver net/p4_creds.c). Enseñarlas y dejar que se cambien aparte era justo el
- * agujero por el que la cabina se quedo mandando una clave vieja y comiendo un
- * 401 detras de otro, con el Wi-Fi perfectamente asociado y la pantalla sin
- * decir por que no arrancaba un viaje. */
-static void campo_solo_lectura(lv_obj_t *ta)
-{
-    if (!ta) return;
-    lv_obj_remove_event_cb(ta, ta_click_cb);
-    lv_obj_clear_flag(ta, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_text_color(ta, UI_COLOR_TEXT_DIM, 0);
-}
-
 /* Cabecera de grupo: dice QUE es cada bloque de campos. El texto que antes iba
  * en parrafos de ayuda sueltos (que se comian 58 px de alto) cabe aqui. */
 static void make_grupo_en(lv_obj_t *parent, const char *texto, int y)
@@ -302,22 +291,18 @@ static void wifi_estado(const char *txt, bool ok)
  * (aunque solo sea en una de las dos) salga el boton guardar o cancelar".
  * Antes el boton estaba siempre puesto y no habia forma de abandonar lo
  * tecleado; ahora, mientras no toques nada, no hay fila (nada que hacer), y en
- * cuanto cambia UNA de las dos claves -- la de la red o la del portal --
- * aparecen Guardar y Cancelar.
+ * cambia la red -- SSID o Password -- aparecen Guardar y Cancelar.
  *
  * hay_cambios() compara con lo que habia al abrir la pantalla (s_ssid_orig,
- * s_pass_orig, s_http_user_orig, s_http_pass_orig), no con la NVS: asi un
- * valor que la NVS no ha llegado a aceptar sigue contando como pendiente. */
+ * s_pass_orig), no con la NVS: asi un valor que la NVS no ha llegado a aceptar
+ * sigue contando como pendiente. Solo hay DOS campos que se teclean; las
+ * credenciales del portal se derivan de ellos (23-nov-2026). */
 static bool hay_cambios(void)
 {
     if (s_cargando) return false;
     if (!s_ssid_ta || !s_pass_ta) return false;
     if (strcmp(lv_textarea_get_text(s_ssid_ta), s_ssid_orig) != 0) return true;
     if (strcmp(lv_textarea_get_text(s_pass_ta), s_pass_orig) != 0) return true;
-    if (s_http_user_ta &&
-        strcmp(lv_textarea_get_text(s_http_user_ta), s_http_user_orig) != 0) return true;
-    if (s_http_pass_ta &&
-        strcmp(lv_textarea_get_text(s_http_pass_ta), s_http_pass_orig) != 0) return true;
     return false;
 }
 
@@ -354,30 +339,27 @@ static void refresca_botones(void)
  * abrir Configuracion, con la traza repitiendo campo_cambiado_cb ->
  * lv_textarea_set_text -> lv_textarea_add_char.
  *
- * El campo del portal es de SOLO LECTURA y no hace falta sincronizarlo en cada
- * tecla: se rellena al abrir la pantalla (view_ajustes_refresh, desde
- * p4_creds_cargar) y al guardar (do_guardar). Con el texto que se ve: lo que se
- * manda es la clave del Wi-Fi, y el aviso naranja de "Cambios sin guardar" dice
- * que aun no se ha aplicado. */
+ * Ya NO hay campo del portal que sincronizar (23-nov-2026): se quitaron los dos
+ * que habia, y las credenciales que se mandan se derivan de la clave del Wi-Fi
+ * en p4_creds_cargar(). El aviso naranja de "Cambios sin guardar" es lo que dice
+ * que la clave tecleada aun no se ha aplicado al portal. */
 static void campo_cambiado_cb(lv_event_t *e)
 {
     (void)e;
     refresca_botones();
 }
 
-/* Cancelar = dejar los cuatro campos como estaban. No toca la NVS. */
+/* Cancelar = dejar los dos campos como estaban. No toca la NVS. */
 static void wifi_cancel_cb(lv_event_t *e)
 {
     (void)e;
     s_cargando = true;
     lv_textarea_set_text(s_ssid_ta, s_ssid_orig);
     lv_textarea_set_text(s_pass_ta, s_pass_orig);
-    lv_textarea_set_text(s_http_user_ta, s_http_user_orig);
-    lv_textarea_set_text(s_http_pass_ta, s_http_pass_orig);
     s_cargando = false;
     refresca_botones();
     wifi_estado_color("Cambios descartados", UI_COLOR_TEXT_DIM);
-    ESP_LOGI(TAG, "Cambios del Wi-Fi/portal descartados desde Ajustes");
+    ESP_LOGI(TAG, "Cambios del Wi-Fi descartados desde Ajustes");
 }
 
 /* El Volver del formulario de Wi-Fi no sale de Configuracion: vuelve al menu,
@@ -725,13 +707,14 @@ static void do_guardar(void *ud)
         snprintf(s_pass_orig, sizeof(s_pass_orig), "%s", pass);
     }
 
-    /* LA CLAVE DEL PORTAL ES LA DEL WI-FI (08-nov-2026). No se guarda lo que
-     * hubiera en el campo del portal -- es de solo lectura -- sino la misma que
-     * se acaba de guardar como clave de la red: asi no pueden discrepar nunca.
-     * Si la red esta bien, el portal esta bien; y si la red esta mal, no hay
+    /* LA CLAVE DEL PORTAL ES LA DEL WI-FI (08-nov-2026). No hay campo del
+     * portal que leer -- se quito el 23-nov-2026 --: se guarda la misma clave
+     * que se acaba de grabar para la red, asi no pueden discrepar nunca. Si la
+     * red esta bien, el portal esta bien; y si la red esta mal, no hay
      * asociacion y se ve en el acto ("P4: sin red"). */
-    const char *hu = lv_textarea_get_text(s_http_user_ta);
-    const char *hu_ok = hu[0] ? hu : "p4";
+    /* El usuario del portal no se escribe: es el que ya usa p4_creds_cargar()
+     * (de fabrica "p4"), el mismo que va en la cabecera Basic de cada envio. */
+    const char *hu_ok = s_portal_user[0] ? s_portal_user : "p4";
     bool ok_portal = false;
     if (ok_wifi) {
         ok_portal = (save_portal_creds(hu_ok, pass) == ESP_OK);
@@ -744,12 +727,8 @@ static void do_guardar(void *ud)
      * iba nunca (sin cambios que guardar ya no habia rama que lo resolviera) y el
      * campo seguia enseñando la clave anterior: la pantalla mentia. */
     if (ok_wifi) {
-        snprintf(s_http_user_orig, sizeof(s_http_user_orig), "%s", hu_ok);
-        snprintf(s_http_pass_orig, sizeof(s_http_pass_orig), "%s", pass);
-        /* El campo de solo lectura pasa a enseñar la clave nueva. */
-        s_cargando = true;
-        lv_textarea_set_text(s_http_pass_ta, pass);
-        s_cargando = false;
+        snprintf(s_portal_user, sizeof(s_portal_user), "%s", hu_ok);
+        if (s_portal_nota) view_ajustes_pinta_nota();
     }
 
     /* Primero la fila (si algo quedo pendiente, la pone en naranja) y despues
@@ -772,13 +751,13 @@ static void do_guardar(void *ud)
 
 /* El boton rojo ("Cancelar") del cartel "Cambiar de red?".
  *
- * ANTES guardaba la clave del portal que se hubiera tecleado aparte (D7). Desde
- * el 08-nov-2026 el portal no tiene clave propia -- es la del Wi-Fi (ver
- * net/p4_creds.c) --, asi que aqui NO hay nada que guardar: la NVS se queda
- * como estaba. Y guardar la clave NUEVA (la del campo, todavia sin aplicar a la
- * red) seria volver a separar las dos claves, que es exactamente el fallo que
- * esto arregla: la pantalla mandaria al portal una clave que la P4 no conoce y
- * el Wi-Fi seguiria con la vieja. */
+ * Aqui NO hay nada que guardar: la NVS se queda como estaba. Antes guardaba la
+ * clave del portal tecleada aparte (D7); desde el 08-nov-2026 el portal no tiene
+ * clave propia -- es la del Wi-Fi (ver net/p4_creds.c) -- y desde el
+ * 23-nov-2026 tampoco tiene campos donde teclearla. Volver a guardar aqui la
+ * clave nueva, todavia sin aplicar a la red, seria separar otra vez las dos
+ * claves: la pantalla mandaria al portal una clave que la P4 no conoce y el
+ * Wi-Fi seguiria con la vieja. */
 static void guardar_solo_portal(void *ud)
 {
     (void)ud;
@@ -837,6 +816,19 @@ static void guardar_cb(lv_event_t *e)
  *
  * El unico sitio donde el ancho se limita a proposito es el ancho MAXIMO de un
  * campo de texto (ver UI_ANCHO_COLUMNA en estilos.h), porque ahi si molesta. */
+/* La nota del portal: dice, en una linea, que la clave es la del Wi-Fi y
+ * cuales son las credenciales que de verdad se mandan. Se repinta al abrir la
+ * pantalla y al guardar (es lo unico que cambia del bloque). */
+static void view_ajustes_pinta_nota(void)
+{
+    if (!s_portal_nota) return;
+    lv_label_set_text_fmt(s_portal_nota,
+        "La clave del portal es la MISMA que la del Wi-Fi: no hay otra que "
+        "teclear. Se cambia en el campo de arriba y el portal cambia con ella.\n"
+        "Lo que se manda a la P4: usuario %s y la clave de Password.",
+        s_portal_user);
+}
+
 void view_ajustes_refresh(void)
 {
     s_cargando = true;   /* los VALUE_CHANGED de set_text no son del usuario */
@@ -848,15 +840,12 @@ void view_ajustes_refresh(void)
     char hu[33] = {0}, hp[65] = {0};
     /* LO EFECTIVO, no lo guardado (08-nov-2026): la clave del portal es la del
      * Wi-Fi y quien lo decide es p4_creds_cargar() -- que ademas corrige en NVS
-     * la copia que se hubiera quedado desfasada. Asi lo que se enseña aqui es
-     * exactamente lo que se manda a la P4. */
-    if (!p4_creds_cargar(hu, sizeof hu, hp, sizeof hp)) { hu[0] = '\0'; hp[0] = '\0'; }
-    /* La referencia del portal es lo que habia: si no, recien abierta la
-     * pantalla el usuario/la clave vacios ya contarian como un cambio. */
-    snprintf(s_http_user_orig, sizeof(s_http_user_orig), "%s", hu);
-    snprintf(s_http_pass_orig, sizeof(s_http_pass_orig), "%s", hp);
-    lv_textarea_set_text(s_http_user_ta, hu);
-    lv_textarea_set_text(s_http_pass_ta, hp);
+     * la copia que se hubiera quedado desfasada. Aqui solo se usa el USUARIO
+     * para la nota; la clave que se manda es la del campo Password. */
+    if (!p4_creds_cargar(hu, sizeof hu, hp, sizeof hp)) hu[0] = '\0';
+    (void)hp;
+    snprintf(s_portal_user, sizeof(s_portal_user), "%s", hu[0] ? hu : "p4");
+    view_ajustes_pinta_nota();
     s_cargando = false;
     mostrar_menu(true);
 
@@ -1264,19 +1253,26 @@ void view_ajustes_create(lv_obj_t *parent)
      * Antes eran dos campos independientes: la copia vieja se quedaba ahi sin
      * que nadie la comprobara, el Wi-Fi seguia asociando y la P4 contestaba 401
      * a todo (viajes y "Actualizar pantalla") sin que se supiera por que. */
+    /* AQUI ESTABAN LOS DOS CAMPOS DEL PORTAL ("Usuario" y "Clave"), de solo
+     * lectura. Se quitaron el 23-nov-2026: no hay nada que teclear (la clave
+     * del portal ES la del Wi-Fi) y dos cajas que parecen campos y no responden
+     * al dedo se leen como un fallo, no como una decision. En su sitio va una
+     * nota que lo explica y que enseña las credenciales que se mandan. */
     make_grupo_en(s_wifi, "PORTAL DE LA P4 (usuario p4 y la MISMA clave del Wi-Fi)", FILA_G2_Y);
-    s_http_user_ta = make_field_en(s_wifi, "Usuario", 32, false, FILA_F3_Y);   /* hu[33] en view_ajustes_refresh */
-    s_http_pass_ta = make_field_en(s_wifi, "Clave", 32, true, FILA_F4_Y);     /* hp[65] en view_ajustes_refresh */
-    campo_solo_lectura(s_http_user_ta);
-    campo_solo_lectura(s_http_pass_ta);
+    s_portal_nota = lv_label_create(s_wifi);
+    lv_obj_set_pos(s_portal_nota, 0, FILA_F3_Y);
+    /* Ocupa el hueco de los dos campos que habia (254 a 372) y se parte solo. */
+    lv_obj_set_size(s_portal_nota, FILA_W, FILA_F4_Y - FILA_F3_Y + CAMPO_ALTO);
+    lv_label_set_long_mode(s_portal_nota, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_color(s_portal_nota, UI_COLOR_TEXT_DIM, 0);
+    lv_obj_set_style_text_font(s_portal_nota, &lv_font_montserrat_20, 0);
+    view_ajustes_pinta_nota();
 
     /* Cualquier cambio en CUALQUIERA de las dos claves saca la fila de botones.
      * El editor a pantalla completa manda VALUE_CHANGED una sola vez al volcar
      * el texto (ver entry_guardar en entry_screen.c). */
     lv_obj_add_event_cb(s_ssid_ta, campo_cambiado_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(s_pass_ta, campo_cambiado_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_add_event_cb(s_http_user_ta, campo_cambiado_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_add_event_cb(s_http_pass_ta, campo_cambiado_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     /* BOTON CON ALTO PROPIO, y esto era un fallo de verdad (16-oct-2026): el
      * boton se creaba SIN alto -- su rotulo va centrado, y un objeto con el
