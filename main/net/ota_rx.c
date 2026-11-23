@@ -201,6 +201,86 @@ static _Atomic bool s_ui_ocupada;
  * DESPUES de fijarlo, asi que la tarea de esp_timer ya lo ve definitivo. */
 static bool s_auto_activo = true;
 
+/* ── LA TRAZA DE LA ULTIMA ACTUALIZACION (23-nov-2026) ─────────────────────
+ *
+ * El dueño: "el proceso no esta claro, no se sabe en que paso esta". Y tenia
+ * razon: lo unico que quedaba era el log del puerto serie, que se pierde justo
+ * cuando importa (la placa se reinicia y el USB se reenumera). Ahora cada paso
+ * se apunta en la NVS y, al arrancar, se IMPRIME la traza de la vida anterior:
+ *
+ *   OTA anterior: 18:58:06 v2.0: descarga 100 %; 18:58:20 sha ok; 18:58:21
+ *   marcada para arrancar; 19:00:11 arranque en pruebas; 19:00:19 validada
+ *
+ * Se guarda en dos claves: "traza" (la que se esta escribiendo) y "traza_ant"
+ * (la de la vida anterior, que se imprime al arrancar y se pisa al empezar la
+ * siguiente). Sobrevive a los reinicios, que es justo lo que hace falta. */
+#define OTA_TRAZA_MAX 220
+static char s_traza[OTA_TRAZA_MAX];
+
+static void traza_guardar(void)
+{
+    nvs_handle_t h;
+    if (nvs_open("ota", NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_str(h, "traza", s_traza);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+/* Añade un paso con la hora. 'apila' = separa con " | " si ya habia texto. */
+static void traza(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+static void traza(const char *fmt, ...)
+{
+    char que[160];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(que, sizeof que, fmt, ap);
+    va_end(ap);
+
+    time_t ahora = time(NULL);
+    struct tm t;
+    localtime_r(&ahora, &t);
+    char hora[10] = "";
+    if (t.tm_year > 120) strftime(hora, sizeof hora, "%H:%M:%S ", &t);
+
+    if (s_traza[0]) {
+        size_t l = strlen(s_traza);
+        if (l + 4 < sizeof s_traza) snprintf(s_traza + l, sizeof s_traza - l, " | ");
+    }
+    size_t l = strlen(s_traza);
+    if (l < sizeof s_traza - 1)
+        snprintf(s_traza + l, sizeof s_traza - l, "%s%s", hora, que);
+    if (strlen(s_traza) > sizeof s_traza - 40) {
+        /* Se recorta por delante para no perder lo ULTIMO, que es lo que dice
+         * en que paso se quedo. */
+        char *corte = strchr(s_traza, '|');
+        if (corte && strlen(corte) < sizeof s_traza - 60) {
+            memmove(s_traza, corte + 1, strlen(corte + 1) + 1);
+        }
+    }
+    ESP_LOGI(TAG, "traza: %s", que);
+    traza_guardar();
+}
+
+/* Al arrancar: saca la traza de la vida anterior y empieza una nueva. */
+static void traza_arranque(const char *particion, int estado)
+{
+    nvs_handle_t h;
+    char previa[OTA_TRAZA_MAX] = "";
+    if (nvs_open("ota", NVS_READWRITE, &h) == ESP_OK) {
+        size_t l = sizeof previa;
+        if (nvs_get_str(h, "traza", previa, &l) != ESP_OK) previa[0] = 0;
+        if (previa[0]) {
+            nvs_set_str(h, "traza_ant", previa);
+            nvs_set_str(h, "traza", "");
+            nvs_commit(h);
+        }
+        nvs_close(h);
+    }
+    if (previa[0]) ESP_LOGW(TAG, "OTA anterior: %s", previa);
+    s_traza[0] = 0;
+    traza("arranque en '%s' (estado %d)", particion ? particion : "?", estado);
+}
+
 /* Ultimo aviso del automatico. En modo manual no se usa. Sirve para no repetir
  * el mismo WARN cada 60 s (una P4 sin fichero para esta pantalla, por ejemplo);
  * la primera vez se cuenta y las siguientes quedan en DEBUG. */
@@ -1032,6 +1112,7 @@ static void tarea_actualizar(void *arg)
     }
 
     fijar_progreso(0);
+    traza("descarga de %u B", (unsigned)esperado);
     /* (LVGL ya esta parado desde antes del borrado; ver arriba.) */
     for (;;) {
         int leido = esp_http_client_read(cli, (char *)buf, OTA_BUFFER);
@@ -1109,6 +1190,7 @@ static void tarea_actualizar(void *arg)
         snprintf(motivo, sizeof motivo, "sha256 no cuadra");
         goto salir;
     }
+    traza("sha256 ok");
 
     /* esp_ota_end valida la imagen ENTERA (cabecera, segmentos, checksum). Si
      * esto pasa, el fichero esta bien escrito en la flash. Libera el handle
@@ -1158,6 +1240,7 @@ static void tarea_actualizar(void *arg)
         goto salir;
     }
 
+    traza("%s -> %s marcada para arrancar en '%s'", actual, ver, parte->label);
     ESP_LOGI(TAG, "actualizacion lista: %s -> %s en '%s' (0x%08" PRIx32 "). "
                   "Ya se puede arrancar de ahi; reinicio en %d s",
              actual, ver, parte->label, parte->address, OTA_REINICIO_MS / 1000);
@@ -1187,6 +1270,7 @@ salir:
     }
     free(buf);
     if (motivo[0]) {
+        traza("FALLO: %s", motivo);
         if (diferido) {
             /* No es un fallo de la descarga: es que ya no es buen momento. La
              * pantalla no se toca y se vuelve a mirar al minuto siguiente. */
@@ -1239,9 +1323,20 @@ static void tarea_validar(void *arg)
     int64_t estable_desde_ms = 0;
     int64_t ultimo_log_ms = 0;
 
+    const int64_t t0_ms = esp_timer_get_time() / 1000;
     for (;;) {
         char ip[16] = "";
-        if (enlace_listo(ip, sizeof ip)) {
+        /* PLAZO DE SEGURIDAD (23-nov-2026): si a los 60 s la app sigue viva,
+         * vale. El rollback existe para cazar una imagen que no arranca o se
+         * cuelga; una que lleva un minuto pintando la pantalla y hablando con la
+         * P4 no es eso. Sin este plazo, un fallo del enlace (o un reinicio por
+         * otro motivo) devolvia la version anterior EN SILENCIO: la pantalla
+         * reaparecia con la version vieja y parecia que la OTA no habia hecho
+         * nada. */
+        const bool plazo = (esp_timer_get_time() / 1000 - t0_ms) > 60000;
+        if (enlace_listo(ip, sizeof ip) || plazo) {
+            if (plazo && estable_desde_ms == 0)
+                ESP_LOGW(TAG, "60 s sin enlace: la app esta viva, doy la version por buena");
             int64_t ahora_ms = esp_timer_get_time() / 1000;
             if (estable_desde_ms == 0) {
                 estable_desde_ms = ahora_ms;
@@ -1258,6 +1353,7 @@ static void tarea_validar(void *arg)
                 }
                 esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
                 if (err == ESP_OK) {
+                    traza("validada: el bootloader ya no vuelve atras");
                     ESP_LOGI(TAG, "version validada: el bootloader ya no volvera a la anterior");
                 } else {
                     ESP_LOGE(TAG, "no pude validar la version (%s): %s",
@@ -1314,8 +1410,13 @@ void ota_rx_arranque(void)
         ESP_LOGE(TAG, "la particion de actualizacion es la que corre: revisa partitions.csv");
     }
 
-    esp_ota_img_states_t estado;
-    if (corre && esp_ota_get_state_partition(corre, &estado) == ESP_OK) {
+    esp_ota_img_states_t estado = ESP_OTA_IMG_UNDEFINED;
+    (void)esp_ota_get_state_partition(corre, &estado);
+    /* La traza de la vida anterior, IMPRESA aqui: es lo que dice en que paso se
+     * quedo la ultima actualizacion aunque el USB se haya reenumerado. */
+    traza_arranque(corre ? corre->label : "?", (int)estado);
+
+    if (corre) {
         if (estado == ESP_OTA_IMG_PENDING_VERIFY) {
             ESP_LOGW(TAG, "esta version esta EN PRUEBAS (rollback armado): se marcara "
                           "valida cuando la P4 este enganchada y estable");
