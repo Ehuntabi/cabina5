@@ -41,6 +41,12 @@ static void cartel_mostrar(void)
     if (!s_cartel) return;
     lv_obj_clear_flag(s_cartel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_cartel);
+    /* Y SE REPINTA LA PANTALLA ENTERA (23-nov-2026). Durante la descarga LVGL
+     * se para a media pasada: al volver, el panel se queda con el cuadro a
+     * medias (el dueño lo vio como "se ha descuadrado la pantalla" al pulsar
+     * Configuracion). Invalidar la pantalla activa entera obliga a redibujarla
+     * de arriba abajo en la siguiente pasada, asi que no quedan restos. */
+    lv_obj_invalidate(lv_scr_act());
 }
 
 /* Pinta el estado que haya. Devuelve true si hay algo que enseñar. */

@@ -48,7 +48,7 @@ if [ -z "$VER_IN" ]; then
         echo "     Ahora mismo no hay ningún tag v*: hay que decir la versión."
         exit 1
     fi
-    VER_IN="$(printf '%s' "$ULTIMO_TAG" | awk -F. '{ printf "%s.%d", $1, $2 + 1 }')"
+    VER_IN="$(printf '%s' "$ULTIMO_TAG" | awk -F. '{ m = $1; sub(/^v/, "", m); n = $2 + 1; if (n > 99) { m++; n = 0 } printf "%s.%d", m, n }')"
     echo "[i] sin argumento: toca $VER_IN (último tag $ULTIMO_TAG, +0.1)"
 fi
 VER="${VER_IN#v}"
