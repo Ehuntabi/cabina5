@@ -306,8 +306,13 @@ magnetómetro de `CALIB_STAT` (`0x35`).
 
 **Lo que hay que saber**
 
-- **Hay que calibrar el magnetómetro** con el botón *Calibrar*: bloquea ~0,5 s y hay que girar la
-  furgo en horizontal, despacio y completo. Sin calibrar, el rumbo se va decenas de grados.
+- **Dos botones, dos cosas distintas** (pie de la pantalla, uno en cada zona):
+  - ***Calibrar nivel*** pone el **cero del nivel** (que la pantalla esté montada recta). Bloquea
+    ~0,5 s y se hace con la furgo parada sobre una superficie nivelada de verdad.
+  - ***Calibrar brújula*** (desde la v1.97) **borra el perfil del magnetómetro** y reinicia el
+    BNO055 para volver a calibrarlo: pide confirmación, y a partir de ahí hay que **girar la furgo**
+    en las tres direcciones hasta que el aviso llegue a **3/3**; entonces se guarda solo. No hace
+    falta para el uso normal: la brújula se calibra sola y se acuerda entre encendidos.
 - El **acelerómetro solo** (el ADXL345 anterior) da el nivel, pero **no da rumbo**: si el
   BNO055 no responde, la brújula se queda vacía y la inclinación sigue funcionando.
 - La lectura del BNO055 va **byte a byte**, con *clock stretching* del sensor (es lo que la hace
