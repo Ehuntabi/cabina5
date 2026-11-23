@@ -55,6 +55,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <math.h>
+#include <string.h>   /* memset del perfil al recalibrar la brujula */
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -778,6 +779,76 @@ bool tilt_cal_get(uint8_t *mag, uint8_t *acc, uint8_t *gyr, uint8_t *sys)
 bool tilt_tiene_perfil(void)
 {
     return s_prof_guardado_valido;
+}
+
+/* ── REINICIO DE LA CALIBRACION DE LA BRUJULA (23-nov-2026) ───────────────
+ *
+ * El BNO055 no tiene un comando de "calibrar": se calibra solo mientras lo
+ * mueves, y lo unico que borra la calibracion viva es un RESET (SYS_TRIGGER
+ * 0x20), que es exactamente lo que hace el arranque -- de ahi que despues haya
+ * que reescribir el perfil guardado. Aqui se hace a peticion del usuario:
+ * primero se BORRA el perfil de la NVS (si no, el siguiente arranque volveria a
+ * escribir la calibracion VIEJA encima de la nueva) y despues se reinicia el
+ * chip.
+ *
+ * EL REINICIO VA EN SU PROPIA TAREA, no en la del boton: el datasheet pide
+ * ~650 ms de espera tras el reset y la tarea de LVGL no puede quedarse parada
+ * ese rato. Mientras dura, las lecturas del chip fallan o dan ceros y las
+ * tareas de fondo (diag y guardado) simplemente no encuentran 3/3. */
+static volatile bool s_recal_en_curso;
+
+static void tarea_recalibrar_brujula(void *arg)
+{
+    (void)arg;
+    /* Tras el reset el chip vuelve a CONFIG (datasheet): si no se le devuelve
+     * a fusion, el rumbo se queda congelado y no hay 3/3 que esperar. */
+    uint8_t rst[2] = { BNO_SYS_TRIGGER, 0x20 };
+    esp_err_t e = i2c_master_transmit(s_dev, rst, 2, 100);
+    if (e == ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(700));
+        uint8_t cfg[3][2] = {
+            { BNO_PWR_MODE, 0x00 },        /* normal */
+            { BNO_UNIT_SEL, 0x00 },        /* m/s2, grados, Celsius */
+            { BNO_OPR_MODE, BNO_OPR_NDOF },/* fusion 9 ejes otra vez */
+        };
+        for (int i = 0; i < 3 && e == ESP_OK; i++) {
+            e = i2c_master_transmit(s_dev, cfg[i], 2, 100);
+            vTaskDelay(pdMS_TO_TICKS(30));
+        }
+    }
+    if (e == ESP_OK) {
+        ESP_LOGW(TAG, "calibracion de la brujula REINICIADA: girar el sensor "
+                      "hasta 3/3 (m) y 3/3 (g); el perfil se guardara solo");
+    } else {
+        ESP_LOGE(TAG, "no pude reiniciar el chip para recalibrar la brujula (%s)",
+                 esp_err_to_name(e));
+    }
+    s_recal_en_curso = false;
+    vTaskDelete(NULL);
+}
+
+bool tilt_brujula_recalibrar(void)
+{
+    if (!s_present || s_chip != SENSOR_BNO055 || s_dev == NULL) return false;
+    if (s_recal_en_curso) return false;
+
+    /* 1) Fuera el perfil guardado: es lo que impide que vuelva la calibracion
+     *    vieja al reiniciar la pantalla. */
+    erase_tilt_bno_calib();
+    s_prof_guardado_valido = false;
+    s_prof_restaurado = false;
+    memset(s_prof_guardado, 0, sizeof s_prof_guardado);
+
+    /* 2) El reset, en su tarea (ver arriba). */
+    s_recal_en_curso = true;
+    if (xTaskCreate(tarea_recalibrar_brujula, "bno_recal", 4096, NULL, 5, NULL) != pdPASS) {
+        /* Sin tarea no hay reset: se deja el chip como estaba (el perfil ya
+         * borrado solo significa que al siguiente arranque pedira calibrar). */
+        s_recal_en_curso = false;
+        ESP_LOGE(TAG, "sin memoria para la tarea de recalibrado de la brujula");
+        return false;
+    }
+    return true;
 }
 
 bool tilt_get(float *pitch_deg, float *roll_deg)

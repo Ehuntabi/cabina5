@@ -68,6 +68,7 @@
 #include "estilos.h"
 #include "esp_log.h"   /* DIAGNOSTICO: el volcado del arbol */
 #include "../tilt.h"
+#include "confirm_screen.h"   /* el cartel "Calibrar la brujula?" */
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>   /* abs() de la zona muerta */
@@ -181,7 +182,14 @@ static lv_obj_t *s_row_roll;      /* "BALANCEO" + cifra */
 static lv_obj_t *s_val_pitch;
 static lv_obj_t *s_val_roll;
 static lv_obj_t *s_sin_sensor;    /* el aviso, en su sitio */
-static lv_obj_t *s_calib_btn;
+static lv_obj_t *s_calib_btn;     /* "Calibrar nivel" (el cero del nivel) */
+/* "Calibrar brujula" (23-nov-2026): reinicia la calibracion del BNO055. Solo se
+ * enseña si el sensor tiene brujula, y se esconde con ella. */
+static lv_obj_t *s_cal_brujula_btn;
+/* Cierto desde que se pulsa hasta que la brujula vuelve a estar calibrada y
+ * GUARDADA: es lo que convierte el aviso del instrumento en un mensaje final
+ * ("Brujula calibrada") en la linea de estado. */
+static bool s_esperando_brujula;
 
 /* Rumbo actual en grados (lo pinta brujula_draw_cb). */
 static int s_rumbo_deg;
@@ -358,6 +366,37 @@ static void calib_btn_cb(lv_event_t *e)
     status_final(ok ? "Calibrado" : "No he podido guardarlo");
 }
 
+/* ── CALIBRAR LA BRUJULA (23-nov-2026) ────────────────────────────────────
+ *
+ * Pide confirmacion porque lo que hace es BORRAR la calibracion guardada: un
+ * roce no puede dejar la brujula pidiendo que gires la pantalla hasta que la
+ * gires de verdad. El trabajo (borrar el perfil de la NVS y reiniciar el chip)
+ * lo hace tilt.c en su propia tarea; aqui solo se pide y se cuenta el
+ * resultado. El barrido de 200 ms de refresh_cb es el que, al final, canta
+ * "Brujula calibrada" cuando vuelve a haber perfil guardado. */
+static void calib_brujula_hecho(void *ud)
+{
+    (void)ud;
+    if (!tilt_brujula_recalibrar()) {
+        status_final("No he podido reiniciarla");
+        return;
+    }
+    s_esperando_brujula = true;
+    /* Sin cuenta atras: este mensaje tiene que seguir a la vista mientras se
+     * gira la pantalla. Lo sustituye el mensaje final cuando acabe. */
+    lv_label_set_text(s_label_status, "Girala en las tres direcciones");
+    s_status_ms = 0;
+}
+
+static void calib_brujula_cb(lv_event_t *e)
+{
+    (void)e;
+    confirm_screen_open("Calibrar la brujula?",
+                        "Se borra la guardada. Gira la pantalla.",
+                        UI_COLOR_YELLOW_HEX, "Si, calibrar", "Cancelar",
+                        calib_brujula_hecho, NULL);
+}
+
 /* Lo ultimo PINTADO, para no repintar por un resto de ruido. Ver la zona muerta
  * en refresh_cb(). */
 /* 7 px y no 5: con 5 el usuario, viendolo en la placa, pidio apretar mas
@@ -392,6 +431,7 @@ static void refresh_cb(lv_timer_t *t)
         lv_label_set_text(s_label_status, "");
         s_status_ms = 0;   /* sin sensor no queda ningun mensaje que conservar */
         if (s_brujula) lv_obj_add_flag(s_brujula, LV_OBJ_FLAG_HIDDEN);
+        if (s_cal_brujula_btn) lv_obj_add_flag(s_cal_brujula_btn, LV_OBJ_FLAG_HIDDEN);
         return;
     }
     lv_obj_clear_flag(s_row_pitch, LV_OBJ_FLAG_HIDDEN);
@@ -491,6 +531,7 @@ static void refresh_cb(lv_timer_t *t)
         uint8_t cal = 0;
         if (tilt_get_heading(&rumbo, &cal)) {
             lv_obj_clear_flag(s_brujula, LV_OBJ_FLAG_HIDDEN);
+            if (s_cal_brujula_btn) lv_obj_clear_flag(s_cal_brujula_btn, LV_OBJ_FLAG_HIDDEN);
             int r = (int)(rumbo + 0.5f) % 360;
             if (r != s_rumbo_pintado) {
                 s_rumbo_pintado = r;
@@ -527,8 +568,17 @@ static void refresh_cb(lv_timer_t *t)
                      (unsigned)m);
             lv_label_set_text(s_rumbo_cal, c);
             lv_obj_set_style_text_color(s_rumbo_cal, ok ? UI_COLOR_TEXT_DIM : UI_COLOR_YELLOW, 0);
+
+            /* FIN DEL RECALIBRADO (23-nov-2026): se avisa cuando vuelve a haber
+             * perfil guardado Y el magnetometro esta a 3/3. Se mira aqui y no
+             * en la tarea de guardado porque esa no sabe que pantalla se ve. */
+            if (s_esperando_brujula && ok && m >= 3) {
+                s_esperando_brujula = false;
+                status_final("Brujula calibrada");
+            }
         } else {
             lv_obj_add_flag(s_brujula, LV_OBJ_FLAG_HIDDEN);
+            if (s_cal_brujula_btn) lv_obj_add_flag(s_cal_brujula_btn, LV_OBJ_FLAG_HIDDEN);
         }
     }
 
@@ -924,22 +974,39 @@ void view_inclinacion_create(lv_obj_t *parent)
 
     make_brujula(right);
 
-    /* La respuesta del boton de calibrar ("Calibrando...", "Calibrado", "No he
-     * podido guardarlo") y los errores de lectura ("Error de lectura I2C").
-     * Va al pie, AL OTRO LADO DE LA RAYA y centrada en vertical con el boton
-     * (384 + 24 = 408; la letra de 26 mide 33, de ahi 392): el boton acaba a 8
-     * px de la raya, asi que la respuesta sale justo al lado de donde se ha
-     * pulsado. En 26 y TEXT_SOFT porque es la respuesta a lo que acabas de
-     * pulsar y un error tiene que leerse, no susurrarse. */
+    /* La respuesta de los dos botones de calibrar ("Calibrando...", "Calibrado",
+     * "Girala en las tres direcciones", "Brujula calibrada", "No he podido
+     * guardarlo") y los errores de lectura ("Error de lectura I2C").
+     *
+     * DESDE EL 23-nov-2026 COMPARTE LA FILA CON EL BOTON DE LA BRUJULA: el
+     * boton ocupa los 200 px de la derecha, asi que la respuesta se queda con
+     * 156 y con la letra de PIE (18): dos lineas de 22 caben en los 48 del
+     * boton. Antes iba en 26 y con 360 de ancho, y entonces el boton no cabia. */
     s_label_status = lv_label_create(right);
     lv_label_set_text(s_label_status, "");
     lv_obj_set_style_text_color(s_label_status, UI_COLOR_TEXT_SOFT, 0);
-    lv_obj_set_style_text_font(s_label_status, &FUENTE_NORMAL, 0);
+    lv_obj_set_style_text_font(s_label_status, &FUENTE_PIE, 0);
     lv_obj_set_style_text_align(s_label_status, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_set_width(s_label_status, 360);
-    lv_obj_align(s_label_status, LV_ALIGN_TOP_LEFT, MARGEN_PAGINA, 392);
+    lv_obj_set_width(s_label_status, 156);
+    lv_label_set_long_mode(s_label_status, LV_LABEL_LONG_WRAP);
+    lv_obj_align(s_label_status, LV_ALIGN_TOP_LEFT, MARGEN_PAGINA, PIE_Y + 2);
+
+    /* "Calibrar brujula", en el mismo pie que el del nivel, pegado a la
+     * derecha de SU zona (los dos botones quedan a la misma altura y a la misma
+     * distancia de su raya). Nace escondido: solo sirve si el sensor tiene
+     * brujula, y refresh_cb lo enseña con ella. */
+    s_cal_brujula_btn = lv_btn_create(right);
+    lv_obj_set_size(s_cal_brujula_btn, BOTON_ANCHO, BOTON_ALTO);
+    lv_obj_set_style_bg_color(s_cal_brujula_btn, UI_COLOR_BOTON, 0);
+    lv_obj_add_event_cb(s_cal_brujula_btn, calib_brujula_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_align(s_cal_brujula_btn, LV_ALIGN_TOP_RIGHT, 0, PIE_Y);
+    lv_obj_t *cal_b_lbl = lv_label_create(s_cal_brujula_btn);
+    lv_label_set_text(cal_b_lbl, "Calibrar brújula");
+    lv_obj_set_style_text_font(cal_b_lbl, &FUENTE_NORMAL, 0);
+    lv_obj_center(cal_b_lbl);
 
     lv_obj_add_flag(s_brujula, LV_OBJ_FLAG_HIDDEN);   /* hasta saber si hay */
+    lv_obj_add_flag(s_cal_brujula_btn, LV_OBJ_FLAG_HIDDEN);
 
     s_timer = lv_timer_create(refresh_cb, 200, NULL);
     /* Arranca en pausa: esta pantalla nace oculta (NAV_INFO es la que se ve

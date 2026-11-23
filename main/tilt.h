@@ -51,6 +51,22 @@ bool tilt_cal_get(uint8_t *mag, uint8_t *acc, uint8_t *gyr, uint8_t *sys);
  * hasta que el vehiculo se mueve. */
 bool tilt_tiene_perfil(void);
 
+/* VUELVE A EMPEZAR LA CALIBRACION DE LA BRUJULA (23-nov-2026).
+ *
+ * El BNO055 no tiene un comando de "calibrar": se calibra solo mientras lo
+ * mueves, y lo unico que la borra de verdad es un RESET del chip (que es
+ * justo lo que hace el arranque, y por eso el perfil se restaura despues).
+ * Esto hace lo mismo, pero a peticion: borra el perfil guardado en la NVS y
+ * reinicia el chip en su propia tarea (el datasheet pide ~650 ms de espera y
+ * bloquear la tarea de LVGL ese rato es pedir un aviso de colgada). A partir de
+ * ahi hay que GIRAR la pantalla en las tres direcciones; cuando el magnetometro
+ * y el giroscopio lleguen a 3/3, tilt_guardar_cal_task guarda el perfil nuevo.
+ *
+ * Devuelve false si no hay BNO055 o si ya habia un reinicio en curso. Que
+ * devuelva true solo significa que ha EMPEZADO: el resultado se mira con
+ * tilt_cal_get() y tilt_tiene_perfil(). */
+bool tilt_brujula_recalibrar(void);
+
 /* Promedia ~20 lecturas del angulo ACTUAL y las guarda como nuevo "cero"
  * en NVS (config_storage.c, namespace "tilt"). Llamar con la autocaravana
  * parada sobre una referencia de nivel real (nivel de burbuja fisico o
