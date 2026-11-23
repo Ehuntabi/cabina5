@@ -82,7 +82,7 @@
 #include "esp_task_wdt.h"     /* esp_ota_*: escribir y marcar la particion */
 #include "esp_partition.h"
 #include "esp_system.h"      /* esp_restart */
-#include "esp_wifi.h"        /* esp_wifi_get_ps/set_ps: consumo durante la OTA */
+#include "esp_wifi.h"        /* esp_wifi_set_max_tx_power: consumo durante la OTA */
 #include "esp_timer.h"
 #include "esp_lvgl_port.h" /* lvgl_port_stop/resume: la pantalla quieta al descargar */
 #include "freertos/FreeRTOS.h"
@@ -979,7 +979,6 @@ static void ota_wdt_ventana(bool flash)
 
 static bool           s_bajo_consumo;
 static int            s_brillo_antes = -1;
-static wifi_ps_type_t s_ps_antes     = WIFI_PS_NONE;
 static int8_t         s_tx_antes     = 0;
 
 static void consumo_bajar(void)
@@ -989,9 +988,11 @@ static void consumo_bajar(void)
     s_brillo_antes = bsp_display_brightness_get();
     if (s_brillo_antes > OTA_BRILLO_PCT) bsp_display_brightness_set(OTA_BRILLO_PCT);
 
-    /* El ahorro de la radio solo se toca si se puede leer lo que habia. */
-    if (esp_wifi_get_ps(&s_ps_antes) == ESP_OK && s_ps_antes != WIFI_PS_MIN_MODEM)
-        esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    /* NOTA (23-nov-2026): aqui se puso el ahorro de radio (WIFI_PS_MIN_MODEM) y
+     * la descarga se quedo clavada al 0 %. El propio proyecto ya lo tenia
+     * apuntado en udp_rx.c: con el intervalo de baliza de esta red (102 ms) el
+     * ahorro se paga en latencia. NO se vuelve a poner: el pico se baja con la
+     * potencia de emision, que no toca el ritmo de la red. */
 
     /* LA POTENCIA DE EMISION es el pico mas gordo de la placa: en el banco, la
      * descarga se moria justo al empezar a transmitir. La P4 esta a dos metros:
@@ -1001,14 +1002,13 @@ static void consumo_bajar(void)
         esp_wifi_set_max_tx_power(OTA_TX_DBM * 4);
 
     s_bajo_consumo = true;
-    ESP_LOGI(TAG, "OTA: bajo el consumo (brillo %d %%, radio: ahorro y %d dBm)",
+    ESP_LOGI(TAG, "OTA: bajo el consumo (brillo %d %%, radio a %d dBm)",
              OTA_BRILLO_PCT, OTA_TX_DBM);
 }
 
 static void consumo_devolver(void)
 {
     if (!s_bajo_consumo) return;
-    esp_wifi_set_ps(s_ps_antes);
     if (s_tx_antes > 0) esp_wifi_set_max_tx_power(s_tx_antes);
     if (s_brillo_antes >= 0) bsp_display_brightness_set(s_brillo_antes);
     s_bajo_consumo = false;
