@@ -179,6 +179,8 @@ static const char *TAG = "ota_rx";
  * OJO: esto mitiga, no arregla una alimentacion mala. Si la placa se alimenta
  * bien, no cambia nada de cara al usuario. */
 #define OTA_BRILLO_PCT        20   /* se sigue leyendo el cartel */
+#define OTA_TX_DBM             8   /* la P4 esta a 2 m: mas potencia es solo calor */
+#define OTA_ESCRITURA_PAUSA_MS 4   /* respiro entre trozos de 4 KB escritos */
 
 /* Cada cuanto mira sola si la P4 tiene una version nueva. 60 s es lo que pidio
  * el dueño: subir el .bin desde el movil y que la pantalla se entere sin ir a
@@ -978,6 +980,7 @@ static void ota_wdt_ventana(bool flash)
 static bool           s_bajo_consumo;
 static int            s_brillo_antes = -1;
 static wifi_ps_type_t s_ps_antes     = WIFI_PS_NONE;
+static int8_t         s_tx_antes     = 0;
 
 static void consumo_bajar(void)
 {
@@ -990,19 +993,27 @@ static void consumo_bajar(void)
     if (esp_wifi_get_ps(&s_ps_antes) == ESP_OK && s_ps_antes != WIFI_PS_MIN_MODEM)
         esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
+    /* LA POTENCIA DE EMISION es el pico mas gordo de la placa: en el banco, la
+     * descarga se moria justo al empezar a transmitir. La P4 esta a dos metros:
+     * con 8 dBm sobra, y el pico baja a la mitad. */
+    if (esp_wifi_get_max_tx_power(&s_tx_antes) == ESP_OK &&
+        s_tx_antes > OTA_TX_DBM * 4)
+        esp_wifi_set_max_tx_power(OTA_TX_DBM * 4);
+
     s_bajo_consumo = true;
-    ESP_LOGI(TAG, "OTA: bajo el consumo (brillo %d %%, radio con ahorro)",
-             OTA_BRILLO_PCT);
+    ESP_LOGI(TAG, "OTA: bajo el consumo (brillo %d %%, radio: ahorro y %d dBm)",
+             OTA_BRILLO_PCT, OTA_TX_DBM);
 }
 
 static void consumo_devolver(void)
 {
     if (!s_bajo_consumo) return;
     esp_wifi_set_ps(s_ps_antes);
+    if (s_tx_antes > 0) esp_wifi_set_max_tx_power(s_tx_antes);
     if (s_brillo_antes >= 0) bsp_display_brightness_set(s_brillo_antes);
     s_bajo_consumo = false;
-    ESP_LOGI(TAG, "OTA: consumo de siempre (brillo %d %%, radio como estaba)",
-             s_brillo_antes);
+    ESP_LOGI(TAG, "OTA: consumo de siempre (brillo %d %%, radio: %d dBm)",
+             s_brillo_antes, s_tx_antes / 4);
 }
 
 static void tarea_actualizar(void *arg)
@@ -1198,6 +1209,11 @@ static void tarea_actualizar(void *arg)
                      esp_err_to_name(err));
             goto salir;
         }
+        /* Un respiro entre trozo y trozo: la escritura de la flash va a rachas y
+         * estas pausas reparten el pico (ver OTA_BRILLO_PCT). Cuesta ~3 s en
+         * total y solo se nota si la alimentacion va justa. */
+        vTaskDelay(pdMS_TO_TICKS(OTA_ESCRITURA_PAUSA_MS));
+
         mbedtls_sha256_update(&sha, buf, (size_t)leido);
         escrito += (uint32_t)leido;
         const int pct = (int)(((uint64_t)escrito * 100u) / esperado);
