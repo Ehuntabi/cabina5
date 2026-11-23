@@ -72,6 +72,7 @@
 #include "diag_reset.h"
 #include "watchdog_ui.h"   /* pausa del vigilante de la UI durante la OTA */  /* el reinicio de la OTA no es un fallo: no debe salir en rojo */
 
+#include "esp_bsp.h"          /* bsp_display_brightness_get/set: consumo durante la OTA */
 #include "esp_app_desc.h"    /* esp_app_get_description(): la version que corre */
 #include "esp_heap_caps.h"   /* el buffer de 4 KB, de PSRAM si se puede */
 #include "esp_http_client.h"
@@ -81,6 +82,7 @@
 #include "esp_task_wdt.h"     /* esp_ota_*: escribir y marcar la particion */
 #include "esp_partition.h"
 #include "esp_system.h"      /* esp_restart */
+#include "esp_wifi.h"        /* esp_wifi_get_ps/set_ps: consumo durante la OTA */
 #include "esp_timer.h"
 #include "esp_lvgl_port.h" /* lvgl_port_stop/resume: la pantalla quieta al descargar */
 #include "freertos/FreeRTOS.h"
@@ -163,6 +165,20 @@ static const char *TAG = "ota_rx";
 /* Margen entre "instalado" y el reinicio: lo justo para que la pantalla pinte
  * "Listo, reiniciando" y el usuario lo lea. */
 #define OTA_REINICIO_MS       3000
+
+/* ── CONSUMO DURANTE LA OTA (23-nov-2026) ───────────────────────────────────
+ *
+ * En el banco la cabina se alimenta por el cable USB (hub barato + cable fino).
+ * Con la OTA en marcha se han visto reinicios con el chip diciendo "encendido
+ * normal" (= se fue la corriente, NO un fallo del programa) y, en el mismo
+ * instante, el PC viendo desaparecer del bus al conversor USB: la tension de 5 V
+ * se hundia. Lo mas gordo que se puede apagar sin dejar de ver el cartel son la
+ * retroiluminacion y el ahorro de la radio. Se bajan mientras dura la OTA y se
+ * devuelven SIEMPRE al final (tambien si falla).
+ *
+ * OJO: esto mitiga, no arregla una alimentacion mala. Si la placa se alimenta
+ * bien, no cambia nada de cara al usuario. */
+#define OTA_BRILLO_PCT        20   /* se sigue leyendo el cartel */
 
 /* Cada cuanto mira sola si la P4 tiene una version nueva. 60 s es lo que pidio
  * el dueño: subir el .bin desde el movil y que la pantalla se entere sin ir a
@@ -957,6 +973,38 @@ static void ota_wdt_ventana(bool flash)
                  esp_err_to_name(e));
 }
 
+/* ── Menos consumo mientras se actualiza (ver OTA_BRILLO_PCT) ──────────────── */
+
+static bool           s_bajo_consumo;
+static int            s_brillo_antes = -1;
+static wifi_ps_type_t s_ps_antes     = WIFI_PS_NONE;
+
+static void consumo_bajar(void)
+{
+    if (s_bajo_consumo) return;
+
+    s_brillo_antes = bsp_display_brightness_get();
+    if (s_brillo_antes > OTA_BRILLO_PCT) bsp_display_brightness_set(OTA_BRILLO_PCT);
+
+    /* El ahorro de la radio solo se toca si se puede leer lo que habia. */
+    if (esp_wifi_get_ps(&s_ps_antes) == ESP_OK && s_ps_antes != WIFI_PS_MIN_MODEM)
+        esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+
+    s_bajo_consumo = true;
+    ESP_LOGI(TAG, "OTA: bajo el consumo (brillo %d %%, radio con ahorro)",
+             OTA_BRILLO_PCT);
+}
+
+static void consumo_devolver(void)
+{
+    if (!s_bajo_consumo) return;
+    esp_wifi_set_ps(s_ps_antes);
+    if (s_brillo_antes >= 0) bsp_display_brightness_set(s_brillo_antes);
+    s_bajo_consumo = false;
+    ESP_LOGI(TAG, "OTA: consumo de siempre (brillo %d %%, radio como estaba)",
+             s_brillo_antes);
+}
+
 static void tarea_actualizar(void *arg)
 {
     (void)arg;
@@ -1097,6 +1145,10 @@ static void tarea_actualizar(void *arg)
     /* La flash se queda sin cache varios segundos: ver ota_wdt_ventana(). */
     ota_wdt_ventana(true);
     wdt_abierto = true;
+
+    /* Lo que se puede apagar sin perder de vista el cartel, apagado ANTES del
+     * borrado, que es el rato de mas consumo de toda la operacion. */
+    consumo_bajar();
 
     esp_err_t err = esp_ota_begin(parte, esperado, &ota);
     if (err != ESP_OK) {
@@ -1276,10 +1328,13 @@ static void tarea_actualizar(void *arg)
     /* El reinicio se pide DESDE ESTA TAREA, nunca desde la de LVGL: esp_restart()
      * alli dentro dejaria la pantalla a medias y el reinicio caeria sin que el
      * usuario hubiera leido nada. 3 s dan para pintar "Listo, reiniciando". */
+    consumo_devolver();   /* con la luz de siempre, para leer el aviso */
     vTaskDelay(pdMS_TO_TICKS(OTA_REINICIO_MS));
     esp_restart();
 
 salir:
+    /* El consumo se devuelve SIEMPRE, salga bien o mal. */
+    consumo_devolver();
     /* La pantalla se devuelve SIEMPRE, salga bien o mal (ver OTA_REFRESCO_PCT).
      * Y el vigilante de la UI vuelve a vigilar DESPUES de devolverla: si se
      * reanudara antes, el primer tic lo contaria como cuelgue. */
