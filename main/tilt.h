@@ -44,6 +44,13 @@ bool tilt_get_heading(float *heading_deg, uint8_t *cal);
  * Devuelve false si el sensor no es un BNO055. */
 bool tilt_cal_get(uint8_t *mag, uint8_t *acc, uint8_t *gyr, uint8_t *sys);
 
+/* ¿Hay un perfil de calibracion de la brujula guardado y puesto en el chip?
+ * (22-nov-2026). Es la señal buena para saber si el RUMBO es de fiar: con el
+ * perfil cargado el rumbo es absoluto aunque el chip deje el contador del
+ * magnetometro a 0 (y `sys` a 0 despues de pasar por CONFIG), que es lo normal
+ * hasta que el vehiculo se mueve. */
+bool tilt_tiene_perfil(void);
+
 /* Promedia ~20 lecturas del angulo ACTUAL y las guarda como nuevo "cero"
  * en NVS (config_storage.c, namespace "tilt"). Llamar con la autocaravana
  * parada sobre una referencia de nivel real (nivel de burbuja fisico o

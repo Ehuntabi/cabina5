@@ -502,16 +502,25 @@ static void refresh_cb(lv_timer_t *t)
                 snprintf(txt, sizeof txt, "%d\xC2\xB0 %s", r, cardinal_de(rumbo));
                 lv_label_set_text(s_rumbo, txt);
             }
-            /* ¿ESTA CALIBRADA? (22-nov-2026) Se mira el estado del SISTEMA
-             * (`sys`), no el del magnetometro. Con el perfil de calibracion
-             * restaurado, el chip deja el contador del magnetometro a 0 hasta
-             * que el vehiculo se mueve, pero sys=3 y el rumbo YA es absoluto
-             * (medido: 103-107 grados nada mas arrancar, sin tocar nada). Antes
-             * se exigia cal=3 y la pantalla pedia "gira el sensor" para
-             * siempre en una instalacion fija. Sin perfil, sys=0 y si se pide
-             * girar, que es cuando de verdad hace falta. */
+            /* ¿ESTA CALIBRADA? (22-nov-2026) La señal buena es TENER PERFIL
+             * guardado y aplicado: con el cargado, el rumbo es absoluto aunque el
+             * chip deje el contador del magnetometro a 0, y aunque `sys` caiga a
+             * 0 (pasa en cuanto la tarea de guardado pasa por CONFIG para leer el
+             * perfil: la fusion se reinicia y sin movimiento no vuelve). Con
+             * `sys` la pantalla decia "gira el sensor" TODA la noche con el rumbo
+             * bueno (medido: 106,2 grados fijos, 22-nov). Si no hay perfil, se
+             * pide girar, que es cuando de verdad hace falta. */
             uint8_t m = 0, ac = 0, gy = 0, sy = 0;
-            bool ok = tilt_cal_get(&m, &ac, &gy, &sy) && sy >= 1;
+            tilt_cal_get(&m, &ac, &gy, &sy);
+            bool ok = tilt_tiene_perfil() || m >= 3;
+            static bool s_cal_ok_antes = false;
+            if (ok != s_cal_ok_antes) {
+                s_cal_ok_antes = ok;
+                ESP_LOGI("diag", "brujula: %s (m=%u a=%u g=%u s=%u, perfil=%d)",
+                         ok ? "calibrada" : "sin calibrar, gira el sensor",
+                         (unsigned)m, (unsigned)ac, (unsigned)gy, (unsigned)sy,
+                         (int)tilt_tiene_perfil());
+            }
             lv_obj_set_style_text_color(s_rumbo, ok ? UI_COLOR_TEXT : UI_COLOR_YELLOW, 0);
             char c[32];
             snprintf(c, sizeof c, ok ? "brujula calibrada" : "gira el sensor (cal %u/3)",

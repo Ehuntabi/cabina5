@@ -773,6 +773,13 @@ bool tilt_cal_get(uint8_t *mag, uint8_t *acc, uint8_t *gyr, uint8_t *sys)
     return true;
 }
 
+/* ¿Hay perfil guardado y aplicado? (ver tilt.h). Se pone al restaurarlo al
+ * arrancar y al guardar uno nuevo. */
+bool tilt_tiene_perfil(void)
+{
+    return s_prof_guardado_valido;
+}
+
 bool tilt_get(float *pitch_deg, float *roll_deg)
 {
     float p, r;
