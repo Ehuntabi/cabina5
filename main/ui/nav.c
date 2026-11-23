@@ -5,6 +5,7 @@
 #include "view_registro.h"
 #include "view_inclinacion.h"
 #include "view_ajustes.h"
+#include "ota_cartel.h"   /* cartel de la actualizacion (encima de todo) */
 #include "lvgl.h"
 #include <stdio.h>
 #include <stdbool.h>
@@ -182,6 +183,10 @@ void nav_init(void)
     s_ajustes_screen = lv_obj_create(NULL);
     lv_obj_clear_flag(s_ajustes_screen, LV_OBJ_FLAG_SCROLLABLE);
     view_ajustes_create(s_ajustes_screen);
+
+    /* El cartel de "actualizando la pantalla": va en la capa de arriba, asi que
+     * se ve con cualquier pantalla (23-nov-2026). */
+    ota_cartel_create();
 
     lv_scr_load(s_screens[NAV_INFO]);
 }

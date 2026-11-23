@@ -991,6 +991,14 @@ static void tarea_actualizar(void *arg)
      * LVGL sigue vivo, el refresco se descuadra -- que es justo lo que el
      * comentario de la cabecera dice haber cerrado parando la pantalla. Antes el
      * stop estaba DESPUES del borrado. */
+    /* QUE SE VEA QUE ESTO HA EMPEZADO ANTES DE CONGELAR LA PANTALLA
+     * (23-nov-2026). A partir de aqui LVGL se para para el borrado y la
+     * descarga: sin este respiro, el usuario ve la pantalla clavada sin una
+     * sola pista hasta el 10 % (y en un fichero pequeño, ni eso). 300 ms bastan
+     * para que el temporizador del cartel (250 ms) lo pinte. */
+    fijar_progreso(0);
+    vTaskDelay(pdMS_TO_TICKS(300));
+
     if (lvgl_port_stop() == ESP_OK) ui_parada = true;
 
     /* esp_ota_begin borra la particion que NO se esta usando. Si falla, la
