@@ -20,6 +20,7 @@
  * auditando el 07-sep-2026.
  */
 #include "p4_api.h"
+#include "reloj.h"   /* reloj_ahora: el sello del cierre */
 #include "config_storage.h"
 #include "p4_creds.h"   /* NVS y, si no hay, valores de fabrica */
 #include "esp_http_client.h"
@@ -458,6 +459,18 @@ void p4_api_cuerpo_fin(char *out, size_t n, uint32_t id, uint32_t eventos,
     if (k > 0 && (size_t)k < n && km_cuadro > 0) {
         k += snprintf(out + k, n - (size_t)k, ",\"km_cuadro\":%lu",
                       (unsigned long)km_cuadro);
+    }
+    /* EL SELLO DEL CIERRE (23-nov-2026). Lo pidio el arbitro de la simulacion
+     * del 23-nov: sin el, la P4 fecha el cierre cuando LE LLEGA el 'fin', y un
+     * cierre que espera en la cola (sin red, P4 apagada) llegaba horas o dias
+     * tarde: el resumen decia "Cerrado el ..." con la fecha equivocada. Misma
+     * convencion que los registros (epoch en hora LOCAL); si el reloj aun no
+     * vale, no se manda y la P4 usa la de recepcion como antes. */
+    uint32_t ts_fin = 0;
+    if (reloj_ahora(&ts_fin)) {
+        if (k > 0 && (size_t)k < n)
+            k += snprintf(out + k, n - (size_t)k, ",\"ts\":%lu,\"aprox\":false",
+                          (unsigned long)ts_fin);
     }
     if (k > 0 && (size_t)k < n - 1) snprintf(out + k, n - (size_t)k, "}");
 }

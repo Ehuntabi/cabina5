@@ -242,8 +242,21 @@ plantilla = '''#include <stdio.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 const char *p4_api_dev_id(void) { return "AABBCCDDEEFF"; }
+
+/* Stub del reloj: manda RELOJ_TS (0 o sin definir = reloj aun no valido, que es
+ * el caso de un arranque sin hora). Asi se prueban las DOS ramas del sello del
+ * cierre (23-nov-2026). */
+bool reloj_ahora(uint32_t *out)
+{
+    const char *v = getenv("RELOJ_TS");
+    unsigned long t = v ? strtoul(v, NULL, 10) : 0;
+    if (!t) return false;
+    *out = (uint32_t)t;
+    return true;
+}
 
 __FN__
 
@@ -262,9 +275,12 @@ PYEXT3
 gcc -std=gnu17 -Wall -Wextra -I "$AQUI/../main/net" -o "$TMP/fin" "$TMP/fin.c"
 
 fallos2=0
-comprueba_fin() {   # $1 destino ("" = ninguno), $2 km, $3 "si"/"no" destino, $4 "si"/"no" km
-    json=$("$TMP/fin" "$1" "$2")
-    echo "$json" | python3 -c "
+comprueba_fin() {   # $1 destino ("" = ninguno), $2 km, $3 "si"/"no" destino,
+                    # $4 "si"/"no" km, $5 reloj ("si" = el reloj ya vale)
+    local reloj_ts=0
+    [ "${5:-no}" = si ] && reloj_ts=1795000000
+    json=$(RELOJ_TS="$reloj_ts" "$TMP/fin" "$1" "$2")
+    echo "$json" | RELOJ_TS="$reloj_ts" python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 assert d['op'] == 'fin', d
@@ -273,15 +289,23 @@ assert d['eventos'] == 12, d
 assert d['dev'] == 'AABBCCDDEEFF', d
 assert ('destino' in d) == ('$3' == 'si'), d
 assert ('km_cuadro' in d) == ('$4' == 'si'), d
+import os
+assert ('ts' in d) == (os.environ.get('RELOJ_TS', '0') != '0'), d
+if 'ts' in d:
+    assert d['ts'] == 1795000000, d
+    assert d['aprox'] is False, d
 if '$3' == 'si': assert d['destino'] == '$1', d
 if '$4' == 'si': assert d['km_cuadro'] == int('$2'), d
 " 2>/dev/null && echo "ok     destino='$1' km=$2 -> $([ "$3" = si ] && echo con || echo sin) destino, $([ "$4" = si ] && echo con || echo sin) km" \
       || { echo "FALLO  destino='$1' km=$2"; echo "       $json"; fallos2=1; }
 }
-comprueba_fin ""        0      no no
-comprueba_fin "Tarifa"  0      si no
-comprueba_fin ""        123789 no si
-comprueba_fin "Tarifa"  123789 si si
+comprueba_fin ""        0      no no si
+comprueba_fin "Tarifa"  0      si no si
+comprueba_fin ""        123789 no si si
+comprueba_fin "Tarifa"  123789 si si si
+# Y con el reloj aun sin valer: el 'fin' NO lleva sello y la P4 fecha por
+# recepcion (el camino de un arranque sin hora).
+comprueba_fin "Tarifa"  123789 si si no
 
 # Y que quepa: destino de 20 + 6 cifras es el peor caso del cierre.
 largo=$("$TMP/fin" "Un destino largo ya" 999999 | tr -d '\n' | wc -c)
