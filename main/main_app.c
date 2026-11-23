@@ -143,6 +143,26 @@ static void heartbeat_task(void *arg) {
  * reutilizado tal cual (bring-up de estabilidad, no logica Victron). */
 #define LVGL_WDOG_PERIOD_MS 2000
 #define LVGL_WDOG_GRACE_MS  60000
+
+/* PAUSA A PROPOSITO DEL VIGILANTE DE LA UI (23-nov-2026).
+ *
+ * La actualizacion por Wi-Fi PARA LVGL mientras descarga (a proposito: no se
+ * puede refrescar la pantalla mientras se borra y escribe la flash). Este
+ * vigilante ve "la UI no avanza" -- que es verdad -- y a los 60 s deja saltar el
+ * Task WDT: la placa se reinicia A MITAD DE DESCARGA. Con un .bin de 2,3 MB a
+ * ~25 KB/s eso pasa siempre, asi que la OTA grande nunca terminaba: la pantalla
+ * se quedaba en el 0 % y volvia con la version de antes. Medido en el banco el
+ * 23-nov-2026 ("WDOG: UI sin avanzar 60000ms" justo antes del reinicio).
+ *
+ * Mientras dura la descarga el que vigila es la propia OTA (con su plazo y su
+ * traza); aqui solo se pausa este. Al reanudar se pone el contador a cero, para
+ * no contar el rato de la pausa como si hubiera sido un cuelgue. */
+static volatile bool s_wdog_ui_pausado;
+
+void app_watchdog_ui_pausar(bool pausar)
+{
+    s_wdog_ui_pausado = pausar;
+}
 static void lvgl_wdog_task(void *arg) {
     (void)arg;
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
@@ -153,6 +173,13 @@ static void lvgl_wdog_task(void *arg) {
         vTaskDelay(pdMS_TO_TICKS(LVGL_WDOG_PERIOD_MS));
 
         uint32_t now = lvgl_port_get_loop_count();
+        if (s_wdog_ui_pausado) {
+            /* La OTA tiene la pantalla parada a proposito: no es un cuelgue. */
+            prev = now;
+            stalled_ms = 0;
+            esp_task_wdt_reset();
+            continue;
+        }
         if (now != prev) {
             prev = now;
             stalled_ms = 0;

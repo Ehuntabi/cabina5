@@ -69,7 +69,8 @@
 #include "p4_creds.h"    /* usuario/clave del PORTAL de la P4 (los de Ajustes) */
 #include "udp_rx.h"      /* udp_rx_enlace(): el enlace que valida el arranque */
 #include "salida.h"      /* salida_hay()/salida_eventos_abiertos(): viaje abierto */
-#include "diag_reset.h"  /* el reinicio de la OTA no es un fallo: no debe salir en rojo */
+#include "diag_reset.h"
+#include "watchdog_ui.h"   /* pausa del vigilante de la UI durante la OTA */  /* el reinicio de la OTA no es un fallo: no debe salir en rojo */
 
 #include "esp_app_desc.h"    /* esp_app_get_description(): la version que corre */
 #include "esp_heap_caps.h"   /* el buffer de 4 KB, de PSRAM si se puede */
@@ -139,7 +140,13 @@ static const char *TAG = "ota_rx";
  * Se reanuda SIEMPRE, salga como salga (el `salir:` de abajo): dejarla parada
  * seria una pantalla muerta con una OTA fallida. */
 #define OTA_REFRESCO_PCT      10
-#define OTA_REFRESCO_MS       180   /* un cuadro a 12-18 fps, con margen */
+/* 500 MS Y NO 180 (23-nov-2026): el cartel de la actualizacion se refresca con
+ * un temporizador de 250 ms, asi que una ventana de 180 ms podia cerrarse SIN
+ * que le tocara el turno: la barra se quedaba clavada en el 0 % mientras la
+ * descarga avanzaba, que es justo lo que el dueño vio ("no se ha movido del
+ * 0 %"). Con 500 ms el cartel pinta siempre. Sigue siendo un cuadro cada 10 %,
+ * o sea ~0,5 s de cada ~9 s de descarga: no le quita ancho de banda a la flash. */
+#define OTA_REFRESCO_MS       500
 
 /* Un .bin de esta pantalla pesa ~1,94 MB. Los topes no son para el usuario:
  * son la red que evita que un "bytes":0 o un numero absurdo acaben en una
@@ -1079,6 +1086,10 @@ static void tarea_actualizar(void *arg)
     fijar_progreso(0);
     vTaskDelay(pdMS_TO_TICKS(300));
 
+    /* EL VIGILANTE DE LA UI SE PAUSA MIENTRAS DURE (23-nov-2026): parar LVGL es
+     * a proposito, y el vigilante lo tomaba por un cuelgue -> Task WDT -> la
+     * placa se reiniciaba a mitad de descarga. */
+    app_watchdog_ui_pausar(true);
     if (lvgl_port_stop() == ESP_OK) ui_parada = true;
 
     /* esp_ota_begin borra la particion que NO se esta usando. Si falla, la
@@ -1138,6 +1149,17 @@ static void tarea_actualizar(void *arg)
         mbedtls_sha256_update(&sha, buf, (size_t)leido);
         escrito += (uint32_t)leido;
         const int pct = (int)(((uint64_t)escrito * 100u) / esperado);
+        /* AVANCE CADA 5 s, tambien al log (23-nov-2026): si la descarga se
+         * atasca, esto dice DONDE se quedo, y no hay que adivinarlo. */
+        {
+            static int64_t ultimo_aviso_ms;
+            const int64_t ahora_ms = esp_timer_get_time() / 1000;
+            if (ahora_ms - ultimo_aviso_ms >= 5000) {
+                ultimo_aviso_ms = ahora_ms;
+                ESP_LOGI(TAG, "OTA: %d %% (%u de %u B)", pct,
+                         (unsigned)escrito, (unsigned)esperado);
+            }
+        }
         fijar_progreso(pct);
         /* Un cuadro cada 10 %: lo justo para ver que avanza sin devolverle a
          * la red el rato que dura el repintado. */
@@ -1258,8 +1280,11 @@ static void tarea_actualizar(void *arg)
     esp_restart();
 
 salir:
-    /* La pantalla se devuelve SIEMPRE, salga bien o mal (ver OTA_REFRESCO_PCT). */
+    /* La pantalla se devuelve SIEMPRE, salga bien o mal (ver OTA_REFRESCO_PCT).
+     * Y el vigilante de la UI vuelve a vigilar DESPUES de devolverla: si se
+     * reanudara antes, el primer tic lo contaria como cuelgue. */
     if (ui_parada) { lvgl_port_resume(); ui_parada = false; }
+    app_watchdog_ui_pausar(false);
     /* El plazo del WDT se devuelve SIEMPRE, salga bien o mal. */
     if (wdt_abierto) ota_wdt_ventana(false);
     if (sha_iniciado) mbedtls_sha256_free(&sha);
