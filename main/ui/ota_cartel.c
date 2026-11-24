@@ -63,7 +63,7 @@ static void pinta(const ota_rx_vista_t *v)
     switch (v->estado) {
         case OTA_RX_COMPROBANDO:
             lv_label_set_text(s_titulo, "Buscando actualización");
-            lv_label_set_text(s_detalle, "Preguntando a la P4 qué versión tiene…");
+            lv_label_set_text(s_detalle, "Preguntando a la P4 qué versión tiene...");
             lv_obj_add_flag(s_barra, LV_OBJ_FLAG_HIDDEN);
             lv_label_set_text(s_pie, "");
             cartel_mostrar();
@@ -73,7 +73,13 @@ static void pinta(const ota_rx_vista_t *v)
             char t[40], d[64];
             snprintf(t, sizeof t, "Actualizando la pantalla");
             if (v->ofrecida[0])
-                snprintf(d, sizeof d, "%s   ·   %d %%", v->ofrecida, v->pct);
+                /* SIN "·" NI NINGUN SIMBOLO QUE LA FUENTE NO TENGA (24-nov-2026:
+                 * el dueño lo vio como un rectangulo entre "v3.4" y "0 %"). Las
+                 * Inter de esta placa traen ASCII, acentos, letras espanolas,
+                 * ¿¡° y los iconos; el punto medio NO, y LVGL pinta el cuadro de
+                 * "falta este glifo". Con tres espacios se ve mejor y no hay
+                 * nada que falte. Lo vigila test/glifos.sh. */
+                snprintf(d, sizeof d, "%s   %d %%", v->ofrecida, v->pct);
             else
                 snprintf(d, sizeof d, "%d %%", v->pct);
             lv_label_set_text(s_titulo, t);
@@ -87,7 +93,7 @@ static void pinta(const ota_rx_vista_t *v)
 
         case OTA_RX_LISTO:
             lv_label_set_text(s_titulo, "Actualización instalada");
-            lv_label_set_text(s_detalle, "Reiniciando la pantalla…");
+            lv_label_set_text(s_detalle, "Reiniciando la pantalla...");
             lv_obj_add_flag(s_barra, LV_OBJ_FLAG_HIDDEN);
             lv_label_set_text(s_pie, "");
             cartel_mostrar();
