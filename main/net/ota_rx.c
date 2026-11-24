@@ -122,6 +122,12 @@ static const char *TAG = "ota_rx";
  * por eso el buffer se intenta reservar en PSRAM (ver reservar_buffer). */
 #define OTA_BUFFER            4096
 
+/* Pila de la tarea que descarga. Eran 8 KB y se vio "Sin memoria para actualizar"
+ * (xTaskCreate fallo): la RAM INTERNA de esta placa va por los 16-31 KB y el
+ * Wi-Fi se come lo suyo. La tarea de comprobar hace lo mismo (HTTP + JSON) con
+ * 6 KB, asi que la de descarga no necesita mas. */
+#define OTA_PILA_DESCARGA     6144
+
 /* La respuesta de /api/pantalla/info son ~250 bytes. 1 KB da aire de sobra y,
  * si llegara mas, es que no es la respuesta del contrato: se rechaza. */
 #define OTA_INFO_MAX          1024
@@ -183,7 +189,6 @@ static const char *TAG = "ota_rx";
  * OJO: esto mitiga, no arregla una alimentacion mala. Si la placa se alimenta
  * bien, no cambia nada de cara al usuario. */
 #define OTA_BRILLO_PCT        20   /* se sigue leyendo el cartel */
-#define OTA_TX_DBM             8   /* la P4 esta a 2 m: mas potencia es solo calor */
 #define OTA_ESCRITURA_PAUSA_MS 4   /* respiro entre trozos de 4 KB escritos */
 
 /* Cada cuanto mira sola si la P4 tiene una version nueva. 60 s es lo que pidio
@@ -963,7 +968,7 @@ static void tarea_comprobar(void *arg)
         taskEXIT_CRITICAL(&s_mtx);
 
         auto_aviso_limpiar();
-        if (xTaskCreate(tarea_actualizar, "ota_upd", 8192, NULL, 3, NULL) != pdPASS) {
+        if (xTaskCreate(tarea_actualizar, "ota_upd", OTA_PILA_DESCARGA, NULL, 3, NULL) != pdPASS) {
             terminar_trabajo();
             fijar_estado(OTA_RX_ERROR, 0, "Sin memoria para actualizar");
         } else {
@@ -1037,7 +1042,6 @@ static void ota_wdt_ventana(bool flash)
 
 static bool           s_bajo_consumo;
 static int            s_brillo_antes = -1;
-static int8_t         s_tx_antes     = 0;
 
 static void consumo_bajar(void)
 {
@@ -1052,26 +1056,24 @@ static void consumo_bajar(void)
      * ahorro se paga en latencia. NO se vuelve a poner: el pico se baja con la
      * potencia de emision, que no toca el ritmo de la red. */
 
-    /* LA POTENCIA DE EMISION es el pico mas gordo de la placa: en el banco, la
-     * descarga se moria justo al empezar a transmitir. La P4 esta a dos metros:
-     * con 8 dBm sobra, y el pico baja a la mitad. */
-    if (esp_wifi_get_max_tx_power(&s_tx_antes) == ESP_OK &&
-        s_tx_antes > OTA_TX_DBM * 4)
-        esp_wifi_set_max_tx_power(OTA_TX_DBM * 4);
+    /* LA POTENCIA DE EMISION NO SE TOCA (24-nov-2026). Estuvo limitada a 8 dBm
+     * para bajar el pico de consumo del banco, donde la placa se alimentaba del
+     * USB del PC. Con la pantalla en su alimentacion de verdad (12 V), limitar
+     * la emision solo puede empeorar el enlace: los ACK del TCP salen mas
+     * flojos, el punto de acceso reenvia y la descarga se arrastra (medidos
+     * 4,7 KB/s frente a 22 KB/s). Se quita: el pico se combate con el brillo,
+     * que no cuesta red. */
 
     s_bajo_consumo = true;
-    ESP_LOGI(TAG, "OTA: bajo el consumo (brillo %d %%, radio a %d dBm)",
-             OTA_BRILLO_PCT, OTA_TX_DBM);
+    ESP_LOGI(TAG, "OTA: bajo el consumo (brillo %d %%)", OTA_BRILLO_PCT);
 }
 
 static void consumo_devolver(void)
 {
     if (!s_bajo_consumo) return;
-    if (s_tx_antes > 0) esp_wifi_set_max_tx_power(s_tx_antes);
     if (s_brillo_antes >= 0) bsp_display_brightness_set(s_brillo_antes);
     s_bajo_consumo = false;
-    ESP_LOGI(TAG, "OTA: consumo de siempre (brillo %d %%, radio: %d dBm)",
-             s_brillo_antes, s_tx_antes / 4);
+    ESP_LOGI(TAG, "OTA: consumo de siempre (brillo %d %%)", s_brillo_antes);
 }
 
 static void tarea_actualizar(void *arg)
@@ -1261,6 +1263,7 @@ static void tarea_actualizar(void *arg)
 
     fijar_progreso(0);
     traza("descarga de %u B", (unsigned)esperado);
+    const int64_t t_descarga_us = esp_timer_get_time();   /* para la velocidad */
     /* (LVGL ya esta parado desde antes del borrado; ver arriba.) */
     for (;;) {
         int leido = esp_http_client_read(cli, (char *)buf, OTA_BUFFER);
@@ -1298,8 +1301,10 @@ static void tarea_actualizar(void *arg)
             const int64_t ahora_ms = esp_timer_get_time() / 1000;
             if (ahora_ms - ultimo_aviso_ms >= 5000) {
                 ultimo_aviso_ms = ahora_ms;
-                ESP_LOGI(TAG, "OTA: %d %% (%u de %u B)", pct,
-                         (unsigned)escrito, (unsigned)esperado);
+                const int64_t ms = (esp_timer_get_time() - t_descarga_us) / 1000;
+                const uint32_t bps = ms > 0 ? (uint32_t)(((int64_t)escrito * 1000) / ms) : 0;
+                ESP_LOGI(TAG, "OTA: %d %% (%u de %u B, %u B/s)", pct,
+                         (unsigned)escrito, (unsigned)esperado, (unsigned)bps);
             }
         }
         fijar_progreso(pct);
@@ -1689,7 +1694,7 @@ ota_rx_inicio_t ota_rx_actualizar(void)
      * el sha ni el tamaño que hay que comprobar). */
     if (!hay_oferta) return OTA_RX_INICIO_SIN_DATOS;
 
-    if (xTaskCreate(tarea_actualizar, "ota_upd", 8192, NULL, 3, NULL) != pdPASS) {
+    if (xTaskCreate(tarea_actualizar, "ota_upd", OTA_PILA_DESCARGA, NULL, 3, NULL) != pdPASS) {
         terminar_trabajo();
         fijar_estado(OTA_RX_ERROR, 0, "Sin memoria para actualizar");
         return OTA_RX_INICIO_SIN_MEM;
