@@ -141,6 +141,10 @@ static const char *TAG = "ota_rx";
  *
  * Se reanuda SIEMPRE, salga como salga (el `salir:` de abajo): dejarla parada
  * seria una pantalla muerta con una OTA fallida. */
+/* Cada cuanto se le da un respiro a la pantalla para que enseñe el avance,
+ * aunque no haya cruzado un 10 % (ver el bucle de descarga). */
+#define OTA_REFRESCO_CADA_MS  6000
+
 #define OTA_REFRESCO_PCT      10
 /* 500 MS Y NO 180 (23-nov-2026): el cartel de la actualizacion se refresca con
  * un temporizador de 250 ms, asi que una ventana de 180 ms podia cerrarse SIN
@@ -1087,6 +1091,7 @@ static void tarea_actualizar(void *arg)
     uint32_t escrito = 0;
     bool ui_parada = false;        /* LVGL parado mientras se descarga (ver arriba) */
     int siguiente_refresco = OTA_REFRESCO_PCT;
+    int64_t s_ultimo_refresco_us = esp_timer_get_time();
 
     /* Copia local de lo anunciado (ver el comentario de s_oferta). */
     uint32_t esperado;
@@ -1295,10 +1300,19 @@ static void tarea_actualizar(void *arg)
             }
         }
         fijar_progreso(pct);
-        /* Un cuadro cada 10 %: lo justo para ver que avanza sin devolverle a
-         * la red el rato que dura el repintado. */
-        if (ui_parada && pct >= siguiente_refresco) {
-            siguiente_refresco = (pct / OTA_REFRESCO_PCT + 1) * OTA_REFRESCO_PCT;
+        /* Un cuadro cada OTA_REFRESCO_CADA_MS, o al cruzar un multiplo del 10 %.
+         *
+         * POR TIEMPO, NO SOLO POR PORCENTAJE (24-nov-2026). Con el borrado por
+         * trozos la descarga bajo a ~6 KB/s, asi que un 10 % son mas de 30 s
+         * con el numero quieto: el dueño lo vio como "se queda en 50 %". Lo que
+         * importa es que se mueva cada pocos segundos, se llene el 10 % o no. */
+        const int64_t ahora_us = esp_timer_get_time();
+        if (ui_parada && (pct >= siguiente_refresco ||
+                          (ahora_us - s_ultimo_refresco_us) >=
+                              (int64_t)OTA_REFRESCO_CADA_MS * 1000)) {
+            if (pct >= siguiente_refresco)
+                siguiente_refresco = (pct / OTA_REFRESCO_PCT + 1) * OTA_REFRESCO_PCT;
+            s_ultimo_refresco_us = ahora_us;
             lvgl_port_resume();
             vTaskDelay(pdMS_TO_TICKS(OTA_REFRESCO_MS));
             lvgl_port_stop();

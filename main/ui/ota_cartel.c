@@ -17,6 +17,7 @@
 static const char *TAG = "ota_cartel";
 
 static lv_obj_t *s_cartel;
+static lv_obj_t *s_fondo;      /* pantalla completa: tapa lo que hubiera detras */
 static lv_obj_t *s_titulo;
 static lv_obj_t *s_detalle;
 static lv_obj_t *s_barra;
@@ -30,6 +31,7 @@ static char            s_motivo_pintado[96];
 static void cartel_ocultar(void)
 {
     if (!s_cartel) return;
+    if (s_fondo) lv_obj_add_flag(s_fondo, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_cartel, LV_OBJ_FLAG_HIDDEN);
     s_estado_pintado = OTA_RX_QUIETO;
     s_pct_pintado = -1;
@@ -39,6 +41,10 @@ static void cartel_ocultar(void)
 static void cartel_mostrar(void)
 {
     if (!s_cartel) return;
+    if (s_fondo) {
+        lv_obj_clear_flag(s_fondo, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(s_fondo);
+    }
     lv_obj_clear_flag(s_cartel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_cartel);
     /* Y SE REPINTA LA PANTALLA ENTERA (23-nov-2026). Durante la descarga LVGL
@@ -158,6 +164,22 @@ void ota_cartel_create(void)
         ESP_LOGW(TAG, "sin capa superior: no habra cartel de actualizacion");
         return;
     }
+
+    /* PANTALLA COMPLETA, NO UN RECTANGULO SUELTO (24-nov-2026). El dueño lo
+     * pregunto al verlo: "¿por que se ve el rectangulo?". Porque la tarjeta se
+     * pinta sobre lo que hubiera antes, y ese fondo esta congelado. Una
+     * actualizacion que dura minutos no se puede enseñar como un parche: se
+     * tapa la pantalla entera con el fondo de la app y la tarjeta va dentro. */
+    s_fondo = lv_obj_create(arriba);
+    lv_obj_set_pos(s_fondo, 0, 0);
+    lv_obj_set_size(s_fondo, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_color(s_fondo, UI_COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(s_fondo, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_fondo, 0, 0);
+    lv_obj_set_style_radius(s_fondo, 0, 0);
+    lv_obj_set_style_pad_all(s_fondo, 0, 0);
+    lv_obj_clear_flag(s_fondo, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_fondo, LV_OBJ_FLAG_HIDDEN);
 
     s_cartel = lv_obj_create(arriba);
     lv_obj_set_size(s_cartel, 600, 210);
