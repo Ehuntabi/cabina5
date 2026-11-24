@@ -128,6 +128,9 @@ static const char *TAG = "ota_rx";
  * 6 KB, asi que la de descarga no necesita mas. */
 #define OTA_PILA_DESCARGA     6144
 
+/* Si la descarga no avanza NADA en este rato, se da por parada (ver el bucle). */
+#define OTA_PARADA_MS         45000
+
 /* La respuesta de /api/pantalla/info son ~250 bytes. 1 KB da aire de sobra y,
  * si llegara mas, es que no es la respuesta del contrato: se rechaza. */
 #define OTA_INFO_MAX          1024
@@ -651,16 +654,28 @@ static void fijar_estado(ota_rx_estado_t est, int pct, const char *motivo)
     taskEXIT_CRITICAL(&s_mtx);
 }
 
+/* Cuando empezo la descarga en curso (para el reloj del cartel) y el ritmo. */
+static int64_t s_descarga_desde_us;
+static uint32_t s_descarga_bps;
+
 static void fijar_progreso(int pct)
 {
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
     taskENTER_CRITICAL(&s_mtx);
-    if (s_vista.pct != pct) {
-        s_vista.pct = pct;
-        s_vista.estado = OTA_RX_DESCARGANDO;
-    }
+    s_vista.pct = pct;
+    s_vista.estado = OTA_RX_DESCARGANDO;
+    s_vista.bps = s_descarga_bps;
+    if (s_descarga_desde_us > 0)
+        s_vista.segundos = (int)((esp_timer_get_time() - s_descarga_desde_us) / 1000000);
     taskEXIT_CRITICAL(&s_mtx);
+}
+
+/* La descarga empieza ahora (reloj a cero). */
+static void descarga_empieza(void)
+{
+    s_descarga_desde_us = esp_timer_get_time();
+    s_descarga_bps = 0;
 }
 
 static void terminar_trabajo(void)
@@ -1261,9 +1276,17 @@ static void tarea_actualizar(void *arg)
         goto salir;
     }
 
+    descarga_empieza();
     fijar_progreso(0);
     traza("descarga de %u B", (unsigned)esperado);
     const int64_t t_descarga_us = esp_timer_get_time();   /* para la velocidad */
+    /* VIGILANTE DE DESCARGA PARADA (24-nov-2026). El dueño se encontro el cartel
+     * clavado en un porcentaje y no habia forma de saber desde cuando: una
+     * lectura que no devuelve ni un byte y no da error deja la tarea ahi para
+     * siempre. Si no avanza nada en OTA_PARADA_MS, se aborta con un motivo
+     * claro y el automatico vuelve a probar con su espera. */
+    int64_t ultimo_avance_us = esp_timer_get_time();
+    uint32_t escrito_anterior = 0;
     /* (LVGL ya esta parado desde antes del borrado; ver arriba.) */
     for (;;) {
         int leido = esp_http_client_read(cli, (char *)buf, OTA_BUFFER);
@@ -1291,6 +1314,17 @@ static void tarea_actualizar(void *arg)
          * total y solo se nota si la alimentacion va justa. */
         vTaskDelay(pdMS_TO_TICKS(OTA_ESCRITURA_PAUSA_MS));
 
+        if (escrito != escrito_anterior) {
+            escrito_anterior = escrito;
+            ultimo_avance_us = esp_timer_get_time();
+        } else if ((esp_timer_get_time() - ultimo_avance_us) >
+                   (int64_t)OTA_PARADA_MS * 1000) {
+            snprintf(motivo, sizeof motivo,
+                     "La descarga se ha quedado parada (%d s sin recibir nada)",
+                     (int)OTA_PARADA_MS / 1000);
+            goto salir;
+        }
+
         mbedtls_sha256_update(&sha, buf, (size_t)leido);
         escrito += (uint32_t)leido;
         const int pct = (int)(((uint64_t)escrito * 100u) / esperado);
@@ -1303,6 +1337,7 @@ static void tarea_actualizar(void *arg)
                 ultimo_aviso_ms = ahora_ms;
                 const int64_t ms = (esp_timer_get_time() - t_descarga_us) / 1000;
                 const uint32_t bps = ms > 0 ? (uint32_t)(((int64_t)escrito * 1000) / ms) : 0;
+                s_descarga_bps = bps;
                 ESP_LOGI(TAG, "OTA: %d %% (%u de %u B, %u B/s)", pct,
                          (unsigned)escrito, (unsigned)esperado, (unsigned)bps);
             }

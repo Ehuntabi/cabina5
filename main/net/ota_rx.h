@@ -64,6 +64,11 @@ typedef struct {
     bool            automatica;
     char            motivo[96];   /* ERROR: por que no se pudo */
     char            ofrecida[16]; /* HAY_NUEVA/DESCARGANDO: "v1.31" */
+    /* RELOJ DE LA DESCARGA (24-nov-2026). El dueño pregunto "¿desde que hora
+     * lleva actualizandose?" y no habia forma de saberlo: ni el cartel ni el log
+     * lo decian, y una descarga parada se quedaba clavada sin avisar. */
+    int             segundos;     /* DESCARGANDO: lo que lleva en marcha */
+    uint32_t        bps;          /* DESCARGANDO: bytes/s medidos */
 } ota_rx_vista_t;
 
 /* Por que no se ha podido EMPEZAR (ver ota_rx_comprobar/actualizar). */

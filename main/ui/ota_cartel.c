@@ -72,7 +72,15 @@ static void pinta(const ota_rx_vista_t *v)
         case OTA_RX_DESCARGANDO: {
             char t[40], d[64];
             snprintf(t, sizeof t, "Actualizando la pantalla");
-            if (v->ofrecida[0])
+            if (v->bps > 0 && v->segundos > 0) {
+                /* CON RELOJ Y VELOCIDAD (24-nov-2026): "40 %  ·  22 KB/s  ·  1:12".
+                 * El dueño pregunto "¿desde que hora lleva actualizandose?" y no
+                 * habia forma de contestar: el cartel no lo decia. */
+                snprintf(d, sizeof d, "%s   %d %%   %u KB/s   %d:%02d",
+                         v->ofrecida[0] ? v->ofrecida : "", v->pct,
+                         (unsigned)(v->bps / 1024),
+                         v->segundos / 60, v->segundos % 60);
+            } else if (v->ofrecida[0])
                 /* SIN "·" NI NINGUN SIMBOLO QUE LA FUENTE NO TENGA (24-nov-2026:
                  * el dueño lo vio como un rectangulo entre "v3.4" y "0 %"). Las
                  * Inter de esta placa traen ASCII, acentos, letras espanolas,
