@@ -1161,7 +1161,14 @@ static void tarea_actualizar(void *arg)
      * borrado, que es el rato de mas consumo de toda la operacion. */
     consumo_bajar();
 
-    esp_err_t err = esp_ota_begin(parte, esperado, &ota);
+    /* BORRADO POR SECTORES, NO DE 4 MB DE GOLPE (24-nov-2026). Con el tamaño
+     * explicito, esp_ota_begin borra la particion entera antes de escribir el
+     * primer byte: en el log se han medido entre 1 y 9,6 s con la pantalla
+     * clavada y la flash a pleno consumo -- justo el rato que tumbaba la placa
+     * cuando la alimentacion iba justa. La P4 ya lo hace asi (ota_update.c). Con
+     * esta bandera cada esp_ota_write borra lo suyo y el pico se reparte.
+     * El tamaño se sigue comprobando antes contra la particion (mas arriba). */
+    esp_err_t err = esp_ota_begin(parte, OTA_WITH_SEQUENTIAL_WRITES, &ota);
     if (err != ESP_OK) {
         snprintf(motivo, sizeof motivo, "No se pudo preparar la particion (%s)",
                  esp_err_to_name(err));
