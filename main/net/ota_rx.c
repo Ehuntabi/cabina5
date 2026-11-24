@@ -188,6 +188,12 @@ static const char *TAG = "ota_rx";
  * haria esperar a quien acaba de subir el fichero). */
 #define OTA_AUTO_PERIODO_MS   60000
 
+/* Actualizarse sola SOLO con la pantalla parada: cinco minutos sin que nadie la
+ * toque. En marcha o mientras se apunta algo, la actualizacion espera (ver
+ * OTA_ESPERA_TRAS_FALLO): en el fin de semana el automatico se ponia a bajar
+ * 2,3 MB sin que hubiera viaje abierto, clavaba el cuadro y dejaba el cartel. */
+#define OTA_AUTO_INACTIVO_S   300
+
 /* El interruptor de la red de seguridad. Va en NVS y NO en una pantalla nueva:
  * el dueño lo pidio como "por si no quiero reinicios sin avisar". Se lee una
  * vez al arrancar; con 0 desaparece el temporizador y queda solo el boton. */
@@ -225,6 +231,13 @@ static _Atomic bool s_ui_ocupada;
 /* Interruptor leido de NVS en ota_rx_arranque(). Se crea el temporizador
  * DESPUES de fijarlo, asi que la tarea de esp_timer ya lo ve definitivo. */
 static bool s_auto_activo = true;
+
+/* Cuartel del automatico (ver ota_rx_auto_espera_ms): cuantos fallos seguidos,
+ * cuando toca volver a probar y con que version se fallo (si la P4 cambia el
+ * fichero, se vuelve a empezar sin esperar la hora). */
+static uint32_t s_auto_fallos;
+static int64_t  s_auto_proximo_us;
+static char     s_auto_ver_fallida[16];
 
 /* ── LA TRAZA DE LA ULTIMA ACTUALIZACION (23-nov-2026) ─────────────────────
  *
@@ -438,6 +451,7 @@ typedef struct {
     bool viaje;        /* viaje o apunte abierto */
     bool trabajando;   /* comprobacion o descarga en marcha */
     bool ui_ocupada;   /* editor a pantalla completa o dialogo abierto */
+    bool inactiva;     /* nadie ha tocado la pantalla en OTA_AUTO_INACTIVO_S */
 } ota_rx_condiciones_t;
 
 /* ¿Toca preguntar a la P4 ahora? TODAS las condiciones, y en este orden: sin
@@ -451,7 +465,30 @@ static bool ota_rx_auto_toca_comprobar(const ota_rx_condiciones_t *c)
     if (c->viaje) return false;
     if (c->trabajando) return false;
     if (c->ui_ocupada) return false;
+    if (!c->inactiva) return false;
     return true;
+}
+
+/* Cuanto se espera antes de volver a intentarlo tras N fallos seguidos.
+ *
+ * POR QUE (24-nov-2026). El dueño conto dos cosas del fin de semana: "perdida
+ * esporadica de comunicacion entre P4 y cabina" y "sale un mensaje emergente en
+ * la cabina que no me da tiempo a leer". Las dos eran lo mismo: el automatico
+ * preguntaba cada 60 s, se ponia a descargar (2,3 MB con la pantalla parada),
+ * fallaba y volvia a empezar al minuto siguiente -- cada intento clava el
+ * cuadro, se lleva el Wi-Fi y deja un cartel azul 8 s. Un fallo de red de un
+ * minuto no se arregla insistiendo sesenta veces por hora.
+ *
+ * La escalera: el primero se reintenta al minuto (un corte corto se cura solo),
+ * y a partir de ahi se espacia hasta la hora. Al cambiar la version ofrecida o
+ * al acertar, vuelta a empezar. */
+static uint32_t ota_rx_auto_espera_ms(uint32_t fallos)
+{
+    if (fallos == 0) return 0;                 /* nada pendiente que esperar */
+    if (fallos == 1) return 60u * 1000u;       /* 1 min */
+    if (fallos == 2) return 5u * 60u * 1000u;  /* 5 min */
+    if (fallos == 3) return 15u * 60u * 1000u; /* 15 min */
+    return 60u * 60u * 1000u;                  /* 1 h, y ahi se queda */
 }
 
 /* Justo antes de descargar hay que volver a mirar: la respuesta de la P4 tarda
@@ -469,6 +506,17 @@ static bool ota_rx_auto_puede_instalar(const ota_rx_condiciones_t *c)
 }
 
 /* FIN BLOQUE PRUEBA */
+
+/* ¿Lleva la pantalla quieta lo suficiente como para ponerse a actualizar?
+ * "-1" = nadie la ha tocado desde que arranco, que cuenta como quieta.
+ * Vive FUERA del bloque de pruebas porque pregunta al BSP, que en el PC no
+ * existe; la decision (inactiva si/no) entra en las condiciones, y eso si se
+ * prueba. */
+static bool pantalla_inactiva(void)
+{
+    const int s = bsp_touch_segundos_sin_tocar();
+    return (s < 0) || (s >= OTA_AUTO_INACTIVO_S);
+}
 
 /* ── Lector MINIMO de JSON ──────────────────────────────────────────────────
  *
@@ -851,6 +899,11 @@ static void tarea_comprobar(void *arg)
     }
 
     if (!ota_rx_version_es_mas_nueva(ver, actual)) {
+        if (s_auto_fallos) {
+            ESP_LOGI(TAG, "auto: al dia otra vez; se acabo la espera de %u fallo(s)",
+                     (unsigned)s_auto_fallos);
+            s_auto_fallos = 0;
+        }
         auto_aviso_limpiar();
         if (automatica)
             ESP_LOGD(TAG, "auto: estas al dia (%s)", actual);
@@ -884,6 +937,7 @@ static void tarea_comprobar(void *arg)
             .viaje       = hay_viaje_abierto(),
             .trabajando  = true,          /* esta tarea */
             .ui_ocupada  = ui_ocupada_ahora(),
+            .inactiva    = pantalla_inactiva(),
         };
         if (!ota_rx_auto_puede_instalar(&cond)) {
             ESP_LOGW(TAG, "auto: hay %s; dejo %s para la proxima comprobacion",
@@ -1042,6 +1096,11 @@ static void tarea_actualizar(void *arg)
     taskENTER_CRITICAL(&s_mtx);
     esperado = s_oferta.bytes;
     memcpy(ver, s_oferta.ver, sizeof ver);
+    /* Si la P4 ha cambiado el fichero, los fallos del anterior no cuentan. */
+    if (s_auto_fallos && strcmp(ver, s_auto_ver_fallida) != 0) {
+        ESP_LOGI(TAG, "auto: version nueva en la P4 (%s); se vuelve a probar ya", ver);
+        s_auto_fallos = 0;
+    }
     memcpy(sha_hex, s_oferta.sha, sizeof sha_hex);
     automatica = s_vista.automatica;
     taskEXIT_CRITICAL(&s_mtx);
@@ -1381,8 +1440,14 @@ salir:
             fijar_estado(OTA_RX_QUIETO, 0, "");
         } else if (automatica) {
             /* Un fallo NO se reintenta en bucle: la tarea muere y el
-             * temporizador volvera a preguntar dentro de 60 s. El aviso se
-             * repite solo si cambia (ver auto_aviso). */
+             * temporizador volvera a preguntar, pero ESPACIANDOSE (ver
+             * ota_rx_auto_espera_ms). El aviso se repite solo si cambia. */
+            if (s_auto_fallos < 1000) s_auto_fallos++;
+            const uint32_t espera = ota_rx_auto_espera_ms(s_auto_fallos);
+            s_auto_proximo_us = esp_timer_get_time() + (int64_t)espera * 1000;
+            snprintf(s_auto_ver_fallida, sizeof s_auto_ver_fallida, "%s", ver);
+            ESP_LOGW(TAG, "auto: fallo %u seguido(s); el siguiente intento en %u s",
+                     (unsigned)s_auto_fallos, (unsigned)(espera / 1000));
             auto_aviso(motivo);
             fijar_estado(OTA_RX_ERROR, 0, motivo);
         } else {
@@ -1662,12 +1727,24 @@ static ota_rx_inicio_t ota_rx_comprobar_auto(void)
 static void auto_timer_cb(void *arg)
 {
     (void)arg;
+    /* El cuartel: tras fallar, no se insiste cada minuto (ver
+     * ota_rx_auto_espera_ms). Al minuto del primer fallo, luego 5, 15 y 1 h. */
+    if (s_auto_fallos) {
+        const int64_t ahora = esp_timer_get_time();
+        if (ahora < s_auto_proximo_us) {
+            ESP_LOGD(TAG, "auto: %u fallo(s); espero para no insistir",
+                     (unsigned)s_auto_fallos);
+            return;
+        }
+    }
+
     ota_rx_condiciones_t c = {
         .auto_activo = s_auto_activo,
         .red         = enlace_listo(NULL, 0),
         .viaje       = hay_viaje_abierto(),
         .trabajando  = trabajando_ahora(),
         .ui_ocupada  = ui_ocupada_ahora(),
+        .inactiva    = pantalla_inactiva(),
     };
 
     if (!ota_rx_auto_toca_comprobar(&c)) {
@@ -1677,6 +1754,7 @@ static void auto_timer_cb(void *arg)
         else if (c.viaje)      ESP_LOGD(TAG, "auto: viaje abierto; lo miro al minuto");
         else if (c.trabajando) ESP_LOGD(TAG, "auto: ya hay una comprobacion o descarga en marcha");
         else if (c.ui_ocupada) ESP_LOGD(TAG, "auto: editor o dialogo abierto; lo miro al minuto");
+        else if (!c.inactiva)  ESP_LOGD(TAG, "auto: la pantalla se esta usando; espero a que este quieta");
         return;
     }
 

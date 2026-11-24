@@ -55,6 +55,10 @@ void bsp_display_unlock(void);
 
 /* ── Brillo ───────────────────────────────────────────────────────────────── */
 esp_err_t bsp_display_brightness_set(int brightness_percent);
+/* Segundos desde el ultimo toque, o -1 si nadie ha tocado desde el arranque.
+ * Lo usa el automatico de la OTA: con la pantalla en uso, la actualizacion
+ * espera (ver OTA_AUTO_INACTIVO_S en net/ota_rx.c). */
+int bsp_touch_segundos_sin_tocar(void);
 int bsp_display_brightness_get(void);
 esp_err_t bsp_display_backlight_off(void);
 esp_err_t bsp_display_backlight_on(void);

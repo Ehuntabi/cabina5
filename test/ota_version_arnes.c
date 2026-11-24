@@ -86,7 +86,7 @@ static void caso_sha(const uint8_t calculado[32], const char *hex, bool esperado
 }
 
 static void caso_auto_toca(bool activo, bool red, bool viaje, bool trabajando,
-                           bool ui, bool esperado)
+                           bool ui, bool inactiva, bool esperado)
 {
     ota_rx_condiciones_t c = {
         .auto_activo = activo,
@@ -94,15 +94,29 @@ static void caso_auto_toca(bool activo, bool red, bool viaje, bool trabajando,
         .viaje       = viaje,
         .trabajando  = trabajando,
         .ui_ocupada  = ui,
+        .inactiva    = inactiva,
     };
     bool got = ota_rx_auto_toca_comprobar(&c);
     char que[224];
     snprintf(que, sizeof que,
-             "auto comprueba? activo=%d red=%d viaje=%d trabajando=%d ui=%d -> %s "
-             "(esperado %s)",
-             activo, red, viaje, trabajando, ui,
+             "auto comprueba? activo=%d red=%d viaje=%d trabajando=%d ui=%d "
+             "inactiva=%d -> %s (esperado %s)",
+             activo, red, viaje, trabajando, ui, inactiva,
              got ? "si" : "no", esperado ? "si" : "no");
     if (got == esperado) ok(que); else mal(que);
+}
+
+/* La escalera de espera tras fallar (24-nov-2026). Importa porque un fallo
+ * repetido cada 60 s clava la pantalla y se lleva el Wi-Fi toda la tarde. */
+static void caso_espera(uint32_t fallos, uint32_t esperado_ms)
+{
+    uint32_t got = ota_rx_auto_espera_ms(fallos);
+    char que[160];
+    snprintf(que, sizeof que,
+             "auto espera tras %u fallo(s) -> %u s (esperado %u s)",
+             (unsigned)fallos, (unsigned)(got / 1000),
+             (unsigned)(esperado_ms / 1000));
+    if (got == esperado_ms) ok(que); else mal(que);
 }
 
 static void caso_auto_instala(bool activo, bool red, bool viaje, bool trabajando,
@@ -207,14 +221,24 @@ int main(void)
      * Lo que no se puede probar sin placa es el temporizador; lo que SI se
      * prueba aqui es la decision, que es donde se puede reiniciar la pantalla
      * en mitad de un viaje o de una edicion sin que nadie lo vea. */
-    caso_auto_toca(true,  true,  false, false, false, true);   /* todo en orden */
-    caso_auto_toca(false, true,  false, false, false, false);  /* apagado en NVS */
-    caso_auto_toca(true,  false, false, false, false, false);  /* sin red con la P4 */
-    caso_auto_toca(true,  true,  true,  false, false, false);  /* viaje o apunte abierto */
-    caso_auto_toca(true,  true,  false, true,  false, false);  /* ya en marcha */
-    caso_auto_toca(true,  true,  false, false, true,  false);  /* editor o dialogo */
+    caso_auto_toca(true,  true,  false, false, false, true,  true);  /* todo en orden */
+    caso_auto_toca(false, true,  false, false, false, true,  false); /* apagado en NVS */
+    caso_auto_toca(true,  false, false, false, false, true,  false); /* sin red con la P4 */
+    caso_auto_toca(true,  true,  true,  false, false, true,  false); /* viaje o apunte abierto */
+    caso_auto_toca(true,  true,  false, true,  false, true,  false); /* ya en marcha */
+    caso_auto_toca(true,  true,  false, false, true,  true,  false); /* editor o dialogo */
+    /* La pantalla en uso (alguien la esta tocando): tampoco. */
+    caso_auto_toca(true,  true,  false, false, false, false, false);
     /* Y con todo mal a la vez tampoco: la condicion es TODAS. */
-    caso_auto_toca(true,  true,  true,  true,  true,  false);
+    caso_auto_toca(true,  true,  true,  true,  true,  false, false);
+
+    /* La espera tras fallar: 1 min, 5, 15 y luego la hora, sin crecer mas. */
+    caso_espera(0, 0);
+    caso_espera(1, 60u * 1000u);
+    caso_espera(2, 5u * 60u * 1000u);
+    caso_espera(3, 15u * 60u * 1000u);
+    caso_espera(4, 60u * 60u * 1000u);
+    caso_espera(50, 60u * 60u * 1000u);
 
     /* Antes de instalar: la red y "trabajando" NO cuentan (la comprobacion
      * acaba de demostrar la red y es ella misma la que esta trabajando); el

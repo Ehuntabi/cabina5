@@ -298,6 +298,7 @@ static esp_lcd_touch_handle_t bsp_touch_new(void)
  * la comprobacion del arranque se queda. */
 static lv_indev_read_cb_t s_read_cb_original = NULL;
 static volatile uint32_t s_lecturas = 0;
+static volatile int64_t  s_ultimo_toque_us = 0;   /* ver bsp_touch_segundos_sin_tocar() */
 static volatile uint32_t s_puntos = 0;
 static bool s_tactil_comprobado = false;
 
@@ -305,7 +306,22 @@ static void bsp_touch_read_contado(lv_indev_t *indev, lv_indev_data_t *datos)
 {
     s_lecturas++;
     if (s_read_cb_original) s_read_cb_original(indev, datos);
-    if (datos->state == LV_INDEV_STATE_PRESSED) s_puntos++;
+    if (datos->state == LV_INDEV_STATE_PRESSED) {
+        s_puntos++;
+        /* Cuando fue el ultimo toque: es lo que mira el automatico de la OTA
+         * para no ponerse a actualizar con la pantalla en uso (24-nov-2026). */
+        s_ultimo_toque_us = esp_timer_get_time();
+    }
+}
+
+int bsp_touch_segundos_sin_tocar(void)
+{
+    const int64_t t = s_ultimo_toque_us;
+    if (t <= 0) return -1;              /* nadie la ha tocado desde que arranco */
+    int64_t d = (esp_timer_get_time() - t) / 1000000;
+    if (d < 0) d = 0;
+    if (d > 86400) d = 86400;           /* un dia es "mucho rato", no hace falta mas */
+    return (int)d;
 }
 
 /* ── Arranque completo ────────────────────────────────────────────────────── */

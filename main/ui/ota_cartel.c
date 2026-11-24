@@ -115,8 +115,13 @@ static void tic_cb(lv_timer_t *t)
     memset(&v, 0, sizeof v);
     ota_rx_estado(&v);
 
-    /* Error: se deja 8 s a la vista y se retira solo (es lo unico que "se queda"
-     * en pantalla sin que nada lo cambie; los demas estados van solos). */
+    /* Error: se deja 60 s a la vista y se retira solo.
+     *
+     * ERAN 8 SEGUNDOS Y NO SE LEIAN (24-nov-2026). El dueño: "sale un mensaje
+     * emergente en la cabina que no me da tiempo a leer". Ocho segundos estan
+     * bien para un destello, no para enterarse de por que no se ha actualizado:
+     * el cartel lleva el motivo entero y hay que poder leerlo con la pantalla a
+     * un metro. Un minuto da tiempo sin quedarse pegado en el cuadro. */
     static uint32_t s_error_ms;
     if (v.estado == OTA_RX_ERROR) {
         if (strcmp(v.motivo, s_motivo_pintado) != 0) {
@@ -128,7 +133,7 @@ static void tic_cb(lv_timer_t *t)
             return;
         }
         if (s_estado_pintado == OTA_RX_ERROR && s_error_ms &&
-            lv_tick_elaps(s_error_ms) > 8000) {
+            lv_tick_elaps(s_error_ms) > 60000) {
             cartel_ocultar();
         }
         return;
