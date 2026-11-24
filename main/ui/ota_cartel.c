@@ -62,11 +62,15 @@ static void pinta(const ota_rx_vista_t *v)
 
     switch (v->estado) {
         case OTA_RX_COMPROBANDO:
-            lv_label_set_text(s_titulo, "Buscando actualización");
-            lv_label_set_text(s_detalle, "Preguntando a la P4 qué versión tiene...");
-            lv_obj_add_flag(s_barra, LV_OBJ_FLAG_HIDDEN);
-            lv_label_set_text(s_pie, "");
-            cartel_mostrar();
+            /* NO SE PINTA NADA AL PREGUNTAR (24-nov-2026). El dueño: "sale un
+             * cartel de que no hay actualizaciones... solo se ve 1 segundo".
+             * Era esto: la pantalla pregunta a la P4 cada 60 s, el estado pasa
+             * por COMPROBANDO y el cartel se enseñaba un segundo antes de
+             * ocultarse al saber que esta al dia. Un parpadeo por minuto, y
+             * desde que el cartel es a pantalla completa, un fogonazo. Preguntar
+             * es asunto interno: el cartel solo sale cuando hay algo que contar
+             * (descarga en marcha, error o instalada). */
+            cartel_ocultar();
             break;
 
         case OTA_RX_DESCARGANDO: {
