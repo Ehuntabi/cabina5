@@ -1225,14 +1225,17 @@ static void tarea_actualizar(void *arg)
      * borrado, que es el rato de mas consumo de toda la operacion. */
     consumo_bajar();
 
-    /* BORRADO POR SECTORES, NO DE 4 MB DE GOLPE (24-nov-2026). Con el tamaño
-     * explicito, esp_ota_begin borra la particion entera antes de escribir el
-     * primer byte: en el log se han medido entre 1 y 9,6 s con la pantalla
-     * clavada y la flash a pleno consumo -- justo el rato que tumbaba la placa
-     * cuando la alimentacion iba justa. La P4 ya lo hace asi (ota_update.c). Con
-     * esta bandera cada esp_ota_write borra lo suyo y el pico se reparte.
-     * El tamaño se sigue comprobando antes contra la particion (mas arriba). */
-    esp_err_t err = esp_ota_begin(parte, OTA_WITH_SEQUENTIAL_WRITES, &ota);
+    /* BORRADO DE GOLPE, COMO SIEMPRE, Y NO POR SECTORES (24-nov-2026).
+     *
+     * Se probo OTA_WITH_SEQUENTIAL_WRITES (como hace la P4) para repartir el
+     * pico de consumo del borrado. En ESTA placa es inviable: con el borrado
+     * dentro de cada esp_ota_write la descarga se queda en decenas de BYTES por
+     * segundo (medido: 5.216 B en 62 s = 84 B/s, con el cartel clavado en 0 %).
+     * La flash guarda tambien el codigo y el driver de Wi-Fi, asi que cada
+     * borrado deja la placa a oscuras y el TCP se para. Medido con el borrado de
+     * golpe: 22-24 KB/s, o sea 2,3 MB en ~100 s. Se vuelve a lo que funciona y
+     * el pico se combate con el brillo y la potencia de emision. */
+    esp_err_t err = esp_ota_begin(parte, esperado, &ota);
     if (err != ESP_OK) {
         snprintf(motivo, sizeof motivo, "No se pudo preparar la particion (%s)",
                  esp_err_to_name(err));
