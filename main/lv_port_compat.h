@@ -35,6 +35,10 @@ extern "C" {
  * LVGL esta colgada y se deja saltar el Task WDT para que la placa se recupere).
  * Arrancarlo es idempotente. */
 uint32_t lvgl_port_get_loop_count(void);
+
+/* ¿Esta el contador de vida creado? Si no (fallo del cerrojo o del malloc), el
+ * contador no sube NUNCA y el vigilante no puede juzgar la UI. */
+bool lvgl_port_contador_ok(void);
 void lv_port_contador_arrancar(void);
 
 /* Captura de la pantalla activa (la usa el modo captura por USB,

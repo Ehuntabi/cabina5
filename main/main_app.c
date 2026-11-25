@@ -172,6 +172,18 @@ static void lvgl_wdog_task(void *arg) {
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(LVGL_WDOG_PERIOD_MS));
 
+        /* SIN CONTADOR NO SE JUZGA (auditoria del 25-nov-2026, H-38): si el
+         * temporizador de vida no llego a crearse, el contador no sube nunca y
+         * este vigilante daria la UI por colgada, reiniciando la placa sin que
+         * nada este colgado. Se intenta arrancar otra vez y, mientras tanto, se
+         * sigue alimentando el Task WDT. */
+        if (!lvgl_port_contador_ok()) {
+            lv_port_contador_arrancar();
+            prev = lvgl_port_get_loop_count();
+            stalled_ms = 0;
+            esp_task_wdt_reset();
+            continue;
+        }
         uint32_t now = lvgl_port_get_loop_count();
         if (s_wdog_ui_pausado) {
             /* La OTA tiene la pantalla parada a proposito: no es un cuelgue. */
@@ -506,6 +518,25 @@ void setup(void) {
         return;
     }
     lv_port_contador_arrancar();   /* contador de vida para lvgl_wdog_task */
+
+    /* EL VIGILANTE SE CREA AQUI Y NO AL FINAL (auditoria del 25-nov-2026, H-25).
+     * Antes se creaba en el tramo final del setup(), asi que TODO el arranque
+     * (NVS, panel, Wi-Fi, tilt_init con su espera de 1,5 s, la UI) corria sin
+     * ninguna tarea suscrita al Task WDT: si se colgaba ahi, la placa se quedaba
+     * encendida y muda hasta cortar el contacto. El unico que se suscribe al
+     * Task WDT es esta tarea (main_app.c), asi que cuanto antes exista, antes
+     * hay vigilancia. LVGL ya esta pintando desde bsp_display_start, asi que el
+     * contador de vida sube y no hay falsa alarma. */
+    {
+        BaseType_t crea = xTaskCreate(lvgl_wdog_task, "lvgl_wdog", 3072, NULL, 6, NULL);
+        if (crea != pdPASS) {
+            ESP_LOGE(TAG, "xTaskCreate(lvgl_wdog) fallo (err=%d): SIN recuperacion anti-cuelgue de LVGL"
+                          " (heap interno libre %u B, PSRAM %u B)",
+                     (int)crea,
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        }
+    }
     brillo_init();   /* nivel guardado; la primera vez, el ALTO */
 
     /* LA RED VA ANTES QUE LA UI, y esto es a proposito (portado de la 5"):
@@ -535,14 +566,17 @@ void setup(void) {
      * de vida antes de pisarla (ver salida.h). */
     salida_init();
 
-    /* No es fatal si no responde: tilt_is_present() queda en false y la
-     * pantalla de inclinacion lo muestra en vez de crashear. */
-    tilt_init();
-
     data_model_init();
     nav_init();
     splash_create();
     lvgl_port_unlock();
+
+    /* TILT FUERA DEL CERROJO (auditoria del 25-nov-2026, H-39). tilt_init() se
+     * lleva ~2,3 s (1,5 s de espera del BNO055 + resets) y NO toca LVGL para
+     * nada: teniendolo dentro, la tarea de dibujo no podia pintar y en el panel
+     * se quedaba el fondo por defecto (claro) a brillo 100 -- una pantalla blanca
+     * de dos segundos en cada arranque de noche. */
+    tilt_init();
 
     /* El repartidor de apuntes pendientes. Va DESPUES de udp_rx_start() porque
      * necesita la red, y arranca aunque la cola este vacia: lo normal es que
@@ -609,15 +643,6 @@ void setup(void) {
      * no dice si fue memoria, prioridad o tabla llena: paso en la unidad nueva el
      * 7-oct-2026 y hubo que adivinar. La memoria interna se mira ANTES de crear
      * la tarea, que es el dato que hace falta si el fallo es por RAM. */
-    BaseType_t crea;
-    crea = xTaskCreate(lvgl_wdog_task, "lvgl_wdog", 3072, NULL, 6, NULL);
-    if (crea != pdPASS) {
-        ESP_LOGE(TAG, "xTaskCreate(lvgl_wdog) fallo (err=%d): SIN recuperacion anti-cuelgue de LVGL"
-                      " (heap interno libre %u B, PSRAM %u B)",
-                 (int)crea,
-                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-    }
 
     /* Modo captura de pantallas (capture_carousel.c). Con el interruptor de
      * capture_carousel.h a 0 la funcion es un no-op, asi que esto se puede

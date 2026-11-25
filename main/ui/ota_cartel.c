@@ -35,7 +35,9 @@ static void cartel_ocultar(void)
     lv_obj_add_flag(s_cartel, LV_OBJ_FLAG_HIDDEN);
     s_estado_pintado = OTA_RX_QUIETO;
     s_pct_pintado = -1;
-    s_motivo_pintado[0] = '\0';
+    /* EL MOTIVO NO SE BORRA AQUI (auditoria del 25-nov-2026, H-1): borrarlo hacia
+     * que el tic de 250 ms viera "motivo nuevo" y repintara el error otra vez, a
+     * los 60 s, en bucle infinito. Se borra cuando cambia el estado. */
 }
 
 static void cartel_mostrar(void)
@@ -53,6 +55,21 @@ static void cartel_mostrar(void)
      * Configuracion). Invalidar la pantalla activa entera obliga a redibujarla
      * de arriba abajo en la siguiente pasada, asi que no quedan restos. */
     lv_obj_invalidate(lv_scr_act());
+}
+
+/* CERRAR EL AVISO DE ERROR CON EL DEDO (auditoria del 25-nov-2026, H-1). Antes
+ * el unico sitio desde el que se cerraba era Ajustes, y el fondo del cartel se
+ * comia el tacto: con un error puesto, la pantalla se quedaba bloqueada hasta
+ * reiniciar. Tocar el cartel llama a ota_rx_olvidar() (lo mismo que hace
+ * Ajustes) y lo esconde. */
+static void cartel_click_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ota_rx_olvidar();
+    lv_obj_add_flag(s_cartel, LV_OBJ_FLAG_HIDDEN);
+    if (s_fondo) lv_obj_add_flag(s_fondo, LV_OBJ_FLAG_HIDDEN);
+    s_estado_pintado = OTA_RX_QUIETO;
+    s_pct_pintado = -1;
 }
 
 /* Pinta el estado que haya. Devuelve true si hay algo que enseñar. */
@@ -116,7 +133,7 @@ static void pinta(const ota_rx_vista_t *v)
             lv_label_set_text(s_detalle, v->motivo[0] ? v->motivo : "Error sin detalle");
             lv_obj_set_style_text_color(s_detalle, UI_COLOR_RED, 0);
             lv_obj_add_flag(s_barra, LV_OBJ_FLAG_HIDDEN);
-            lv_label_set_text(s_pie, "Sigue con la versión que tenía. El detalle, en Ajustes.");
+            lv_label_set_text(s_pie, "Sigue con la versión que tenía. Toca aquí para cerrar.");
             cartel_mostrar();
             break;
 
@@ -197,6 +214,10 @@ void ota_cartel_create(void)
     lv_obj_set_style_radius(s_fondo, 0, 0);
     lv_obj_set_style_pad_all(s_fondo, 0, 0);
     lv_obj_clear_flag(s_fondo, LV_OBJ_FLAG_SCROLLABLE);
+    /* SIN CLICKABLE: es un fondo, no un boton. Siendo clicable (lo es por
+     * defecto), se tragaba todos los toques: ni deslizar ni pulsar
+     * Configuracion (auditoria del 25-nov-2026, H-1). */
+    lv_obj_clear_flag(s_fondo, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(s_fondo, LV_OBJ_FLAG_HIDDEN);
 
     s_cartel = lv_obj_create(arriba);
@@ -242,6 +263,10 @@ void ota_cartel_create(void)
     lv_obj_set_style_text_font(s_pie, &FUENTE_PIE, 0);
     lv_obj_set_style_text_align(s_pie, LV_TEXT_ALIGN_CENTER, 0);
 
+    /* El cartel se puede tocar para cerrarlo (solo hace algo en el estado de
+     * error, que es el unico que se queda). */
+    lv_obj_add_flag(s_cartel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_cartel, cartel_click_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_flag(s_cartel, LV_OBJ_FLAG_HIDDEN);
     lv_timer_create(tic_cb, 250, NULL);
     ESP_LOGI(TAG, "cartel de actualizacion montado");

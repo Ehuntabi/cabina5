@@ -545,12 +545,10 @@ void p4_api_cuerpo_alarma_sentido(char *out, size_t n, uint8_t mask, int silenci
     snprintf(out, n, "{\"alarmas\":%u,\"silencio\":%d}", (unsigned)mask,
              silenciar ? 1 : 0);
 }
-
-bool p4_api_silenciar_alarma(uint8_t mask, p4_api_done_cb cb, void *user_data)
-{
-    /* Compatibilidad: callar. Para volver a sonar, p4_api_alarma_sentido(). */
-    return p4_api_alarma_sentido(mask, 1, cb, user_data);
-}
+/* (p4_api_silenciar_alarma() se borro en la auditoria del 25-nov-2026, H-32:
+ * no la llamaba nadie y fijaba silenciar=1, asi que usarla para "volver a
+ * sonar" no habria encendido el sonido. El camino bueno es
+ * p4_api_alarma_sentido().) */
 
 bool p4_api_alarma_sentido(uint8_t mask, int silenciar, p4_api_done_cb cb,
                            void *user_data)

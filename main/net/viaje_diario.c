@@ -705,7 +705,18 @@ bool viaje_diario_compactar_si_toca(void)
 bool viaje_diario_anota(const char *cuerpo, uint32_t id)
 {
     DIARIO_LOCK();
-    bool r = diario_anota(cuerpo, id);
+    /* SIN SITIO = NO SE ANOTA (auditoria del 25-nov-2026, H-19). Si la
+     * compactacion de arranque fallo, `s_cursor` apunta a una zona que NO se ha
+     * borrado; escribir ahi mezcla bits (la flash solo baja 1->0) y el registro
+     * sale con CRC malo, y al arrancar se tira ESE y todos los de detras. Mejor
+     * decir que no: el apunte se queda en la cola de NVS y el usuario ve el
+     * aviso de que no hay copia duradera. */
+    bool r = false;
+    if (s_sin_sitio) {
+        ESP_LOGW("viaje_diario", "no anoto: no hay sitio hasta compactar");
+    } else {
+        r = diario_anota(cuerpo, id);
+    }
     DIARIO_UNLOCK();
     return r;
 }

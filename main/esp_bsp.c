@@ -342,8 +342,12 @@ static lv_indev_t *s_indev = NULL;
  * que volver a medir -- pero el log de abajo ya dice lo que hay de verdad. */
 #define BSP_BUF_PX      (LCD_H_RES * 40)
 
-/* Retrazo del panel. El driver RGB lo avisa desde su ISR. */
-static SemaphoreHandle_t s_vsync_sem = NULL;
+/* Retrazo del panel. El driver RGB lo avisa desde su ISR.
+ *
+ * HABIA UN s_vsync_sem QUE NO SE CREABA NUNCA (auditoria del 25-nov-2026, H-41):
+ * la ISR lo daba "si no era NULL" -- y lo era siempre -- mientras el comentario
+ * del flush decia que se creaba. Se quita: el contador de barrido no lo necesita
+ * y nadie lo tomaba. */
 static esp_lcd_panel_handle_t s_rgb_panel = NULL;
 
 /* Mira lo que HAY en el framebuffer y lo resume en una linea.
@@ -495,19 +499,16 @@ static bool IRAM_ATTR bsp_rgb_vsync_cb(esp_lcd_panel_handle_t panel,
                                        const esp_lcd_rgb_panel_event_data_t *edata,
                                        void *user_ctx)
 {
-    BaseType_t despertar = pdFALSE;
     s_vsyncs++;        /* DIAGNOSTICO: frecuencia real de barrido del panel */
-    if (s_vsync_sem) xSemaphoreGiveFromISR(s_vsync_sem, &despertar);
-    return despertar == pdTRUE;
+    return false;      /* no se despierta a ninguna tarea: no hay semaforo */
 }
 
 /* LVGL avisa aqui de que tiene un trozo listo y se copia inmediatamente.
  *
  * ESTE COMENTARIO DECIA "se espera al retrazo" Y NO SE ESPERA A NADA
- * (corregido el 16-oct-2026): no hay ni un xSemaphoreTake(s_vsync_sem) en todo
- * el fichero. El semaforo se crea y la ISR del driver lo da, pero nadie lo toma
- * (se deja ahi, muerto, a proposito: usarlo seria bloquear el flush hasta el
- * retrazo y no esta medido). Lo que hay de verdad es: se copia ya, y el panel
+ * (corregido el 16-oct-2026): no hay ni un xSemaphoreTake en todo el fichero, y
+ * desde la auditoria del 25-nov-2026 (H-41) tampoco existe el semaforo que este
+ * comentario decia crear. Lo que hay de verdad es: se copia ya, y el panel
  * empieza su barrido por la linea de arriba, asi que el trozo nuevo se ve en
  * ESTE cuadro y la costura se queda en una linea en vez de pasearse.
  *

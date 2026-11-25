@@ -1,5 +1,11 @@
 # Fuentes de la aplicacion. Mismo reparto que el satelite de 3,5" (del que se
 # porto): raiz + ui/ + icons/ + fonts/ + net/.
+# OJO CON EL GLOB (auditoria del 25-nov-2026, H-40): se evalua al CONFIGURAR, asi
+# que un .c nuevo no entra en el binario hasta el siguiente "idf.py reconfigure".
+# Se intento CONFIGURE_DEPENDS y el IDF no lo admite (compila este fichero en modo
+# script: "CONFIGURE_DEPENDS is invalid for script and find package modes"). La
+# red de seguridad es test/fuentes_compiladas.sh, que compara los .c de main/ con
+# los .obj del build.
 file(GLOB SOURCES "*.c" "ui/*.c" "icons/*.c" "fonts/*.c" "net/*.c")
 
 idf_component_register(

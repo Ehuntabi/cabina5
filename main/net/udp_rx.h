@@ -41,7 +41,6 @@ typedef enum {
 
 /* Ultimo descarte y que se vio en el (version y tamano del paquete). Los tres
  * punteros pueden ser NULL. */
-void udp_rx_diagnostico(udp_rx_drop_t *motivo, int *version_vista, int *tam_visto);
 
 /* Copia las credenciales actuales (para prefijar la pantalla de Ajustes). */
 void udp_rx_get_credentials(char *ssid_out, size_t ssid_len, char *pass_out, size_t pass_len);

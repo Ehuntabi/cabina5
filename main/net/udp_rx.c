@@ -43,7 +43,9 @@
 
 static const char *TAG = "udp_rx";
 
-#define WIFI_BIT_CONNECTED  BIT0
+/* BIT0 estaba reservado a "asociada" y nadie lo esperaba nunca: se pone y se
+ * borra, y el unico xEventGroupWaitBits del fichero espera GOT_IP. Se quito en
+ * la auditoria del 25-nov-2026 (H-43). */
 #define WIFI_BIT_GOT_IP     BIT1
 
 static EventGroupHandle_t s_wifi_events;
@@ -81,16 +83,11 @@ static int64_t ultimo_rx_leer(void)
     return t;
 }
 
-/* Diagnostico del ultimo descarte: ver udp_rx_diagnostico(). */
 /* LOS TRES CAMPOS DEL DESCARTE VAN JUNTOS (tanda 2 de la auditoria del
  * 18-oct-2026): los escribe la tarea de recepcion y los lee la de dibujo, y
  * "volatile" no hace atomico un grupo: la pantalla podia enseñar el motivo de
  * un paquete con la version o el tamaño de otro. Se copian en bloque bajo el
  * mismo cerrojo. */
-static portMUX_TYPE s_mux_drop = portMUX_INITIALIZER_UNLOCKED;
-static volatile udp_rx_drop_t s_drop_motivo = UDP_RX_DROP_NO;
-static volatile int s_drop_version = -1;
-static volatile int s_drop_tam = -1;
 /* Senal medida por ESTA tarea, no por la de dibujo: preguntarle al Wi-Fi desde
  * la tarea de LVGL puede bloquearla (la API coge su cerrojo) y con el vigilante
  * de tareas encima eso es un reinicio. Paso el 30-sep-2026: la pantalla de
@@ -909,7 +906,7 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
                 /* A partir de aqui, la IP tiene que llegar en s_dhcp_espera_us. */
                 esp_timer_stop(s_dhcp_timer);      /* no-op si no estaba armado */
                 esp_timer_start_once(s_dhcp_timer, s_dhcp_espera_us);
-                xEventGroupSetBits(s_wifi_events, WIFI_BIT_CONNECTED);
+
                 s_redes_fallos_seguidos = 0;   /* la proxima caida vuelve a diagnosticar rapido */
                 break;
             case WIFI_EVENT_STA_DISCONNECTED: {
@@ -942,14 +939,26 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
                         xTaskNotifyGive(s_aplicar_task);
                     }
                 }
-                xEventGroupClearBits(s_wifi_events, WIFI_BIT_CONNECTED | WIFI_BIT_GOT_IP);
+                /* BIT_CONNECTED ya no existe (H-43): solo queda GOT_IP que limpiar. */
+                xEventGroupClearBits(s_wifi_events, WIFI_BIT_GOT_IP);
                 s_dhcp_fallos = 0;   /* cada asociacion empieza a contar de cero */
                 esp_timer_stop(s_dhcp_timer);        /* sin IP que esperar */
                 esp_timer_stop(s_reconnect_timer);   /* no-op si no estaba armado */
                 /* Si la tarea esta escaneando, NO se arma: saltaria en mitad
                  * del escaneo y lo abortaria. Lo rearma la tarea al acabar. */
-                if (!s_escaneando)
-                    esp_timer_start_once(s_reconnect_timer, RECONNECT_DELAY_US);
+                /* ESPACIADO 1-2-4-8 s, QUE ANTES NO SE APLICABA (auditoria del
+                 * 25-nov-2026, H-42): el temporizador se armaba siempre a 0,5 s
+                 * fijos y s_reintento_ms no decidia nada -- con la P4 apagada,
+                 * un intento por segundo durante horas y una linea de log por
+                 * intento. Aqui se usa la escalera de verdad; al asociar se
+                 * vuelve a 1 s (ver WIFI_BIT_GOT_IP). */
+                if (!s_escaneando) {
+                    const uint32_t espera_ms = s_reintento_ms;
+                    esp_timer_start_once(s_reconnect_timer,
+                                         (uint64_t)espera_ms * 1000);
+                    if (s_reintento_ms < 8000) s_reintento_ms *= 2;
+                    if (s_reintento_ms > 8000) s_reintento_ms = 8000;
+                }
                 break;
             }
             default: break;
@@ -1027,8 +1036,22 @@ static void manda_latido(int sock)
      * reves, un cambio del latido obligaria a subir la telemetria entera. Hoy
      * las dos valen 5, asi que el cable no cambia: es solo desacoplarlas. */
     l.version = MINI_LATIDO_VERSION;
+    /* Y LA VERSION DE TELEMETRIA, en el primer byte del relleno (_pad_lat, sin
+     * cambiar el tamano de 12). Auditoria del 25-nov-2026, H-6: es el UNICO canal
+     * que tiene la P4 para saber que hablar dos versiones distintas no es "la
+     * bajada rota". Una cabina sin regrabar manda 0 y la P4 lo interpreta como
+     * "no lo dice". */
+    l._pad_lat[0] = MINI_PROTO_VERSION;
     int64_t t_rx = ultimo_rx_leer();
-    int64_t ref = t_rx ? t_rx : s_escucha_desde_us;
+    /* 'ref = 0' ES "NUNCA HE RECIBIDO NADA" Y HAY QUE MANDARLO ASI (auditoria del
+     * 25-nov-2026, H-27). Antes se usaba s_escucha_desde_us como respaldo, que
+     * siempre esta puesto, asi que la rama del -1 era inalcanzable y la P4 -- que
+     * tiene escrita justo esa excepcion -- nunca la veia. Lo que si hace falta es
+     * contarle a la P4 que "nunca" no es lo mismo que "llevo N s": si una cabina
+     * no acepta NI UNA trama (firmware de otra version, por ejemplo), mandar un
+     * numero creciente hace que la P4 reinicie su AP creyendo que la bajada esta
+     * rota. */
+    int64_t ref = t_rx;
     /* El campo es int16 en el protocolo: se SATURA en vez de dar la vuelta.
      * A las 9 h 6 min de silencio el valor se volvia negativo y la P4 dejaba de
      * creerse el latido justo cuando mas falta hacia (auditoria del
@@ -1131,11 +1154,6 @@ static void rx_task(void *arg)
         if (src.sin_addr.s_addr != p4_addr) {
             ESP_LOGW(TAG, "drop: origen %s no es la P4",
                      inet_ntoa(src.sin_addr));
-            portENTER_CRITICAL(&s_mux_drop);
-            s_drop_motivo = UDP_RX_DROP_ORIGEN;
-            s_drop_version = -1;
-            s_drop_tam = n;
-            portEXIT_CRITICAL(&s_mux_drop);
             s_msgs_bad++;
             manda_latido(sock);   /* tambien al DESCARTAR (08-nov-2026) */
             continue;
@@ -1154,11 +1172,6 @@ static void rx_task(void *arg)
             int v = (n >= 1) ? (int)((const uint8_t *)buf)[0] : -1;
             ESP_LOGW(TAG, "drop: tam %d != %u (version %d)", n,
                      (unsigned)sizeof(mini_msg_t), v);
-            portENTER_CRITICAL(&s_mux_drop);
-            s_drop_motivo = UDP_RX_DROP_TAM;
-            s_drop_version = v;
-            s_drop_tam = n;
-            portEXIT_CRITICAL(&s_mux_drop);
             s_msgs_bad++;
             manda_latido(sock);
             continue;
@@ -1167,11 +1180,6 @@ static void rx_task(void *arg)
         if (msg->version != MINI_PROTO_VERSION) {
             ESP_LOGW(TAG, "drop: version %u (esta pantalla habla la %u)",
                      msg->version, (unsigned)MINI_PROTO_VERSION);
-            portENTER_CRITICAL(&s_mux_drop);
-            s_drop_motivo = UDP_RX_DROP_VERSION;
-            s_drop_version = (int)msg->version;
-            s_drop_tam = n;
-            portEXIT_CRITICAL(&s_mux_drop);
             s_msgs_bad++;
             manda_latido(sock);
             continue;
@@ -1180,11 +1188,6 @@ static void rx_task(void *arg)
         if (expected != msg->crc32) {
             ESP_LOGW(TAG, "drop: crc 0x%08lx != 0x%08lx",
                      (unsigned long)msg->crc32, (unsigned long)expected);
-            portENTER_CRITICAL(&s_mux_drop);
-            s_drop_motivo = UDP_RX_DROP_CRC;
-            s_drop_version = (int)msg->version;
-            s_drop_tam = n;
-            portEXIT_CRITICAL(&s_mux_drop);
             s_msgs_bad++;
             manda_latido(sock);
             continue;
@@ -1194,15 +1197,6 @@ static void rx_task(void *arg)
         ultimo_rx_marcar();   /* enlace vivo: ver udp_rx_enlace() */
         s_sin_datos_intentos = 0;                /* llego un paquete: escalera a cero */
         s_aviso_mudez_dado = false;
-        /* El ultimo motivo de descarte se OLVIDA al aceptar una trama buena
-         * (auditoria del 08-nov-2026): si no, Ajustes seguia enseñando
-         * "(habla otro aparato)" de un paquete de hace dias pegado a un
-         * "sin datos 30s" de ahora, mezclando dos diagnosticos distintos. */
-        portENTER_CRITICAL(&s_mux_drop);
-        s_drop_motivo = UDP_RX_DROP_NO;
-        s_drop_version = -1;
-        s_drop_tam = -1;
-        portEXIT_CRITICAL(&s_mux_drop);
         manda_latido(sock);                      /* y se lo contamos a la P4 */
         if (s_asociado && esp_timer_get_time() - s_rssi_us > 2000000) {
             wifi_ap_record_t ap;
@@ -1355,12 +1349,7 @@ void udp_rx_enlace(char *ssid, size_t ssid_len, bool *asociado,
     }
 }
 
-void udp_rx_diagnostico(udp_rx_drop_t *motivo, int *version_vista, int *tam_visto)
-{
-    portENTER_CRITICAL(&s_mux_drop);
-    if (motivo)       *motivo = s_drop_motivo;
-    if (version_vista) *version_vista = s_drop_version;
-    if (tam_visto)     *tam_visto = s_drop_tam;
-    portEXIT_CRITICAL(&s_mux_drop);
-}
+/* (Aqui vivia udp_rx_diagnostico(); se borro en la auditoria del 25-nov-2026,
+ * H-31: no la llamaba nadie desde que Ajustes dejo de enseñar el motivo del
+ * descarte, y mantenia tres campos bajo cerrojo en el camino caliente.) */
 

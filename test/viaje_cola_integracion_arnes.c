@@ -120,6 +120,12 @@ static void reparto_hasta_vaciar(void)
     ok(false, "el repartidor no ha terminado de vaciar (posible bucle)");
 }
 
+/* UNA sola pasada del repartidor (la tarea de verdad se llama aqui). */
+static void reparto_una_vuelta(void)
+{
+    dobles_tarea_pasada();
+}
+
 /* Los ids de las tres claves q0..q2, para comprobar el ORDEN en la NVS. */
 static void ids_en_nvs(uint32_t *ids, size_t n)
 {
@@ -475,6 +481,81 @@ int main(void)
     reparto_hasta_vaciar();
     ok(dobles_p4_enviados() == 2 && id_en(dobles_p4_cuerpo(0)) == 801 &&
        id_en(dobles_p4_cuerpo(1)) == 802, "y salen a la P4 en ese mismo orden");
+
+    /* ── 7. El fin NO adelanta a los apuntes que solo estan en el diario ─────
+     * Auditoria del 25-nov-2026, H-10 (reproducido antes del arreglo): con la
+     * ventana de envio llena y el diario sin aceptar el registro, el `fin` se
+     * colaba en el hueco reservado y la P4 cerraba el viaje sin los apuntes que
+     * solo estaban en el diario. */
+    printf("\n=== 7. El fin no se cuela por delante de lo que solo esta en el diario ===\n");
+    arranca_limpio();
+    for (uint32_t k = 0; k < VIAJE_COLA_APUNTES_MAX; k++) {
+        cuerpo_registro(b, sizeof b, 2000 + k, "repostaje");
+        (void)viaje_cola_push(b, NULL);
+    }
+    ok(cola() == VIAJE_COLA_APUNTES_MAX, "ventana de envio llena (14 apuntes)");
+    /* Dos apuntes mas, que SOLO pueden quedar en el diario (la NVS no deja el
+     * indice). Son los que el fin no puede adelantar. */
+    dobles_nvs_indices_sin_espacio(true);
+    cuerpo_registro(b, sizeof b, 2100, "peaje");
+    ok(viaje_cola_push(b, NULL), "el 2100 se acepta (queda en el diario)");
+    cuerpo_registro(b, sizeof b, 2101, "agua");
+    ok(viaje_cola_push(b, NULL), "el 2101 tambien");
+    dobles_nvs_indices_sin_espacio(false);
+    ok(cola() == VIAJE_COLA_APUNTES_MAX, "la ventana sigue llena con 14");
+    ok(diario() == VIAJE_COLA_APUNTES_MAX + 2, "y el diario tiene 16 pendientes");
+
+    /* Ahora el diario no acepta mas: el fin NO puede entrar por el hueco
+     * reservado, porque hay dos apuntes detras que se quedarian fuera. */
+    viaje_diario_test_falla(true);
+    cuerpo_fin(b, sizeof b, 2200);
+    ok(!viaje_cola_push(b, NULL),
+       "el FIN NO entra: hay apuntes en el diario que quedarian detras");
+    viaje_diario_test_falla(false);
+    ok(cola() == VIAJE_COLA_APUNTES_MAX,
+       "y la ventana sigue igual: no se ha colado nadie por el hueco reservado");
+
+    /* ── 8. Si falla el indice al sacar la cabeza, no se salta ningun apunte ─
+     * Auditoria del 25-nov-2026, H-9 (reproducido antes del arreglo): el
+     * reparto deducia la posicion del diario CONTANDO la cola; con la cola
+     * desalineada se saltaba un apunte y lo mandaba detras del fin. */
+    printf("\n=== 8. Con la cola desalineada no se salta ningun apunte ===\n");
+    arranca_limpio();
+    cuerpo_registro(b, sizeof b, 901, "repostaje");
+    ok(viaje_cola_push(b, NULL), "901 dentro");
+    cuerpo_registro(b, sizeof b, 902, "peaje");
+    ok(viaje_cola_push(b, NULL), "902 dentro");
+    ok(cola() == 2 && diario() == 2, "cola y diario con los dos");
+    /* 903 y el fin se quedan SOLO en el diario (la NVS no deja el indice). */
+    dobles_nvs_indices_sin_espacio(true);
+    cuerpo_registro(b, sizeof b, 903, "agua");
+    ok(viaje_cola_push(b, NULL), "903 se acepta (copia duradera)");
+    cuerpo_fin(b, sizeof b, 904);
+    ok(viaje_cola_push(b, NULL), "el fin se acepta (copia duradera)");
+    dobles_nvs_indices_sin_espacio(false);
+    ok(cola() == 2, "la ventana sigue con 901 y 902");
+    ok(diario() == 4, "el diario tiene los cuatro: 901,902,903,fin");
+
+    /* La NVS no deja avanzar la cabeza al confirmar el 901: cola desalineada. */
+    dobles_p4_limpia();
+    dobles_p4_estado(200);
+    dobles_nvs_indices_sin_espacio(true);
+    reparto_una_vuelta();
+    dobles_nvs_indices_sin_espacio(false);
+
+    /* Y ahora lo importante: el reparto debe sacar 902, 903 y el fin EN ESE
+     * ORDEN. Antes del arreglo salia 902, FIN, 903 (el 903 se quedaba detras de
+     * un viaje ya cerrado). */
+    dobles_p4_limpia();
+    dobles_p4_estado(200);
+    reparto_hasta_vaciar();
+    ok(dobles_p4_enviados() == 3, "salen los tres que faltaban");
+    if (dobles_p4_enviados() == 3) {
+        ok(id_en(dobles_p4_cuerpo(0)) == 902, "primero el 902");
+        ok(id_en(dobles_p4_cuerpo(1)) == 903, "despues el 903 (no se salta)");
+        ok(strstr(dobles_p4_cuerpo(2), "\"op\":\"fin\"") != NULL,
+           "y el fin, el ULTIMO");
+    }
 
     printf("\n%d fallos\n", fallos);
     return fallos ? 1 : 0;

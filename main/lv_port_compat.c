@@ -28,6 +28,9 @@ void lv_port_contador_arrancar(void)
         ESP_LOGW(TAG, "sin cerrojo de LVGL: el contador de vida no arranca");
         return;
     }
+    /* Se pide el temporizador SIN animacion y se comprueba: si no se crea, el
+     * contador no sube nunca y el vigilante daria la UI por colgada sin que lo
+     * este (auditoria del 25-nov-2026, H-38). */
     s_contador = lv_timer_create(contador_cb, 100, NULL);
     lvgl_port_unlock();
     if (!s_contador) {
@@ -38,6 +41,11 @@ void lv_port_contador_arrancar(void)
 uint32_t lvgl_port_get_loop_count(void)
 {
     return s_loop_count;
+}
+
+bool lvgl_port_contador_ok(void)
+{
+    return s_contador != NULL;
 }
 
 /* ── Captura de la pantalla activa ──────────────────────────────────────────

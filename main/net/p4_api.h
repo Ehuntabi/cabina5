@@ -127,7 +127,6 @@ void p4_api_cuerpo_descartar(char *out, size_t n, uint32_t id, int forzar,
  * resultado llega ya en el hilo de LVGL. 'user_data' se reenvia tal cual al
  * callback (ver p4_api_done_cb). Devuelve false solo si no se pudo lanzar el
  * envio (sin memoria). */
-bool p4_api_silenciar_alarma(uint8_t mask, p4_api_done_cb cb, void *user_data);
 
 /* Manda el estado DESEADO del altavoz: silenciar=0 vuelve a habilitar el sonido,
  * que antes era imposible desde la pantalla (la P4 solo sabia callar). */

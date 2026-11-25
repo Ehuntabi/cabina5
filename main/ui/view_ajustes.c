@@ -450,14 +450,23 @@ static const char *ota_inicio_texto(ota_rx_inicio_t r)
     }
 }
 
+/* POR QUE NO ARRANCO, Y QUE SE VEA (auditoria del 25-nov-2026, H-35). Antes el
+ * motivo se escribia en la etiqueta y el tic de 500 ms lo pisaba con "Hay version
+ * nueva: vX" en cian: el usuario aceptaba, no pasaba nada y la pantalla no decia
+ * por que. Ahora se guarda y el tic lo respeta mientras siga en HAY_NUEVA. */
+static char s_ota_no_pudo[80];
+
 /* Aceptar el cartel: empieza la descarga. Verde a la derecha, como todas. */
 static void ota_aceptar_cb(void *ud)
 {
     (void)ud;
     ota_rx_inicio_t r = ota_rx_actualizar();
     if (r != OTA_RX_INICIO_OK && s_ota_lbl) {
-        lv_label_set_text(s_ota_lbl, ota_inicio_texto(r));
+        snprintf(s_ota_no_pudo, sizeof s_ota_no_pudo, "%s", ota_inicio_texto(r));
+        lv_label_set_text(s_ota_lbl, s_ota_no_pudo);
         lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_RED, 0);
+    } else {
+        s_ota_no_pudo[0] = '\0';
     }
     /* s_ota_preguntando se queda puesto a proposito: si no arranco (un viaje que
      * empezo entre la pregunta y el "si"), no se vuelve a preguntar lo mismo
@@ -565,8 +574,13 @@ static void ota_timer_cb(lv_timer_t *t)
             break;
 
         case OTA_RX_HAY_NUEVA: {
-            lv_label_set_text_fmt(s_ota_lbl, "Hay version nueva: %s", v.ofrecida);
-            lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_CYAN, 0);
+            if (s_ota_no_pudo[0]) {
+                lv_label_set_text(s_ota_lbl, s_ota_no_pudo);
+                lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_RED, 0);
+            } else {
+                lv_label_set_text_fmt(s_ota_lbl, "Hay version nueva: %s", v.ofrecida);
+                lv_obj_set_style_text_color(s_ota_lbl, UI_COLOR_CYAN, 0);
+            }
             if (!s_ota_preguntando && !confirm_screen_is_open()) {
                 s_ota_preguntando = true;
                 const esp_app_desc_t *app = esp_app_get_description();
@@ -587,6 +601,7 @@ static void ota_timer_cb(lv_timer_t *t)
         }
 
         case OTA_RX_AL_DIA: {
+            s_ota_no_pudo[0] = '\0';
             const esp_app_desc_t *app = esp_app_get_description();
             lv_label_set_text_fmt(s_ota_lbl, "Estas al dia (%s)",
                                   (app && app->version[0]) ? app->version : "?");

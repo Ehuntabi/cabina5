@@ -78,6 +78,17 @@ static void rampa_cb(void *arg)
 
 /* Deja la luz en 'pct' con una rampa suave. Solo apunta el destino: del resto
  * se encarga el tic. */
+void brillo_forzar(int pct)
+{
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    /* Se cambia el DESTINO de la rampa, no el duty a mano: asi el temporizador
+     * no deshace el cambio en el siguiente tic (era el fallo: la OTA ponia 20 y
+     * la rampa lo subia a 100 en 160 ms). */
+    s_rampa_hasta = pct;
+    if (!s_rampa) bsp_display_brightness_set(pct);
+}
+
 static void aplicar_con_rampa(int pct)
 {
     s_rampa_hasta = pct;

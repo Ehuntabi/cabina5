@@ -120,7 +120,7 @@ static void caso_espera(uint32_t fallos, uint32_t esperado_ms)
 }
 
 static void caso_auto_instala(bool activo, bool red, bool viaje, bool trabajando,
-                              bool ui, bool esperado)
+                              bool ui, bool inactiva, bool esperado)
 {
     ota_rx_condiciones_t c = {
         .auto_activo = activo,
@@ -128,13 +128,14 @@ static void caso_auto_instala(bool activo, bool red, bool viaje, bool trabajando
         .viaje       = viaje,
         .trabajando  = trabajando,
         .ui_ocupada  = ui,
+        .inactiva    = inactiva,
     };
     bool got = ota_rx_auto_puede_instalar(&c);
     char que[224];
     snprintf(que, sizeof que,
-             "auto instala? activo=%d red=%d viaje=%d trabajando=%d ui=%d -> %s "
-             "(esperado %s)",
-             activo, red, viaje, trabajando, ui,
+             "auto instala? activo=%d red=%d viaje=%d trabajando=%d ui=%d "
+             "inactiva=%d -> %s (esperado %s)",
+             activo, red, viaje, trabajando, ui, inactiva,
              got ? "si" : "no", esperado ? "si" : "no");
     if (got == esperado) ok(que); else mal(que);
 }
@@ -243,12 +244,12 @@ int main(void)
     /* Antes de instalar: la red y "trabajando" NO cuentan (la comprobacion
      * acaba de demostrar la red y es ella misma la que esta trabajando); el
      * viaje y la UI si. */
-    caso_auto_instala(true, true,  false, false, false, true);
-    caso_auto_instala(true, false, false, true,  false, true);
-    caso_auto_instala(true, true,  true,  false, false, false);
-    caso_auto_instala(true, true,  false, false, true,  false);
-    caso_auto_instala(false, true, false, false, false, false);
-    caso_auto_instala(true, true,  true,  true,  true,  false);
+    caso_auto_instala(true, true, false, false, false, true, true);
+    caso_auto_instala(true, false, false, true, false, true, true);
+    caso_auto_instala(true, true, true, false, false, true, false);
+    caso_auto_instala(true, true, false, false, true, true, false);
+    caso_auto_instala(false, true, false, false, false, true, false);
+    caso_auto_instala(true, true, true, true, true, true, false);
 
     /* NULL no decide nada: una funcion que dijera "si" a un puntero nulo seria
      * peor que una que dice "no". */

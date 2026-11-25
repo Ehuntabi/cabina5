@@ -72,6 +72,7 @@
 #include "diag_reset.h"
 #include "watchdog_ui.h"   /* pausa del vigilante de la UI durante la OTA */  /* el reinicio de la OTA no es un fallo: no debe salir en rojo */
 
+#include "brillo.h"         /* brillo_forzar(): el bajo consumo de la OTA */
 #include "esp_bsp.h"          /* bsp_display_brightness_get/set: consumo durante la OTA */
 #include "esp_app_desc.h"    /* esp_app_get_description(): la version que corre */
 #include "esp_heap_caps.h"   /* el buffer de 4 KB, de PSRAM si se puede */
@@ -320,7 +321,10 @@ static void traza_arranque(const char *particion, int estado)
         size_t l = sizeof previa;
         if (nvs_get_str(h, "traza", previa, &l) != ESP_OK) previa[0] = 0;
         if (previa[0]) {
-            nvs_set_str(h, "traza_ant", previa);
+            /* Ya NO se guarda una segunda copia en "traza_ant": no la leia nadie
+             * y era una escritura+commit de NVS por arranque (auditoria del
+             * 25-nov-2026, H-37). La traza de la vida anterior ya sale impresa
+             * unas lineas mas abajo. */
             nvs_set_str(h, "traza", "");
             nvs_commit(h);
         }
@@ -514,6 +518,12 @@ static bool ota_rx_auto_puede_instalar(const ota_rx_condiciones_t *c)
     if (!c->auto_activo) return false;
     if (c->viaje) return false;
     if (c->ui_ocupada) return false;
+    /* Y LA PANTALLA SIGUE QUIETA (auditoria del 25-nov-2026, H-34): antes
+     * `.inactiva` se calculaba y esta funcion la ignoraba, y entre la
+     * comprobacion y el congelado de la pantalla caben 8 s del /info y hasta 60 s
+     * del open del .bin. Quien tocara la pantalla en ese rato se la encontraba
+     * clavada bajo el cartel. */
+    if (!c->inactiva) return false;
     return true;
 }
 
@@ -1062,8 +1072,12 @@ static void consumo_bajar(void)
 {
     if (s_bajo_consumo) return;
 
+    /* SE PIDE A BRILLO.C, NO SE ESCRIBE EL DUTY A MANO (auditoria del
+     * 25-nov-2026, H-24): el temporizador de la rampa, vivo desde brillo_init con
+     * destino 100, deshacia el 20 % en 160 ms y la descarga entera iba con la
+     * pantalla al 100 %. brillo_forzar() le cambia el destino. */
     s_brillo_antes = bsp_display_brightness_get();
-    if (s_brillo_antes > OTA_BRILLO_PCT) bsp_display_brightness_set(OTA_BRILLO_PCT);
+    if (s_brillo_antes > OTA_BRILLO_PCT) brillo_forzar(OTA_BRILLO_PCT);
 
     /* NOTA (23-nov-2026): aqui se puso el ahorro de radio (WIFI_PS_MIN_MODEM) y
      * la descarga se quedo clavada al 0 %. El propio proyecto ya lo tenia
@@ -1086,7 +1100,7 @@ static void consumo_bajar(void)
 static void consumo_devolver(void)
 {
     if (!s_bajo_consumo) return;
-    if (s_brillo_antes >= 0) bsp_display_brightness_set(s_brillo_antes);
+    if (s_brillo_antes >= 0) brillo_forzar(s_brillo_antes);
     s_bajo_consumo = false;
     ESP_LOGI(TAG, "OTA: consumo de siempre (brillo %d %%)", s_brillo_antes);
 }
@@ -1115,17 +1129,22 @@ static void tarea_actualizar(void *arg)
     char ver[16];
     char sha_hex[65];
     bool automatica;
+    bool version_distinta = false;
     taskENTER_CRITICAL(&s_mtx);
     esperado = s_oferta.bytes;
     memcpy(ver, s_oferta.ver, sizeof ver);
-    /* Si la P4 ha cambiado el fichero, los fallos del anterior no cuentan. */
+    /* DENTRO del cerrojo SOLO se copia: el ESP_LOGI estaba aqui y el log acaba en
+     * la UART, que necesita interrupciones (auditoria del 25-nov-2026, H-36).
+     * Se decide dentro y se imprime fuera. */
     if (s_auto_fallos && strcmp(ver, s_auto_ver_fallida) != 0) {
-        ESP_LOGI(TAG, "auto: version nueva en la P4 (%s); se vuelve a probar ya", ver);
+        version_distinta = true;
         s_auto_fallos = 0;
     }
     memcpy(sha_hex, s_oferta.sha, sizeof sha_hex);
     automatica = s_vista.automatica;
     taskEXIT_CRITICAL(&s_mtx);
+    if (version_distinta)
+        ESP_LOGI(TAG, "auto: version nueva en la P4 (%s); se vuelve a probar ya", ver);
 
     /* Ultima comprobacion ANTES de tocar la flash: la UI ya pregunto, pero entre
      * el "si" y esta linea pueden pasar segundos y puede haber empezado un
@@ -1229,6 +1248,15 @@ static void tarea_actualizar(void *arg)
     /* EL VIGILANTE DE LA UI SE PAUSA MIENTRAS DURE (23-nov-2026): parar LVGL es
      * a proposito, y el vigilante lo tomaba por un cuelgue -> Task WDT -> la
      * placa se reiniciaba a mitad de descarga. */
+    /* ULTIMA PUERTA ANTES DE CONGELAR LA PANTALLA (H-34): si mientras se
+     * descargaban las cabeceras alguien ha empezado a usar la pantalla, se deja
+     * para la proxima vuelta en vez de clavarsela. */
+    if (automatica && !pantalla_inactiva()) {
+        snprintf(motivo, sizeof motivo, "La pantalla se esta usando");
+        diferido = true;
+        goto salir;
+    }
+
     app_watchdog_ui_pausar(true);
     if (lvgl_port_stop() == ESP_OK) ui_parada = true;
 
@@ -1286,9 +1314,20 @@ static void tarea_actualizar(void *arg)
      * siempre. Si no avanza nada en OTA_PARADA_MS, se aborta con un motivo
      * claro y el automatico vuelve a probar con su espera. */
     int64_t ultimo_avance_us = esp_timer_get_time();
-    uint32_t escrito_anterior = 0;
     /* (LVGL ya esta parado desde antes del borrado; ver arriba.) */
     for (;;) {
+        /* EL VIGILANTE VA AQUI, ANTES DE LEER (auditoria del 25-nov-2026, H-23).
+         * Antes estaba despues del read y comparaba `escrito` con el valor de la
+         * vuelta anterior ANTES de sumar el trozo, asi que desde la segunda
+         * vuelta el reloj se refrescaba siempre y la comprobacion no saltaba
+         * nunca: "La descarga se ha quedado parada" era inalcanzable. */
+        if ((esp_timer_get_time() - ultimo_avance_us) >
+            (int64_t)OTA_PARADA_MS * 1000) {
+            snprintf(motivo, sizeof motivo,
+                     "La descarga se ha quedado parada (%d s sin recibir nada)",
+                     (int)OTA_PARADA_MS / 1000);
+            goto salir;
+        }
         int leido = esp_http_client_read(cli, (char *)buf, OTA_BUFFER);
         if (leido < 0) {
             snprintf(motivo, sizeof motivo, "Se corto la descarga");
@@ -1314,17 +1353,8 @@ static void tarea_actualizar(void *arg)
          * total y solo se nota si la alimentacion va justa. */
         vTaskDelay(pdMS_TO_TICKS(OTA_ESCRITURA_PAUSA_MS));
 
-        if (escrito != escrito_anterior) {
-            escrito_anterior = escrito;
-            ultimo_avance_us = esp_timer_get_time();
-        } else if ((esp_timer_get_time() - ultimo_avance_us) >
-                   (int64_t)OTA_PARADA_MS * 1000) {
-            snprintf(motivo, sizeof motivo,
-                     "La descarga se ha quedado parada (%d s sin recibir nada)",
-                     (int)OTA_PARADA_MS / 1000);
-            goto salir;
-        }
-
+        /* Hay bytes: el reloj del vigilante se refresca. */
+        ultimo_avance_us = esp_timer_get_time();
         mbedtls_sha256_update(&sha, buf, (size_t)leido);
         escrito += (uint32_t)leido;
         const int pct = (int)(((uint64_t)escrito * 100u) / esperado);
@@ -1559,9 +1589,36 @@ static void tarea_validar(void *arg)
          * reaparecia con la version vieja y parecia que la OTA no habia hecho
          * nada. */
         const bool plazo = (esp_timer_get_time() / 1000 - t0_ms) > 60000;
-        if (enlace_listo(ip, sizeof ip) || plazo) {
-            if (plazo && estable_desde_ms == 0)
-                ESP_LOGW(TAG, "60 s sin enlace: la app esta viva, doy la version por buena");
+        const bool hay_enlace = enlace_listo(ip, sizeof ip);
+        if (hay_enlace || plazo) {
+            /* POR PLAZO SE MARCA SIN PEDIR EL ENLACE OTRA VEZ (auditoria del
+             * 25-nov-2026, H-22). Antes se volvia a exigir enlace_listo() justo
+             * antes de marcar: sin P4 no se cumplia nunca y la validacion no
+             * llegaba JAMAS, asi que el plazo de 60 s no servia para nada y al
+             * siguiente encendido el bootloader devolvia la version anterior en
+             * silencio. */
+            if (plazo && !hay_enlace) {
+                static bool avisado;
+                if (!avisado) {
+                    avisado = true;
+                    ESP_LOGW(TAG, "60 s sin enlace: la app esta viva, doy la version "
+                                  "por buena sin esperar mas");
+                }
+                esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+                if (err == ESP_OK) {
+                    traza("validada por plazo (sin enlace)");
+                    ESP_LOGI(TAG, "validada por plazo: el bootloader ya no volvera atras");
+                } else {
+                    ESP_LOGE(TAG, "no pude validar por plazo (%s)", esp_err_to_name(err));
+                }
+                esp_ota_img_states_t est_plazo;
+                const esp_partition_t *pp = esp_ota_get_running_partition();
+                if (pp && esp_ota_get_state_partition(pp, &est_plazo) == ESP_OK)
+                    ESP_LOGI(TAG, "estado de '%s' despues de validar: %d",
+                             pp->label, (int)est_plazo);
+                vTaskDelete(NULL);   /* la tarea termina aqui, como en el camino normal */
+                return;
+            }
             int64_t ahora_ms = esp_timer_get_time() / 1000;
             if (estable_desde_ms == 0) {
                 estable_desde_ms = ahora_ms;

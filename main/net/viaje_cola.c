@@ -168,6 +168,47 @@ size_t viaje_cola_pendientes(void)
     return (size_t)(cola - cabeza);
 }
 
+/* ¿Hay ya un apunte con este id en la ventana de envio? Lee los ids de la cola
+ * (son como mucho 16). Es lo que permite que el reparto sepa QUE falta sin
+ * deducirlo contando (auditoria del 25-nov-2026, H-9): si el borrado de la
+ * cabeza falla, contar deja de valer y se saltaba un apunte. */
+static bool cola_tiene_id(uint32_t id)
+{
+    if (id == 0) return false;
+    bool esta = false;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    uint32_t cabeza, cola;
+    indices_leer(&cabeza, &cola);
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) {
+        /* SI LA NVS NO SE PUEDE LEER, SE DICE QUE SI (conservador): asi no se
+         * reencola un duplicado de algo que ya esta dentro (la P4 lo deduplica,
+         * pero gasta hueco y lo manda dos veces). La cola tampoco se puede
+         * escribir en ese estado, asi que no se pierde nada por esperar. */
+        xSemaphoreGive(s_mutex);
+        return true;
+    }
+    bool ilegible = false;
+    for (uint32_t i = cabeza; i < cola && !esta && !ilegible; i++) {
+        char clave[16];
+        char cuerpo[CUERPO_MAX];
+        size_t len = sizeof(cuerpo);
+        clave_de(i, clave, sizeof(clave));
+        const esp_err_t e = nvs_get_str(h, clave, cuerpo, &len);
+        if (e == ESP_OK) {
+            if (viaje_diario_id_de(cuerpo) == id) esta = true;
+        } else {
+            /* No se puede leer esa entrada: no se puede afirmar que el id NO
+             * este dentro, asi que se dice que SI (conservador) y no se
+             * reencola un duplicado. La cola tampoco es fiable en ese estado. */
+            ilegible = true;
+        }
+    }
+    nvs_close(h);
+    xSemaphoreGive(s_mutex);
+    return esta || ilegible;
+}
+
 size_t viaje_cola_apuntes_libres(void)
 {
     size_t n = viaje_cola_pendientes();
@@ -351,16 +392,27 @@ static size_t rellena_desde_diario(void)
 {
     if (!viaje_diario_disponible()) return 0;
 
+    /* POR IDS, NO POR CUENTAS (auditoria del 25-nov-2026, H-9). Antes se pedia
+     * diario[pendientes_en_cola], dando por hecho que la cola es un prefijo
+     * exacto del diario. Si indices_escribir() falla al sacar la cabeza, la cola
+     * y el diario se desalinean y con una cuenta se SALTA un apunte y puede
+     * mandarse el fin por delante. Recorriendo el diario y saltando los ids que
+     * ya estan en la ventana no hay cuenta que se pueda desalinear. */
+    /* Si el diario no tiene MAS pendientes que la ventana, no hay nada que
+     * meter: la ventana ya cubre todo (o la NVS esta rara y no se toca). Este
+     * atajo es el que evita reencolar duplicados cuando el indice de la NVS no
+     * se puede leer: en ese estado las cuentas no cuadran y el escaneo por ids no
+     * puede distinguir, asi que se espera. */
+    if (viaje_diario_pendientes() <= viaje_cola_pendientes()) return 0;
+
     size_t puestos = 0;
-    for (;;) {
-        size_t en_cola = viaje_cola_pendientes();
-        if (en_cola >= viaje_diario_pendientes()) break;   /* ya esta todo dentro */
-
+    const size_t pend = viaje_diario_pendientes();
+    for (size_t k = 0; k < pend; k++) {
         char cuerpo[CUERPO_MAX];
-        uint32_t id;
-        if (!viaje_diario_en(en_cola, cuerpo, sizeof(cuerpo), &id)) break;
-
-        if (!encola_nvs(cuerpo, NULL)) break;   /* sin hueco: se espera a que drene */
+        uint32_t id = 0;
+        if (!viaje_diario_en(k, cuerpo, sizeof(cuerpo), &id)) break;
+        if (id != 0 && cola_tiene_id(id)) continue;      /* ya esta en la ventana */
+        if (!encola_nvs(cuerpo, NULL)) break;            /* sin hueco: a esperar */
         puestos++;
     }
     return puestos;
@@ -397,8 +449,12 @@ static bool push_interno(const char *cuerpo, bool anotar_diario,
             /* M1 de la revision: un cuerpo sin id no se puede vigilar. No se
              * calla: el id 0 solo sale si next_trip_seq() no pudo ni abrir la
              * NVS, y sin id la P4 tampoco deduplica. */
-            ESP_LOGE(TAG, "apunte SIN id (%s...): no habra copia duradera ni "
-                          "deduplicacion en la P4", cuerpo);
+            char resumen_sin_id[40];
+            resumen_apunte(cuerpo, resumen_sin_id, sizeof(resumen_sin_id));
+            /* NUNCA el cuerpo (regla de 236-241): el fin/descartar con 'forzar'
+             * llevan dentro el token de 32 hex. */
+            ESP_LOGE(TAG, "apunte SIN id (%s): no habra copia duradera ni "
+                          "deduplicacion en la P4", resumen_sin_id);
         } else {
             anotado = viaje_diario_anota(cuerpo, id);
             if (!anotado) {
@@ -418,7 +474,27 @@ static bool push_interno(const char *cuerpo, bool anotar_diario,
             return true;
         }
 
-        /* Sin diario (o sin id): comportamiento de siempre, encolar directo. */
+        /* Sin diario (o sin id). Un apunte normal se encola directo: el reparto
+         * va por ids, asi que no se salta a nadie. Una op de CONTROL no: el fin
+         * y el descartar tienen que ir DETRAS de todo lo pendiente o la P4
+         * cerraria el viaje sin los apuntes que estan en el diario (auditoria
+         * del 25-nov-2026, H-10). Se pide compactar y se reintenta el anota UNA
+         * vez; si sigue sin entrar, error y que se reintente luego. */
+        if (es_op_de_control(cuerpo) && viaje_diario_disponible() &&
+            viaje_diario_pendientes() > viaje_cola_pendientes()) {
+            (void)viaje_diario_compactar_si_toca();
+            const uint32_t id2 = viaje_diario_id_de(cuerpo);
+            if (id2 != 0 && viaje_diario_anota(cuerpo, id2)) {
+                rellena_desde_diario();
+                avisar_cambio();
+                if (s_despertar) xSemaphoreGive(s_despertar);
+                return true;
+            }
+            ESP_LOGE(TAG, "el cierre no entra en el diario y hay apuntes "
+                          "pendientes detras: NO se adelanta, se reintenta");
+            if (motivo_out) *motivo_out = VIAJE_COLA_ERR_NVS;
+            return false;
+        }
         if (!encola_nvs(cuerpo, motivo_out)) return false;
         avisar_cambio();
         if (s_despertar) xSemaphoreGive(s_despertar);
@@ -821,14 +897,24 @@ bool viaje_cola_ultima_es_op(const char *op)
 /* Marca en el diario lo que se tira a mano. Se llama con el cuerpo ya leido
  * (ver viaje_cola_descartar_cabeza). Un descarte NO es una entrega: queda dicho
  * en el diario para que no se reenvie nunca y para que se pueda auditar. */
-static void diario_descarta(const char *cuerpo)
+/* Devuelve true si la marca de DESCARTADO ha quedado grabada. Si devuelve
+ * false, quien llama NO puede borrar la entrada de la cola: el apunte seguiria
+ * pendiente en el diario y el reparto lo volveria a encolar (auditoria del
+ * 25-nov-2026, H-44: "se descarta, reaparece y vuelve a atascar la cola").
+ *
+ * 'desde_ui' = lo llama la pantalla con el cerrojo de LVGL tomado: no compacta
+ * (deja la compactacion pedida) y por eso puede decir que no. La tarea del
+ * reparto, en cambio, si puede compactar y debe hacerlo. */
+static bool diario_descarta(const char *cuerpo, bool desde_ui)
 {
-    /* Viene del descarte A MANO de la pantalla, o sea con el cerrojo de LVGL
-     * tomado: que no compacte aqui (arbitraje 13-nov). Si hace falta compactar,
-     * la deja pedida y devuelve false; el reparto la hara en su vuelta. */
-    if (!viaje_diario_confirma_desde_ui(viaje_diario_id_de(cuerpo), true)) {
-        ESP_LOGW(TAG, "el descarte tendra que reintentarse (compactacion pedida)");
-    }
+    const uint32_t id = viaje_diario_id_de(cuerpo);
+    if (id == 0) return false;
+    const bool ok = desde_ui ? viaje_diario_confirma_desde_ui(id, true)
+                             : viaje_diario_confirma(id, true);
+    if (!ok)
+        ESP_LOGW(TAG, "el descarte NO ha quedado grabado (%s); no se borra la "
+                      "entrada para que no resucite", desde_ui ? "pantalla" : "reparto");
+    return ok;
 }
 
 bool viaje_cola_descartar_cabeza(void)
@@ -884,7 +970,16 @@ bool viaje_cola_descartar_cabeza(void)
      * fuera la corriente entre las dos operaciones, marcando primero queda
      * DESCARTADO para siempre (que es lo que pidio el usuario) y el borrado de
      * la NVS se rehace solo al arrancar. Al reves, el apunte resucitaba. */
-    if (hay_cuerpo) diario_descarta(cuerpo_descartado);
+    /* Si la marca de descartado NO queda grabada, no se borra nada: el apunte
+     * resucitaria del diario en la vuelta siguiente (H-44 de la auditoria del
+     * 25-nov-2026). Se devuelve false para que la pantalla lo diga. */
+    bool marcado = !hay_cuerpo || diario_descarta(cuerpo_descartado, true);
+    if (!marcado) {
+        xSemaphoreGive(s_mutex);
+        ESP_LOGW(TAG, "no se descarta ahora: el diario no ha dejado grabar la "
+                      "marca; se reintenta en la proxima vuelta");
+        return false;
+    }
     /* El borrado va DENTRO de este mismo cerrojo (ver borrar_cabeza_con_mutex). */
     borrar_cabeza_con_mutex();
     xSemaphoreGive(s_mutex);
@@ -995,15 +1090,10 @@ static void reparto_task(void *arg)
              * apunte BUENO acababa descartado de la NVS sin haberse enviado.
              * cabeza_rota solo se pone para NOT_FOUND/INVALID_LENGTH, que es "esta
              * entrada no se puede entregar nunca". */
-            if (cabeza_rota && idx_enviado != UINT32_MAX &&
-                viaje_diario_id_de(cuerpo) == 0) {
-                resumen_apunte(cuerpo, resumen, sizeof(resumen));
-                ESP_LOGE(TAG, "apunte sin id (cuerpo corrupto), lo aparto: %s",
-                         resumen);
-                descartar_cabeza(idx_enviado);
-                vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
-                continue;
-            }
+            /* (El bloque "apunte sin id, lo aparto" que habia aqui era
+             * INALCANZABLE: la rama de cabeza_rota de arriba ya hace continue
+             * con esa misma condicion. Se quito en la auditoria del 25-nov-2026,
+             * H-45.) */
 
             /* Cola vacia: dormir hasta REINTENTO_MS, pero SIN esperar a que
              * se cumpla si mientras tanto se encola algo nuevo -- viaje_
@@ -1208,7 +1298,12 @@ static void reparto_task(void *arg)
                               "op: firmware viejo?). Lo SUELTO: el destino va "
                               "tambien en el cierre, y un aviso no puede bloquear "
                               "los apuntes ni el fin que vienen detras");
-                diario_descarta(cuerpo);
+                if (!diario_descarta(cuerpo, false)) {
+                    /* No se puede dejar constancia: se reintenta en la vuelta
+                     * siguiente en vez de borrarlo y que resucite. */
+                    vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
+                    continue;
+                }
                 descartar_cabeza(idx_enviado);
                 /* La marca de atasco era de ESE apunte (el aviso) y se va con el:
                  * la cabeza nueva es un apunte SANO y no puede nacer con la
@@ -1261,7 +1356,10 @@ static void reparto_task(void *arg)
                      * el aviso resucita en cuanto la cola se queda vacia (el
                      * repartidor lo saca del diario) y se reintenta y se vuelve
                      * a soltar en bucle. La rama del 400 ya lo hacia. */
-                    diario_descarta(cuerpo);
+                    if (!diario_descarta(cuerpo, false)) {
+                        vTaskDelay(pdMS_TO_TICKS(REINTENTO_MS));
+                        continue;
+                    }
                     descartar_cabeza(idx_enviado);
                     /* Ver el mismo arreglo en la rama del 400: la marca de
                      * atasco se va con el apunte que la puso (si no, la cabeza

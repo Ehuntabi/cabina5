@@ -105,6 +105,16 @@ uint8_t brillo_min_set(int pct);
 int brillo_min_acota(int pct);
 int brillo_alterna_desde(int actual, int min);
 
+/* BAJAR LA LUZ A UN NIVEL Y DEJARLA AHI, SIN PELEARSE CON LA RAMPA (auditoria
+ * del 25-nov-2026, H-24). La OTA bajaba el duty por su cuenta
+ * (bsp_display_brightness_set) mientras la rampa de brillo -- viva desde
+ * brillo_init con destino 100 -- lo volvia a subir en 160 ms. Con esto se fija
+ * el destino de la rampa y es ELLA la que baja: el nivel se mantiene solo.
+ *
+ * 'guardar' = false: no se guarda en NVS (la OTA devuelve el brillo del usuario
+ * al terminar, no es una preferencia). */
+void brillo_forzar(int pct);
+
 #ifdef __cplusplus
 }
 #endif

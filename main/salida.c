@@ -511,6 +511,12 @@ bool salida_evento_borrar(int idx)
     s_off_ev[s_st.n_eventos - 1] = RELOJ_OFF_DESCONOCIDO;
     s_st.n_eventos--;
     memset(&s_st.eventos[s_st.n_eventos], 0, sizeof(salida_evento_t));
+    /* TAMBIEN LOS DESFASES (auditoria del 25-nov-2026, H-46). Se mueven los
+     * indices de s_off_ev[] y hay que grabarlos: si no, tras un apagon la NVS
+     * conserva la lista vieja y salida_delta_epoch() casa un tramo con el indice
+     * NUEVO y le aplica el desfase de otro (minutos y noches 1 h largos). El
+     * propio offs_guardar() dice que se llama "al abrir y al borrar un tramo". */
+    offs_guardar();
     guardar();
     refrescar_vista();
     ESP_LOGI(TAG, "evento %d borrado a mano (%u abiertos)", idx, (unsigned)s_st.n_eventos);
