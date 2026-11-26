@@ -28,6 +28,15 @@ typedef unsigned int UBaseType_t;
 typedef uint32_t     TickType_t;
 typedef uint32_t     configSTACK_DEPTH_TYPE;
 
+/* portMUX: lo unico que hace falta para compilar main/reloj.c en el PC (ver
+ * test/sim_viaje.sh). En la placa es el cerrojo de seccion critica de un solo
+ * nucleo; aqui el test corre en un solo hilo, asi que no hay nada que cerrar.
+ * No lo usa ninguno de los otros arneses. */
+typedef int portMUX_TYPE;
+#define portMUX_INITIALIZER_UNLOCKED 0
+#define portENTER_CRITICAL(mux) ((void)(mux))
+#define portEXIT_CRITICAL(mux)  ((void)(mux))
+
 #define pdTRUE   ((BaseType_t)1)
 #define pdFALSE  ((BaseType_t)0)
 #define pdPASS   pdTRUE
