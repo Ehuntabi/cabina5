@@ -45,13 +45,31 @@ static salida_vista_t s_vista;
 static uint32_t s_vida_previa;
 /* Desfases con los que se abrieron los tramos (B19): el de la salida y uno por
  * evento. RELOJ_OFF_DESCONOCIDO = no se sabe (NVS de una version anterior), y
- * entonces se usa el calculo de siempre. Se guardan en su propia clave de NVS
- * para no cambiar la forma del blob de 'salida'. */
+ * entonces se usa el calculo de siempre.
+ *
+ * VAN DENTRO DEL BLOB, DETRAS DEL ESTADO (27-nov-2026). Antes se guardaban en su
+ * propia clave de NVS, y eso dejaba una ventana entre las dos escrituras: si se
+ * cortaba la corriente en medio, el blob quedaba con un evento abierto y sin su
+ * desfase, y al cerrarlo despues de un cambio de hora la duracion salia 0 en vez
+ * de los minutos reales. Escribiendolos en el MISMO commit que los eventos, la
+ * ventana desaparece.
+ *
+ * El trailer va DETRAS y con marca para no cambiar la forma del blob: una
+ * version anterior lee el prefijo que conoce y sigue funcionando (sin desfases,
+ * como antes de B19). */
+#define SALIDA_OFFS_MAGIC  0x5Au
+typedef struct {
+    uint8_t magic;
+    int8_t  off_ini;
+    int8_t  off_ev[SALIDA_EVENTOS_MAX];
+} salida_offs_blob_t;
+
 static int8_t s_off_ini = RELOJ_OFF_DESCONOCIDO;
 static int8_t s_off_ev[SALIDA_EVENTOS_MAX];
 
-/* Escribe los desfases. Se llama al abrir y al borrar un tramo, que es cuando
- * cambian; no en cada cierre. */
+/* Copia VIEJA de los desfases, en su propia clave. Ya no es la que manda (la
+ * buena va dentro del blob, ver salida_offs_blob_t): se sigue escribiendo para
+ * que una version anterior del firmware, si se vuelve a ella, los encuentre. */
 static void offs_guardar(void)
 {
     int8_t v[1 + SALIDA_EVENTOS_MAX];
@@ -59,9 +77,8 @@ static void offs_guardar(void)
     memcpy(&v[1], s_off_ev, sizeof(s_off_ev));
     esp_err_t err = save_salida_offs(v, sizeof(v));
     if (err != ESP_OK)
-        ESP_LOGW(TAG, "no he podido guardar los desfases de los tramos (%s): un "
-                      "corte de hora se corregira con el calculo de antes",
-                 esp_err_to_name(err));
+        ESP_LOGW(TAG, "no he podido guardar la copia vieja de los desfases (%s): "
+                      "la buena es la que va dentro del estado", esp_err_to_name(err));
 }
 
 static bool     s_olvido_ya_contestado;
@@ -71,7 +88,16 @@ static bool     s_olvido_ya_contestado;
 static void guardar(void)
 {
     s_st.version = SALIDA_BLOB_VERSION;
-    esp_err_t err = save_salida_blob(&s_st, sizeof(s_st));
+    /* ESTADO Y DESFASES EN EL MISMO COMMIT: si se corta la corriente aqui, o
+     * estan los dos o no esta ninguno. */
+    uint8_t buf[sizeof(s_st) + sizeof(salida_offs_blob_t)];
+    salida_offs_blob_t off;
+    off.magic   = SALIDA_OFFS_MAGIC;
+    off.off_ini = s_off_ini;
+    memcpy(off.off_ev, s_off_ev, sizeof(off.off_ev));
+    memcpy(buf, &s_st, sizeof(s_st));
+    memcpy(buf + sizeof(s_st), &off, sizeof(off));
+    esp_err_t err = save_salida_blob(buf, sizeof(buf));
     if (err != ESP_OK) {
         /* No es cosmetico: si esto falla, al volver el contacto la pantalla no
          * sabra que dejo algo abierto y el apunte se pierde en silencio. */
@@ -79,6 +105,20 @@ static void guardar(void)
                       "perderia la salida en curso", esp_err_to_name(err));
     }
 }
+
+#ifdef SALIDA_TEST
+/* Solo para el arnes de host (test/sim_viaje_arnes.c): deja el blob guardado como
+ * lo dejaba la version anterior, SIN el trailer de desfases, para poder probar
+ * que un firmware viejo no cierra los tramos con 0 minutos. */
+void salida_test_quitar_desfases_blob(void)
+{
+    static uint8_t buf[sizeof(s_st) + sizeof(salida_offs_blob_t)];
+    size_t len = sizeof(buf);
+    if (load_salida_blob(buf, &len) != ESP_OK) return;
+    if (len <= sizeof(s_st)) return;
+    save_salida_blob(buf, sizeof(s_st));
+}
+#endif
 
 static void refrescar_vista(void)
 {
@@ -115,16 +155,15 @@ void salida_init(void)
      * posibilidad de ofrecer la parada olvidada. */
     s_vida_previa = load_salida_vida();
 
-    /* Desfases de los tramos (B19). Si no estan (firmware anterior) se quedan
-     * en "no se sabe", que es lo que hacian hasta hoy. */
-    {
-        int8_t v[1 + SALIDA_EVENTOS_MAX];
-        memset(v, RELOJ_OFF_DESCONOCIDO, sizeof(v));
-        if (load_salida_offs(v, sizeof(v)) == ESP_OK) {
-            s_off_ini = v[0];
-            memcpy(s_off_ev, &v[1], sizeof(s_off_ev));
-        }
-    }
+    /* LOS DESFASES EMPIEZAN EN "NO SE SABE", NO EN 0 (27-nov-2026). En BSS valen
+     * 0, y 0 es un huso legitimo (UTC): con la copia de desfases perdida, un
+     * tramo abierto en CEST y cerrado en CET se corregia +1 h en vez de -1 h y la
+     * duracion salia 0. Ahora el punto de partida es "no se sabe", que hace que
+     * se use el calculo de antes. */
+    s_off_ini = RELOJ_OFF_DESCONOCIDO;
+    memset(s_off_ev, RELOJ_OFF_DESCONOCIDO, sizeof(s_off_ev));
+    bool offs_del_blob = false;
+    salida_offs_blob_t offs_blob;
 
     size_t len = sizeof(s_st);
     esp_err_t err = load_salida_blob(&s_st, &len);
@@ -146,6 +185,12 @@ void salida_init(void)
             esp_err_t g = load_salida_blob(tmp, &leido);
             if (g == ESP_OK) {
                 memcpy(&s_st, tmp, sizeof(s_st));
+                /* ¿VIENEN LOS DESFASES DETRAS DEL ESTADO? (ver salida_offs_blob_t) */
+                if (leido >= sizeof(s_st) + sizeof(offs_blob)) {
+                    memcpy(&offs_blob, (const uint8_t *)tmp + sizeof(s_st),
+                           sizeof(offs_blob));
+                    offs_del_blob = (offs_blob.magic == SALIDA_OFFS_MAGIC);
+                }
                 len = sizeof(s_st);   /* util: el prefijo que conocemos */
                 err = ESP_OK;
             }
@@ -174,6 +219,21 @@ void salida_init(void)
         memset(&s_st, 0, sizeof(s_st));
         s_st.version = SALIDA_BLOB_VERSION;
         s_st.tipo    = SALIDA_NINGUNA;
+    }
+
+    /* DESFASES: mandan los que vienen dentro del blob. Si el blob es de antes de
+     * esta version (o se perdio), se tira de la copia vieja en su clave; y si
+     * tampoco esta, se quedan en "no se sabe" y se usa el calculo de antes. */
+    if (offs_del_blob) {
+        s_off_ini = offs_blob.off_ini;
+        memcpy(s_off_ev, offs_blob.off_ev, sizeof(s_off_ev));
+    } else {
+        int8_t v[1 + SALIDA_EVENTOS_MAX];
+        memset(v, RELOJ_OFF_DESCONOCIDO, sizeof(v));
+        if (load_salida_offs(v, sizeof(v)) == ESP_OK) {
+            s_off_ini = v[0];
+            memcpy(s_off_ev, &v[1], sizeof(s_off_ev));
+        }
     }
 
     /* Lo que sale de la NVS no se da por bueno aunque la version y el tamano
@@ -345,6 +405,14 @@ static size_t sanear(const char *in, char *out, size_t n)
 
 bool salida_abrir_viaje(const char *nombre)
 {
+    /* SI YA HAY UNA SALIDA EN CURSO NO SE ABRE OTRA (27-nov-2026). Antes se hacia
+     * memset() del estado y se BORRABAN la salida y sus eventos abiertos sin
+     * avisar; el unico freno era el 409 de la P4, que llega despues. */
+    if (s_st.tipo != SALIDA_NINGUNA) {
+        ESP_LOGW(TAG, "no se abre viaje '%s': ya hay una salida en curso ('%s')",
+                 nombre ? nombre : "", s_st.nombre);
+        return false;
+    }
     uint32_t ahora;
     if (!reloj_ahora(&ahora)) {
         ESP_LOGW(TAG, "no se abre viaje: todavia no hay hora de la P4");
@@ -383,6 +451,11 @@ bool salida_abrir_viaje(const char *nombre)
 
 bool salida_abrir_puntual(const char *nombre)
 {
+    if (s_st.tipo != SALIDA_NINGUNA) {
+        ESP_LOGW(TAG, "no se abre salida puntual '%s': ya hay una salida en curso ('%s')",
+                 nombre ? nombre : "", s_st.nombre);
+        return false;
+    }
     uint32_t ahora;
     if (!reloj_ahora(&ahora)) {
         ESP_LOGW(TAG, "no se abre salida puntual: todavia no hay hora de la P4");

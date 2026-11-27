@@ -53,7 +53,7 @@ trap 'rm -rf "$TMP"' EXIT
 # ella solo se implementan las funciones que enlaza salida.c, asi que si cambia
 # una firma, esto no compila.
 gcc -std=gnu17 -Wall -Wextra -Werror -O1 \
-    -DVIAJE_DIARIO_TEST \
+    -DVIAJE_DIARIO_TEST -DSALIDA_TEST \
     -I "$AQUI/dobles" -I "$RAIZ/main" -I "$RAIZ/main/net" \
     -I "$RAIZ/components/config_storage/include" \
     "$RAIZ/main/salida.c" \

@@ -123,6 +123,12 @@ typedef struct {
  * arrancar, despues de nvs_flash_init(). No necesita que haya hora todavia. */
 void salida_init(void);
 
+#ifdef SALIDA_TEST
+/* Solo para el arnes de host: deja el blob guardado como la version anterior,
+ * sin el trailer de desfases. */
+void salida_test_quitar_desfases_blob(void);
+#endif
+
 /* Lo que hay ahora mismo. Nunca NULL. */
 const salida_vista_t *salida_get(void);
 

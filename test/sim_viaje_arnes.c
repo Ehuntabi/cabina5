@@ -863,6 +863,91 @@ int main(void)
         }
     }
 
+    /* ── 9. H-46 con reinicio: dos tramos con desfases distintos ──────────
+     * El fallo del 25-nov: al borrar un evento se mueven los desfases de sitio;
+     * si no se graban, tras un apagon el tramo que queda se cierra con el
+     * desfase de otro (1 h de mas o de menos). */
+    printf("\n=== 9. H-46: cerrar un tramo, reiniciar y cerrar el que queda ===\n");
+    mundo_nuevo();
+    reloj_set_desde_p4(EPOCH_BASE, CET);
+    ok(salida_abrir_viaje("H46"), "se abre la salida en horario de invierno");
+    {
+        uint32_t a = salida_evento_abrir(EV_PARADA, MOTIVO_COMER, 0);
+        ok(a != 0, "se abre el tramo A con CET");
+        uint32_t ini_a = 0;
+        { const int i = indice_de_id(a); if (i >= 0) ini_a = salida_evento_en(i)->epoch_ini; }
+        /* Cambio de hora de primavera: la hora local salta 3600 s adelante. */
+        reloj_set_desde_p4((uint32_t)((int32_t)ini_a + 1200 + 3600), CEST);
+        uint32_t b = salida_evento_abrir(EV_REPOSTAJE, 0, 0);
+        ok(b != 0, "y el tramo B ya con CEST");
+        long m = -1;
+        ok(cerrar_evento(a, "comida", &m) && m >= 15 && m <= 25,
+           "se cierra A con ~20 min");
+        reiniciar_placa();                                    /* apagon */
+        ok(salida_eventos_abiertos() == 1, "tras reiniciar queda solo B");
+        {   /* 20 minutos mas de reloj, ya sin cambio de hora */
+            uint32_t ini_b = 0;
+            const int i = indice_de_id(b);
+            if (i >= 0) ini_b = salida_evento_en(i)->epoch_ini;
+            reloj_set_desde_p4(ini_b + 1200, CEST);
+        }
+        ok(cerrar_evento(b, "repostaje", &m) && m >= 15 && m <= 25,
+           "y B se cierra con ~20 min, no con 80");
+        reparto_hasta_vaciar();
+        ok(true, "se entrega todo");
+    }
+
+    /* ── 10. Blob de una version anterior (sin desfases) y sin la copia vieja ─
+     * Es el fallo encontrado simulando: con los desfases a 0 (UTC) el tramo se
+     * cerraba con 0 minutos. Con el arreglo, el punto de partida es "no se sabe"
+     * y se usa el calculo de antes: la duracion NO puede salir 0. */
+    printf("\n=== 10. Blob viejo sin desfases y sin copia vieja: no inventar UTC ===\n");
+    mundo_nuevo();
+    reloj_set_desde_p4(EPOCH_BASE, CEST);
+    ok(salida_abrir_viaje("Viejo"), "se abre la salida");
+    {
+        uint32_t a = salida_evento_abrir(EV_AVERIA, 0, 0);
+        ok(a != 0, "se abre un tramo");
+        /* Se recorta el blob a lo que guardaba la version anterior (sin el
+         * trailer de desfases) y se tira la copia vieja de la clave. */
+        salida_test_quitar_desfases_blob();
+        s_offs_hay = false;
+        reiniciar_placa();
+        ok(salida_hay(), "tras reiniciar sigue la salida");
+        ok(salida_eventos_abiertos() == 1, "y sigue el tramo abierto");
+        reloj_set_desde_p4(EPOCH_BASE + 20 * 60, CET);   /* cambio de hora */
+        long m = -1;
+        ok(cerrar_evento(a, "averia", &m), "se cierra el tramo");
+        ok(m != 0, "la duracion NO sale 0 (no se inventa UTC)");
+        ok(m > 0 && m < 90, "y sale en un rango sensato de minutos");
+    }
+
+    /* ── 11. Una copia vieja OBSOLETA ya no manda ────────────────────────
+     * Antes, si se cortaba entre las dos escrituras, la clave de desfases se
+     * quedaba con los valores del tramo anterior y el cierre salia 1 h largo.
+     * Ahora los desfases van DENTRO del blob: la copia vieja se ignora. */
+    printf("\n=== 11. Copia vieja de desfases obsoleta: no manda ===\n");
+    mundo_nuevo();
+    reloj_set_desde_p4(EPOCH_BASE, CET);
+    ok(salida_abrir_viaje("Obsoleta"), "se abre la salida");
+    {
+        uint32_t a = salida_evento_abrir(EV_PEAJE, 0, 0);
+        ok(a != 0, "se abre el tramo con CET");
+        /* Copia vieja con OTRO desfase (8 = CEST), como quedaria si la clave se
+         * hubiera quedado del tramo anterior. */
+        int8_t vieja[1 + SALIDA_EVENTOS_MAX];
+        memset(vieja, CEST, sizeof vieja);
+        ok(save_salida_offs(vieja, sizeof vieja) == ESP_OK,
+           "se deja una copia vieja con el desfase equivocado");
+        uint32_t ini_a = EPOCH_BASE;
+        { const int i = indice_de_id(a); if (i >= 0) ini_a = salida_evento_en(i)->epoch_ini; }
+        reiniciar_placa();
+        reloj_set_desde_p4((uint32_t)((int32_t)ini_a + 1200 + 3600), CEST);
+        long m = -1;
+        ok(cerrar_evento(a, "peaje", &m), "se cierra el tramo");
+        ok(m >= 15 && m <= 25, "sale con ~20 min: manda el blob, no la copia vieja");
+    }
+
     printf("\n%d fallo(s)\n", fallos);
     return fallos ? 1 : 0;
 }
